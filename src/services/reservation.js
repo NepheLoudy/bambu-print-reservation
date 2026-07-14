@@ -36,29 +36,19 @@ class ReservationService {
     
     return {
       recordId: record.record_id,
+      applicationNo: fields['申请编号'],
+      status: fields['申请状态'] || config.status.PENDING_REVIEW,
+      startTime: fields['发起时间'],
       applicant: fields['发起人'] ? {
         id: fields['发起人'][0]?.id,
         name: fields['发起人'][0]?.name,
       } : null,
-      startTime: fields['发起时间'],
-      endTime: fields.endTime,
-      fileName: sliceFile?.name || fields.fileName,
-      fileToken: sliceFile?.file_token || fields.fileToken,
-      fileUrl: sliceFile?.url,
-      printer: fields.printer,
-      status: fields['申请状态'] || config.status.PENDING_REVIEW,
       isInternalProject: fields['是否为千里内部项目'],
+      fileName: sliceFile?.name,
+      fileToken: sliceFile?.file_token,
+      fileUrl: sliceFile?.url,
       screenshot: fields['切片文件详情截图'],
       isUrgent: fields['是否加急'],
-      reviewer: fields.reviewer ? {
-        id: fields.reviewer[0]?.id,
-        name: fields.reviewer[0]?.name,
-      } : null,
-      reviewResult: fields.reviewResult,
-      reviewComment: fields.reviewComment,
-      printProgress: fields.printProgress || 0,
-      estimatedTime: fields.estimatedTime,
-      actualTime: fields.actualTime,
       createdAt: record.created_time,
       updatedAt: record.updated_time,
     };
@@ -96,9 +86,6 @@ class ReservationService {
     if (!fields['切片文件'] || !fields['切片文件'].length) {
       return { valid: false, message: '切片文件不能为空' };
     }
-    if (!fields.printer) {
-      return { valid: false, message: '打印机不能为空' };
-    }
 
     return { valid: true, message: '' };
   }
@@ -126,7 +113,6 @@ class ReservationService {
           '发起人': reservation.applicant ? [{ id: reservation.applicant.id, name: reservation.applicant.name }] : [],
           '发起时间': reservation.startTime,
           '切片文件': reservation.fileName ? [{ name: reservation.fileName, file_token: reservation.fileToken }] : [],
-          printer: reservation.printer,
           '是否加急': reservation.isUrgent,
         },
       });
@@ -162,10 +148,7 @@ class ReservationService {
       : config.status.REVIEW_REJECTED;
 
     await bitableApi.updateRecord(config.bitable.reservationTableId, recordId, {
-      status,
-      reviewResult,
-      reviewComment,
-      reviewer: reviewer ? [{ id: reviewer.id, name: reviewer.name }] : [],
+      '申请状态': status,
     });
 
     await this.notifyApplicant(reservation, reviewResult, reviewComment);
@@ -263,7 +246,7 @@ class ReservationService {
     console.log(`[预约服务] 开始执行打印: ${reservation.fileName} -> ${printer.name}`);
 
     await bitableApi.updateRecord(config.bitable.reservationTableId, reservation.recordId, {
-      status: config.status.QUEUED,
+      '申请状态': config.status.QUEUED,
     });
 
     const fileBuffer = await downloadFile(reservation.fileToken);
@@ -273,7 +256,7 @@ class ReservationService {
     console.log(`[预约服务] 文件已上传: ${remotePath}`);
 
     await bitableApi.updateRecord(config.bitable.reservationTableId, reservation.recordId, {
-      status: config.status.PRINTING,
+      '申请状态': config.status.PRINTING,
     });
 
     await printerManager.startPrintOnPrinter(printer.id, remotePath);
@@ -296,17 +279,10 @@ class ReservationService {
             return;
           }
 
-          const progress = printerState.progress || 0;
-
-          await bitableApi.updateRecord(config.bitable.reservationTableId, reservation.recordId, {
-            printProgress: progress,
-          });
-
-          if (printerState.status === 'idle' || progress >= 100) {
+          if (printerState.status === 'idle' || printerState.progress >= 100) {
             clearInterval(checkInterval);
             await bitableApi.updateRecord(config.bitable.reservationTableId, reservation.recordId, {
-              status: config.status.COMPLETED,
-              printProgress: 100,
+              '申请状态': config.status.COMPLETED,
             });
             resolve();
           }
@@ -323,7 +299,7 @@ class ReservationService {
     }
 
     await bitableApi.updateRecord(config.bitable.reservationTableId, recordId, {
-      status: config.status.CANCELLED,
+      '申请状态': config.status.CANCELLED,
     });
 
     const index = this.printQueue.indexOf(recordId);
@@ -332,25 +308,6 @@ class ReservationService {
     }
 
     return { success: true };
-  }
-
-  async updateReservation(recordId, fields) {
-    if (!config.bitable.reservationTableId) {
-      throw new Error('未配置预约表ID');
-    }
-
-    const allowedFields = ['startTime', 'endTime', 'fileName', 'fileToken', 'printer'];
-
-    const updateFields = {};
-    for (const key of allowedFields) {
-      if (fields[key] !== undefined) {
-        updateFields[key] = fields[key];
-      }
-    }
-
-    await bitableApi.updateRecord(config.bitable.reservationTableId, recordId, updateFields);
-
-    return this.getReservationById(recordId);
   }
 
   async getPendingReviewReservations() {

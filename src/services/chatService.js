@@ -86,7 +86,7 @@ async function handlePrintHelpCommand() {
   /print-stop <ID>             停止打印
 
 📝 预约管理（需在多维表格中操作）：
-  • 预约表：填写发起人、发起时间、切片文件、打印机
+  • 预约表：填写发起人、发起时间、切片文件
   • 审批者在Bambu Studio中审查切片文件
   • 审批通过后自动上传并排队打印
 
@@ -186,8 +186,11 @@ async function handlePrintListCommand() {
 
     lines.push(`${i + 1}. ${statusIcon} ${res.fileName || '未命名文件'}`);
     lines.push(`   发起人: ${res.applicant?.name || '未知'}`);
-    lines.push(`   打印机: ${res.printer || '未指定'}`);
     lines.push(`   状态: ${res.status}`);
+    
+    if (res.applicationNo) {
+      lines.push(`   申请编号: ${res.applicationNo}`);
+    }
     
     if (res.startTime) {
       lines.push(`   发起时间: ${res.startTime}`);
@@ -197,12 +200,8 @@ async function handlePrintListCommand() {
       lines.push(`   ⚡ 加急`);
     }
     
-    if (res.printProgress > 0) {
-      lines.push(`   打印进度: ${res.printProgress}%`);
-    }
-    
-    if (res.reviewComment) {
-      lines.push(`   审批意见: ${res.reviewComment}`);
+    if (res.isInternalProject) {
+      lines.push(`   📌 千里内部项目`);
     }
     
     lines.push('');
@@ -223,7 +222,9 @@ async function handlePrintPendingCommand() {
   reservations.forEach((res, i) => {
     lines.push(`${i + 1}. 📋 ${res.fileName || '未命名文件'}`);
     lines.push(`   发起人: ${res.applicant?.name || '未知'}`);
-    lines.push(`   打印机: ${res.printer || '未指定'}`);
+    if (res.applicationNo) {
+      lines.push(`   申请编号: ${res.applicationNo}`);
+    }
     if (res.startTime) {
       lines.push(`   发起时间: ${res.startTime}`);
     }
