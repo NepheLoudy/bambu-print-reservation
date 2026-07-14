@@ -202,3 +202,76 @@ bambu-print-server/
 | 飞书API | @larksuiteoapi/node-sdk |
 | 定时任务 | node-cron |
 | 数据存储 | 飞书多维表格 |
+
+## 🚀 部署到 NAS
+
+### 一键部署
+
+```bash
+npm run deploy
+```
+
+部署脚本会自动完成：
+1. SSH 连接到 NAS（`10.253.33.233:8500`）
+2. 创建 `/opt/bambu-print-server` 目录
+3. 从 GitHub 拉取最新代码
+4. 安装依赖
+5. 写入 `.env` 配置文件
+6. PM2 启动服务（进程名 `bambu-print-server`）
+7. 开放防火墙 3001 端口
+
+### 检查 NAS 运行状态
+
+```bash
+npm run deploy:check
+```
+
+会输出最近50行日志和健康检查结果。
+
+### 前置条件
+
+1. 代码已推送到 GitHub：
+   ```bash
+   git add -A
+   git commit -m "your message"
+   git push origin main
+   ```
+2. NAS 上已安装 Node.js、npm、pm2
+3. NAS 的 `.env` 中的 `BITABLE_APP_TOKEN`、`PRINTER_HOSTS` 等需手动填写实际值
+
+### Git 工作流
+
+```bash
+# 提交代码
+git add -A
+git commit -m "feat: your feature"
+git push origin main
+
+# 部署到 NAS
+npm run deploy
+
+# 检查部署状态
+npm run deploy:check
+```
+
+### NAS 上手动操作
+
+```bash
+# SSH 登录 NAS
+ssh -p 8500 qianli@10.253.33.233
+
+# 查看PM2进程
+pm2 list
+
+# 查看日志
+pm2 logs bambu-print-server
+
+# 重启服务
+pm2 restart bambu-print-server
+
+# 更新代码
+cd /opt/bambu-print-server
+git pull origin main
+npm install --production
+pm2 restart bambu-print-server
+```
