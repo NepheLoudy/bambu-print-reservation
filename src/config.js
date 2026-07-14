@@ -53,9 +53,9 @@ module.exports = {
   reviewers: parseArrayConfig(process.env.REVIEWERS),
   
   status: {
-    PENDING_REVIEW: '待审查',
-    REVIEW_APPROVED: '审查通过',
-    REVIEW_REJECTED: '审查驳回',
+    PENDING_REVIEW: '待审批',
+    REVIEW_APPROVED: '已通过',
+    REVIEW_REJECTED: '已驳回',
     QUEUED: '排队中',
     PRINTING: '打印中',
     COMPLETED: '已完成',

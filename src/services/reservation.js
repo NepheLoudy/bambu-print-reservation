@@ -32,18 +32,24 @@ class ReservationService {
 
   formatReservation(record) {
     const fields = record.fields;
+    const sliceFile = fields['切片文件'] && fields['切片文件'].length > 0 ? fields['切片文件'][0] : null;
+    
     return {
       recordId: record.record_id,
-      applicant: fields.applicant ? {
-        id: fields.applicant[0]?.id,
-        name: fields.applicant[0]?.name,
+      applicant: fields['发起人'] ? {
+        id: fields['发起人'][0]?.id,
+        name: fields['发起人'][0]?.name,
       } : null,
-      startTime: fields.startTime,
+      startTime: fields['发起时间'],
       endTime: fields.endTime,
-      fileName: fields.fileName,
-      fileToken: fields.fileToken,
+      fileName: sliceFile?.name || fields.fileName,
+      fileToken: sliceFile?.file_token || fields.fileToken,
+      fileUrl: sliceFile?.url,
       printer: fields.printer,
-      status: fields.status || config.status.PENDING_REVIEW,
+      status: fields['申请状态'] || config.status.PENDING_REVIEW,
+      isInternalProject: fields['是否为千里内部项目'],
+      screenshot: fields['切片文件详情截图'],
+      isUrgent: fields['是否加急'],
       reviewer: fields.reviewer ? {
         id: fields.reviewer[0]?.id,
         name: fields.reviewer[0]?.name,
@@ -81,29 +87,17 @@ class ReservationService {
   }
 
   validateReservation(fields) {
-    if (!fields.applicant || !fields.applicant.length) {
-      return { valid: false, message: '申请人不能为空' };
+    if (!fields['发起人'] || !fields['发起人'].length) {
+      return { valid: false, message: '发起人不能为空' };
     }
-    if (!fields.startTime) {
-      return { valid: false, message: '开始时间不能为空' };
+    if (!fields['发起时间']) {
+      return { valid: false, message: '发起时间不能为空' };
     }
-    if (!fields.endTime) {
-      return { valid: false, message: '结束时间不能为空' };
-    }
-    if (!fields.fileName) {
-      return { valid: false, message: '文件名不能为空' };
-    }
-    if (!fields.fileToken) {
-      return { valid: false, message: '文件Token不能为空' };
+    if (!fields['切片文件'] || !fields['切片文件'].length) {
+      return { valid: false, message: '切片文件不能为空' };
     }
     if (!fields.printer) {
       return { valid: false, message: '打印机不能为空' };
-    }
-
-    const start = new Date(fields.startTime);
-    const end = new Date(fields.endTime);
-    if (end <= start) {
-      return { valid: false, message: '结束时间必须晚于开始时间' };
     }
 
     return { valid: true, message: '' };
@@ -129,11 +123,11 @@ class ReservationService {
     try {
       const card = buildReservationAlertCard({
         fields: {
-          applicant: reservation.applicant ? [{ id: reservation.applicant.id, name: reservation.applicant.name }] : [],
-          startTime: reservation.startTime,
-          endTime: reservation.endTime,
-          fileName: reservation.fileName,
+          '发起人': reservation.applicant ? [{ id: reservation.applicant.id, name: reservation.applicant.name }] : [],
+          '发起时间': reservation.startTime,
+          '切片文件': reservation.fileName ? [{ name: reservation.fileName, file_token: reservation.fileToken }] : [],
           printer: reservation.printer,
+          '是否加急': reservation.isUrgent,
         },
       });
 
@@ -142,14 +136,14 @@ class ReservationService {
       if (config.reviewers && config.reviewers.length > 0) {
         for (const reviewerId of config.reviewers) {
           try {
-            await sendTextToUser(reviewerId, `有新的打印预约需要您审查，请在飞书多维表格中查看并处理。\n文件：${reservation.fileName}`);
+            await sendTextToUser(reviewerId, `有新的打印预约需要您审批，请在飞书多维表格中查看并处理。\n文件：${reservation.fileName}`);
           } catch (err) {
-            console.error(`[预约服务] 通知审查者 ${reviewerId} 失败:`, err.message);
+            console.error(`[预约服务] 通知审批者 ${reviewerId} 失败:`, err.message);
           }
         }
       }
     } catch (err) {
-      console.error('[预约服务] 通知审查者失败:', err.message);
+      console.error('[预约服务] 通知审批者失败:', err.message);
     }
   }
 
@@ -187,8 +181,8 @@ class ReservationService {
     try {
       const card = buildReviewResultCard({
         fields: {
-          applicant: reservation.applicant ? [{ id: reservation.applicant.id, name: reservation.applicant.name }] : [],
-          fileName: reservation.fileName,
+          '发起人': reservation.applicant ? [{ id: reservation.applicant.id, name: reservation.applicant.name }] : [],
+          '切片文件': reservation.fileName ? [{ name: reservation.fileName }] : [],
         },
       }, reviewResult, reviewComment);
 
@@ -197,15 +191,15 @@ class ReservationService {
       if (reservation.applicant && reservation.applicant.id) {
         try {
           const message = reviewResult === config.reviewResult.APPROVED
-            ? `您的打印预约已通过审查，文件将上传至打印机并排队打印。\n文件：${reservation.fileName}`
-            : `您的打印预约未通过审查，请查看审查意见并修改后重新提交。\n文件：${reservation.fileName}\n意见：${reviewComment}`;
+            ? `您的打印预约已通过审批，文件将上传至打印机并排队打印。\n文件：${reservation.fileName}`
+            : `您的打印预约未通过审批，请查看审批意见并修改后重新提交。\n文件：${reservation.fileName}\n意见：${reviewComment}`;
           await sendTextToUser(reservation.applicant.id, message);
         } catch (err) {
-          console.error(`[预约服务] 通知申请人 ${reservation.applicant.id} 失败:`, err.message);
+          console.error(`[预约服务] 通知发起人 ${reservation.applicant.id} 失败:`, err.message);
         }
       }
     } catch (err) {
-      console.error('[预约服务] 通知申请人失败:', err.message);
+      console.error('[预约服务] 通知发起人失败:', err.message);
     }
   }
 

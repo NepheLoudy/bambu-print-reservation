@@ -61,23 +61,27 @@ REVIEWERS=ou_xxxx
 
 ### 3. 创建飞书多维表格
 
-#### 预约表字段
+使用飞书审批功能创建多维表格，字段如下：
+
+#### 预约表字段（审批表）
 
 | 字段名 | 类型 | 说明 |
 |--------|------|------|
-| applicant | 人员 | 预约申请人 |
-| startTime | 日期时间 | 预约开始时间 |
-| endTime | 日期时间 | 预约结束时间 |
-| fileName | 文本 | 文件名 |
-| fileToken | 文本 | 飞书云文档文件Token |
-| printer | 单选 | 选择打印机 |
-| status | 单选 | 预约状态 |
-| reviewer | 人员 | 审查者 |
-| reviewResult | 单选 | 通过/驳回 |
-| reviewComment | 文本 | 审查意见 |
-| printProgress | 数字 | 打印进度(%) |
-| estimatedTime | 数字 | 预计打印时间(分钟) |
-| actualTime | 数字 | 实际打印时间(分钟) |
+| 申请编号 | 自动编号 | 系统自动生成 |
+| 申请状态 | 单选 | 待审批/已通过/已驳回/排队中/打印中/已完成/已取消 |
+| 发起时间 | 日期时间 | 预约发起时间 |
+| 发起人 | 人员 | 预约发起人 |
+| 是否为千里内部项目 | 复选框 | 是否为内部项目 |
+| 切片文件 | 文件 | 3MF/STL切片文件 |
+| 切片文件详情截图 | 图片 | 切片预览截图 |
+| 是否加急 | 复选框 | 是否加急处理 |
+| printer | 单选 | 选择打印机（自定义字段） |
+| reviewer | 人员 | 审批者（自定义字段） |
+| reviewResult | 单选 | 通过/驳回（自定义字段） |
+| reviewComment | 文本 | 审批意见（自定义字段） |
+| printProgress | 数字 | 打印进度(%)（自定义字段） |
+| estimatedTime | 数字 | 预计打印时间(分钟)（自定义字段） |
+| actualTime | 数字 | 实际打印时间(分钟)（自定义字段） |
 
 #### 打印机状态表字段
 
@@ -96,8 +100,8 @@ REVIEWERS=ou_xxxx
 
 在飞书开发者后台配置事件订阅，启用以下事件：
 - `im.message.receive_v1` — 接收消息（用于指令响应）
-- `bitable.record.create` — 多维表格记录创建
-- `bitable.record.update` — 多维表格记录更新
+- `bitable.record.create` — 多维表格记录创建（新预约申请）
+- `bitable.record.update` — 多维表格记录更新（审批结果）
 
 回调地址填写：
 ```
@@ -166,7 +170,7 @@ bambu-print-server/
 | `/api/health` | GET | 健康检查 |
 | `/api/reservations` | GET/POST | 预约列表/创建预约 |
 | `/api/reservations/:id` | GET/PUT/DELETE | 预约详情/更新/取消 |
-| `/api/reservations/:id/review` | POST | 处理审查结果 |
+| `/api/reservations/:id/review` | POST | 处理审批结果 |
 | `/api/printers` | GET | 打印机状态列表 |
 | `/api/printers/:id/print` | POST | 开始打印 |
 | `/api/printers/:id/pause` | POST | 暂停打印 |
@@ -177,12 +181,12 @@ bambu-print-server/
 ## 🔄 工作流程
 
 ```
-1. 用户在飞书多维表格填写预约（申请人、时间、文件、打印机）
-2. 系统监听到表格新增记录，通知审查者
-3. 审查者在Bambu Studio中审查3MF切片文件
-4. 审查者在多维表格中填写审查结果（通过/驳回）
-5. 审查通过 → 系统自动下载文件并上传到打印机 → 排队打印
-6. 审查驳回 → 系统通知申请人修改后重新提交
+1. 用户在飞书审批多维表格填写预约（发起人、发起时间、切片文件、打印机）
+2. 系统监听到表格新增记录，通知审批者
+3. 审批者在Bambu Studio中审查3MF切片文件
+4. 审批者在多维表格中填写审批结果（通过/驳回）
+5. 审批通过 → 系统自动下载文件并上传到打印机 → 排队打印
+6. 审批驳回 → 系统通知发起人修改后重新提交
 7. 打印进度实时同步回多维表格
 ```
 

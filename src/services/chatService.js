@@ -63,7 +63,7 @@ async function handleHelpCommand() {
   /print-help     显示打印相关帮助
   /print-status   查看打印机状态
   /print-list     查看预约列表
-  /print-pending  查看待审查预约
+  /print-pending  查看待审批预约
   /print-add      创建打印预约（需在多维表格中操作）
 
 使用方式：
@@ -77,7 +77,7 @@ async function handlePrintHelpCommand() {
 📋 查询指令：
   /print-status   查看所有打印机状态（在线/打印中/空闲）
   /print-list     查看当前所有预约记录
-  /print-pending  查看待审查的预约（需审查者处理）
+  /print-pending  查看待审批的预约（需审批者处理）
 
 🖨️ 打印机控制：
   /print-start <ID> <文件路径>  开始打印
@@ -86,9 +86,9 @@ async function handlePrintHelpCommand() {
   /print-stop <ID>             停止打印
 
 📝 预约管理（需在多维表格中操作）：
-  • 预约表：填写申请人、时间、文件、打印机
-  • 审查者在Bambu Studio中审查切片文件
-  • 审查通过后自动上传并排队打印
+  • 预约表：填写发起人、发起时间、切片文件、打印机
+  • 审批者在Bambu Studio中审查切片文件
+  • 审批通过后自动上传并排队打印
 
 示例：
   @爆米花机 /print-status
@@ -185,12 +185,16 @@ async function handlePrintListCommand() {
     }
 
     lines.push(`${i + 1}. ${statusIcon} ${res.fileName || '未命名文件'}`);
-    lines.push(`   申请人: ${res.applicant?.name || '未知'}`);
+    lines.push(`   发起人: ${res.applicant?.name || '未知'}`);
     lines.push(`   打印机: ${res.printer || '未指定'}`);
     lines.push(`   状态: ${res.status}`);
     
-    if (res.startTime && res.endTime) {
-      lines.push(`   时间: ${res.startTime} ~ ${res.endTime}`);
+    if (res.startTime) {
+      lines.push(`   发起时间: ${res.startTime}`);
+    }
+    
+    if (res.isUrgent) {
+      lines.push(`   ⚡ 加急`);
     }
     
     if (res.printProgress > 0) {
@@ -198,7 +202,7 @@ async function handlePrintListCommand() {
     }
     
     if (res.reviewComment) {
-      lines.push(`   审查意见: ${res.reviewComment}`);
+      lines.push(`   审批意见: ${res.reviewComment}`);
     }
     
     lines.push('');
@@ -211,20 +215,25 @@ async function handlePrintPendingCommand() {
   const reservations = await reservationService.getPendingReviewReservations();
   
   if (reservations.length === 0) {
-    return '✅ 暂无待审查的预约';
+    return '✅ 暂无待审批的预约';
   }
 
-  const lines = ['⏳ 待审查预约列表', ''];
+  const lines = ['⏳ 待审批预约列表', ''];
   
   reservations.forEach((res, i) => {
     lines.push(`${i + 1}. 📋 ${res.fileName || '未命名文件'}`);
-    lines.push(`   申请人: ${res.applicant?.name || '未知'}`);
+    lines.push(`   发起人: ${res.applicant?.name || '未知'}`);
     lines.push(`   打印机: ${res.printer || '未指定'}`);
-    lines.push(`   时间: ${res.startTime} ~ ${res.endTime}`);
+    if (res.startTime) {
+      lines.push(`   发起时间: ${res.startTime}`);
+    }
+    if (res.isUrgent) {
+      lines.push(`   ⚡ 加急`);
+    }
     lines.push('');
   });
   
-  lines.push('💡 提示：请在Bambu Studio中审查切片文件，确认后在多维表格中填写审查结果');
+  lines.push('💡 提示：请在Bambu Studio中审查切片文件，确认后在多维表格中填写审批结果');
   
   return lines.join('\n');
 }
