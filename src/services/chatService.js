@@ -64,7 +64,6 @@ async function handleHelpCommand() {
   /print-status   查看打印机状态
   /print-list     查看预约列表
   /print-pending  查看待审批预约
-  /print-add      创建打印预约（需在多维表格中操作）
 
 使用方式：
   • 群聊中请先 @${botName} 再发送指令
@@ -79,20 +78,14 @@ async function handlePrintHelpCommand() {
   /print-list     查看当前所有预约记录
   /print-pending  查看待审批的预约（需审批者处理）
 
-🖨️ 打印机控制：
-  /print-start <ID> <文件路径>  开始打印
-  /print-pause <ID>            暂停打印
-  /print-resume <ID>           恢复打印
-  /print-stop <ID>             停止打印
-
-📝 预约管理（需在多维表格中操作）：
+📝 预约管理（需在飞书审批多维表格中操作）：
   • 预约表：填写发起人、发起时间、切片文件
   • 审批者在Bambu Studio中审查切片文件
   • 审批通过后自动上传并排队打印
 
 示例：
-  @爆米花机 /print-status
-  @爆米花机 /print-list`;
+  @爆米花机-对话型 /print-status
+  @爆米花机-对话型 /print-list`;
 }
 
 async function handlePrintStatusCommand() {
@@ -239,89 +232,29 @@ async function handlePrintPendingCommand() {
   return lines.join('\n');
 }
 
-async function handlePrintStartCommand(args) {
-  const printerId = parseInt(args[0]);
-  const filePath = args.slice(1).join(' ');
-  
-  if (!printerId || !filePath) {
-    return '❌ 参数错误，格式：/print-start <打印机ID> <文件路径>';
-  }
-
-  try {
-    await printerManager.startPrintOnPrinter(printerId, filePath);
-    return `✅ 已向打印机 ${printerId} 发送打印命令：${filePath}`;
-  } catch (err) {
-    return `❌ 打印失败：${err.message}`;
-  }
-}
-
-async function handlePrintPauseCommand(args) {
-  const printerId = parseInt(args[0]);
-  
-  if (!printerId) {
-    return '❌ 参数错误，格式：/print-pause <打印机ID>';
-  }
-
-  try {
-    await printerManager.pausePrintOnPrinter(printerId);
-    return `✅ 已暂停打印机 ${printerId} 的打印任务`;
-  } catch (err) {
-    return `❌ 暂停失败：${err.message}`;
-  }
-}
-
-async function handlePrintResumeCommand(args) {
-  const printerId = parseInt(args[0]);
-  
-  if (!printerId) {
-    return '❌ 参数错误，格式：/print-resume <打印机ID>';
-  }
-
-  try {
-    await printerManager.resumePrintOnPrinter(printerId);
-    return `✅ 已恢复打印机 ${printerId} 的打印任务`;
-  } catch (err) {
-    return `❌ 恢复失败：${err.message}`;
-  }
-}
-
-async function handlePrintStopCommand(args) {
-  const printerId = parseInt(args[0]);
-  
-  if (!printerId) {
-    return '❌ 参数错误，格式：/print-stop <打印机ID>';
-  }
-
-  try {
-    await printerManager.stopPrintOnPrinter(printerId);
-    return `✅ 已停止打印机 ${printerId} 的打印任务`;
-  } catch (err) {
-    return `❌ 停止失败：${err.message}`;
-  }
-}
-
 const commandHandlers = {
   '/help': handleHelpCommand,
   '/print-help': handlePrintHelpCommand,
   '/print-status': handlePrintStatusCommand,
   '/print-list': handlePrintListCommand,
   '/print-pending': handlePrintPendingCommand,
-  '/print-start': handlePrintStartCommand,
-  '/print-pause': handlePrintPauseCommand,
-  '/print-resume': handlePrintResumeCommand,
-  '/print-stop': handlePrintStopCommand,
 };
 
 async function handleNormalChat(senderName) {
   const botName = config.bot.name || '爆米花机';
   return `你好${senderName ? '，' + senderName : ''}！我是🖨️${botName}。
 
-我是3D打印预约助手，你可以通过以下方式与我互动：
+我是3D打印预约助手，专注于打印预约查询和打印机状态监控。
 
-• 发送 /print-help 查看打印相关指令
-• 发送 /print-status 查看打印机状态
-• 发送 /print-list 查看预约列表
-• @我 可以触发对话和指令
+📋 可用指令：
+  • /print-help  查看打印相关指令
+  • /print-status   查看打印机状态
+  • /print-list     查看预约列表
+  • /print-pending  查看待审批预约
+
+💡 提示：
+  • 发送 /help 查看项目看板相关指令（DDL播报、关键词等）
+  • @我 可以触发对话和指令
 
 有什么需要帮忙的吗？`;
 }
