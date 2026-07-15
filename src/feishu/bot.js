@@ -65,11 +65,12 @@ function buildAtTag(userId) {
 }
 
 function buildReservationAlertCard(reservation) {
-  const applicantName = reservation.fields.applicant?.[0]?.name || '未知用户';
-  const applicantId = reservation.fields.applicant?.[0]?.id || '';
-  const startTime = reservation.fields.startTime;
-  const endTime = reservation.fields.endTime;
-  const fileName = reservation.fields.fileName || '未指定';
+  const applicantName = reservation.fields['发起人']?.[0]?.name || '未知用户';
+  const applicantId = reservation.fields['发起人']?.[0]?.id || '';
+  const startTime = reservation.fields['发起时间'];
+  const sliceFile = reservation.fields['切片文件'] && reservation.fields['切片文件'].length > 0 ? reservation.fields['切片文件'][0] : null;
+  const fileName = sliceFile?.name || '未指定';
+  const isUrgent = reservation.fields['是否加急'];
 
   return {
     config: {
@@ -84,7 +85,7 @@ function buildReservationAlertCard(reservation) {
       { tag: 'hr' },
       {
         tag: 'markdown',
-        content: `${buildAtTag(applicantId)} **申请人**: ${applicantName}`,
+        content: `${buildAtTag(applicantId)} **发起人**: ${applicantName}`,
       },
       {
         tag: 'markdown',
@@ -92,14 +93,18 @@ function buildReservationAlertCard(reservation) {
       },
       {
         tag: 'markdown',
-        content: `**时间**: ${startTime} ~ ${endTime}`,
+        content: `**发起时间**: ${startTime || '未指定'}`,
       },
+      isUrgent ? {
+        tag: 'markdown',
+        content: `**⚡ 加急**: 是`,
+      } : null,
       { tag: 'hr' },
       {
         tag: 'markdown',
-        content: `**审查者**: 请在 Bambu Studio 中审查切片文件，确认后在多维表格中填写审查结果`,
+        content: `**审批者**: 请在 Bambu Studio 中审查切片文件，确认后在多维表格中填写审批结果`,
       },
-    ],
+    ].filter(Boolean),
     header: {
       template: 'blue',
       title: {
@@ -111,9 +116,10 @@ function buildReservationAlertCard(reservation) {
 }
 
 function buildReviewResultCard(reservation, result, comment) {
-  const applicantName = reservation.fields.applicant?.[0]?.name || '未知用户';
-  const applicantId = reservation.fields.applicant?.[0]?.id || '';
-  const fileName = reservation.fields.fileName || '未指定';
+  const applicantName = reservation.fields['发起人']?.[0]?.name || '未知用户';
+  const applicantId = reservation.fields['发起人']?.[0]?.id || '';
+  const sliceFile = reservation.fields['切片文件'] && reservation.fields['切片文件'].length > 0 ? reservation.fields['切片文件'][0] : null;
+  const fileName = sliceFile?.name || '未指定';
 
   const isApproved = result === config.reviewResult.APPROVED;
 
@@ -125,12 +131,12 @@ function buildReviewResultCard(reservation, result, comment) {
     elements: [
       {
         tag: 'markdown',
-        content: isApproved ? `**✅ 审查通过**` : `**❌ 审查驳回**`,
+        content: isApproved ? `**✅ 审批通过**` : `**❌ 审批驳回**`,
       },
       { tag: 'hr' },
       {
         tag: 'markdown',
-        content: `${buildAtTag(applicantId)} **申请人**: ${applicantName}`,
+        content: `${buildAtTag(applicantId)} **发起人**: ${applicantName}`,
       },
       {
         tag: 'markdown',
@@ -138,7 +144,7 @@ function buildReviewResultCard(reservation, result, comment) {
       },
       {
         tag: 'markdown',
-        content: `**审查意见**: ${comment || '无'}`,
+        content: `**审批意见**: ${comment || '无'}`,
       },
       { tag: 'hr' },
       {
@@ -151,7 +157,7 @@ function buildReviewResultCard(reservation, result, comment) {
     header: {
       template: isApproved ? 'green' : 'red',
       title: {
-        content: '🖨️ 审查结果通知',
+        content: '🖨️ 审批结果通知',
         tag: 'plain_text',
       },
     },

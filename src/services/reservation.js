@@ -64,10 +64,7 @@ class ReservationService {
       throw new Error(validation.message);
     }
 
-    const record = await bitableApi.createRecord(config.bitable.reservationTableId, {
-      ...fields,
-      status: config.status.PENDING_REVIEW,
-    });
+    const record = await bitableApi.createRecord(config.bitable.reservationTableId, fields);
 
     const reservation = this.formatReservation(record);
 
@@ -90,17 +87,15 @@ class ReservationService {
     return { valid: true, message: '' };
   }
 
-  async checkConflict(printer, startTime, endTime, excludeRecordId = null) {
+  async checkConflict(startTime, endTime, excludeRecordId = null) {
     const reservations = await this.getAllReservations();
     const overlapping = reservations.filter((r) => {
       if (r.recordId === excludeRecordId) return false;
-      if (r.printer !== printer) return false;
       if (r.status === config.status.CANCELLED || r.status === config.status.COMPLETED) return false;
 
       const rStart = new Date(r.startTime);
-      const rEnd = new Date(r.endTime);
 
-      return !(endTime <= rStart || startTime >= rEnd);
+      return startTime < rStart;
     });
 
     return overlapping.length > 0;
@@ -220,10 +215,7 @@ class ReservationService {
           continue;
         }
 
-        let targetPrinter = availablePrinters.find((p) => p.name === reservation.printer);
-        if (!targetPrinter) {
-          targetPrinter = availablePrinters[0];
-        }
+        let targetPrinter = availablePrinters[0];
 
         try {
           await this.executePrint(reservation, targetPrinter);

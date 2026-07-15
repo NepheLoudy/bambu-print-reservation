@@ -56,7 +56,17 @@ app.post('/api/reservations', async (req, res) => {
 app.put('/api/reservations/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const reservation = await reservationService.updateReservation(id, req.body);
+    const { status } = req.body;
+    
+    if (!status) {
+      return res.status(400).json({ error: '状态不能为空' });
+    }
+
+    await bitableApi.updateRecord(config.bitable.reservationTableId, id, {
+      '申请状态': status,
+    });
+    
+    const reservation = await reservationService.getReservationById(id);
     res.json(reservation);
   } catch (err) {
     console.error('更新预约失败:', err);
@@ -97,7 +107,7 @@ app.get('/api/reservations/status/pending-review', async (req, res) => {
     const reservations = await reservationService.getPendingReviewReservations();
     res.json(reservations);
   } catch (err) {
-    console.error('获取待审查预约失败:', err);
+    console.error('获取待审批预约失败:', err);
     res.status(500).json({ error: err.message });
   }
 });

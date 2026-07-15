@@ -33,19 +33,22 @@ async function handleReservationEvent(recordId, actionType, fields) {
 
   if (actionType === 'create') {
     console.log('[事件订阅] 新预约创建:', fields);
+    
+    const reservationService = require('../services/reservation');
+    const reservation = await reservationService.getReservationById(recordId);
+    if (reservation) {
+      await reservationService.notifyReviewers(reservation);
+    }
   }
 
   if (actionType === 'update') {
-    if (fields.reviewResult) {
-      await reservationService.handleReviewResult(
-        recordId,
-        fields.reviewResult,
-        fields.reviewComment || '',
-        fields.reviewer ? { id: fields.reviewer[0]?.id, name: fields.reviewer[0]?.name } : null
-      );
+    const newStatus = fields['申请状态'];
+    
+    if (newStatus === config.status.REVIEW_APPROVED) {
+      await reservationService.addToPrintQueue(recordId);
     }
 
-    if (fields.status === config.status.CANCELLED) {
+    if (newStatus === config.status.CANCELLED) {
       await reservationService.cancelReservation(recordId);
     }
   }
