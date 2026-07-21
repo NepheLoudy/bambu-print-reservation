@@ -4,7 +4,7 @@ const config = require('./config');
 const reservationService = require('./services/reservation');
 const printerManager = require('./printer/manager');
 const { startEventSubscription, processBitableEvent } = require('./feishu/eventSubscription');
-const { processChatMessage } = require('./services/chatService');
+const { processChatMessage, handlePrintHelpCommand, handlePrintStatusCommand, handlePrintListCommand, handlePrintPendingCommand } = require('./services/chatService');
 
 const app = express();
 
@@ -261,6 +261,34 @@ app.post('/api/feishu/event', async (req, res) => {
   }
 
   res.json({ code: 0, msg: 'success' });
+});
+
+app.post('/api/chat/command', async (req, res) => {
+  try {
+    const { command, args } = req.body;
+    
+    if (!command) {
+      return res.status(400).json({ error: '指令不能为空' });
+    }
+
+    const commandHandlers = {
+      '/print-help': handlePrintHelpCommand,
+      '/print-status': handlePrintStatusCommand,
+      '/print-list': handlePrintListCommand,
+      '/print-pending': handlePrintPendingCommand,
+    };
+
+    const handler = commandHandlers[command];
+    if (!handler) {
+      return res.json({ reply: `❌ 未知指令：${command}` });
+    }
+
+    const reply = await handler(args || []);
+    res.json({ reply });
+  } catch (err) {
+    console.error('处理指令失败:', err);
+    res.json({ reply: `❌ 指令执行失败：${err.message}` });
+  }
 });
 
 function startServer() {

@@ -333,4 +333,8 @@ module.exports = {
   processChatMessage,
   isMentionedBot,
   parseCommand,
+  handlePrintHelpCommand,
+  handlePrintStatusCommand,
+  handlePrintListCommand,
+  handlePrintPendingCommand,
 };

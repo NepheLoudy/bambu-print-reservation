@@ -1,81 +1,98 @@
 const { Client } = require('ssh2');
-
-const config = {
-  host: '10.253.33.233',
-  port: 8500,
-  username: 'qianli',
-  password: 'cquqianli2026'
-};
+const fs = require('fs');
+const path = require('path');
 
 const conn = new Client();
 
-conn.on('ready', () => {
-  console.log('SSH连接成功！');
-  
-  const commands = [
-    { cmd: 'pm2 logs bambu-print-server --lines 50' },
-    { cmd: 'curl http://localhost:3001/api/health' }
-  ];
-  
-  executeCommands(commands, 0, () => {
-    conn.end();
-  });
-});
+const localBase = __dirname;
+const remoteBase = '/opt/bambu-print-server';
 
-function executeCommands(commands, index, onComplete) {
-  if (index >= commands.length) {
-    if (onComplete) onComplete();
-    return;
-  }
+const filesToCopy = [
+  '.env',
+];
+
+conn.on('ready', () => {
+  console.log('SSH OK');
   
-  const cmd = commands[index];
-  console.log(`\n[${index + 1}/${commands.length}] 执行: ${cmd.cmd}`);
+  let fileIndex = 0;
   
-  conn.exec(cmd.cmd, (err, stream) => {
-    if (err) {
-      console.error('命令执行失败:', err.message);
-      conn.end();
+  function copyNextFile() {
+    if (fileIndex >= filesToCopy.length) {
+      console.log('\n所有文件已上传');
+      restartService();
       return;
     }
     
-    let stdout = '';
-    let stderr = '';
+    const localFile = path.join(localBase, filesToCopy[fileIndex]);
+    const remoteFile = `${remoteBase}/${filesToCopy[fileIndex]}`;
     
-    stream.on('data', (data) => {
-      stdout += data.toString();
-    });
+    console.log(`\n上传 ${filesToCopy[fileIndex]}...`);
     
-    stream.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-    
-    stream.on('close', (code) => {
-      if (stdout.trim()) {
-        console.log(stdout.trim());
-      }
-      if (stderr.trim()) {
-        console.error('错误:', stderr.trim());
+    fs.readFile(localFile, (err, data) => {
+      if (err) {
+        console.error(`读取文件失败: ${err.message}`);
+        fileIndex++;
+        copyNextFile();
+        return;
       }
       
-      if (code === 0) {
-        console.log(`命令执行成功 (退出码: ${code})`);
-        executeCommands(commands, index + 1, onComplete);
-      } else {
-        console.error(`命令执行失败 (退出码: ${code})`);
-        conn.end();
-      }
+      const remoteDir = remoteFile.substring(0, remoteFile.lastIndexOf('/'));
+      conn.exec(`mkdir -p ${remoteDir}`, (err) => {
+        if (err) {
+          console.error(`创建目录失败: ${err.message}`);
+          fileIndex++;
+          copyNextFile();
+          return;
+        }
+        
+        const sftp = conn.sftp((err, sftp) => {
+          if (err) {
+            console.error(`SFTP连接失败: ${err.message}`);
+            fileIndex++;
+            copyNextFile();
+            return;
+          }
+          
+          const writeStream = sftp.createWriteStream(remoteFile);
+          writeStream.on('close', () => {
+            console.log(`✓ ${filesToCopy[fileIndex]} 上传成功`);
+            fileIndex++;
+            copyNextFile();
+          });
+          writeStream.on('error', (err) => {
+            console.error(`上传失败: ${err.message}`);
+            fileIndex++;
+            copyNextFile();
+          });
+          writeStream.end(data);
+        });
+      });
     });
-  });
-}
-
-conn.on('error', (err) => {
-  console.error('SSH连接失败:', err.message);
-  process.exit(1);
+  }
+  
+  function restartService() {
+    console.log('\n重启PM2服务...');
+    conn.exec('pm2 restart bambu-print-server --update-env', (err, stream) => {
+      if (err) {
+        console.error(`重启失败: ${err.message}`);
+        conn.end();
+        return;
+      }
+      stream.on('data', d => console.log(d.toString().trim()));
+      stream.on('close', () => {
+        console.log('\n✅ 部署完成');
+        conn.end();
+      });
+    });
+  }
+  
+  copyNextFile();
 });
 
-conn.on('end', () => {
-  console.log('SSH连接已关闭');
+conn.on('error', e => console.error(`SSH连接失败: ${e.message}`));
+conn.connect({ 
+  host: '10.253.33.233', 
+  port: 8500, 
+  username: 'qianli', 
+  password: 'cquqianli2026' 
 });
-
-console.log('正在连接到 NAS...');
-conn.connect(config);
