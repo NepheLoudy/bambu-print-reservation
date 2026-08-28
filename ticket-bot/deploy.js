@@ -31,9 +31,13 @@ function runGitCommands() {
     execSync('git commit -m "chore: 自动部署更新"');
 
     console.log('推送代码到 GitHub...');
-    execSync('git push origin main');
+    try {
+      execSync('git push origin main');
+      console.log('✅ 代码已推送到 GitHub');
+    } catch (pushErr) {
+      console.warn('⚠️ Git push 失败，但继续部署:', pushErr.message);
+    }
 
-    console.log('✅ 代码已推送到 GitHub');
     return true;
   } catch (err) {
     console.error('❌ Git 操作失败:', err.message);
@@ -42,27 +46,36 @@ function runGitCommands() {
 }
 
 const envTemplate = `PORT=${PORT}
-APP_ID=
-APP_SECRET=
+APP_ID=cli_aac7e6f6cdf8dcc0
+APP_SECRET=Z11s3UBWL2pivBCcc1zJnfJInKWmaYjN
 # 源表（工单录入表）
-BITABLE_APP_TOKEN=
-SOURCE_TABLE_ID=
-# 目标表（整理后的工单表）
+BITABLE_APP_TOKEN=ZlVZbXDkRayUzSsFRiycznmZn5b
+SOURCE_TABLE_ID=tblFA6Pj4Mv83Mb0
+# 目标表（项目看板）
 TARGET_BITABLE_APP_TOKEN=
-TARGET_TABLE_ID=
+TARGET_TABLE_ID=tblIcyn9814CsgaH
 # 字段映射
 FIELD_MAPPING=
 SYNC_KEY_FIELD=源记录ID
+CATEGORY_FIELD=category
 # 群播报路由
-ROUTE_FIELD=工单分类
+ROUTE_FIELD=面向组别
 GROUP_ROUTES=
 DEFAULT_CHAT_ID=
-TITLE_FIELD=工单标题
-STATUS_FIELD=工单状态
-PENDING_STATUS=待处理
-WATCHED_FIELDS=
-BROADCAST_ON=create,update
+TITLE_FIELD=申请编号
+STATUS_FIELD=申请状态
+PENDING_STATUS=
+DISPLAY_FIELDS=需求,发起人,理想结单时间,发起人部门
+# 是否指定人员负责分支
+ASSIGN_FIELD=是否指定人员负责
+ASSIGN_YES_VALUE=是
+ASSIGN_NO_VALUE=否
+ASSIGNEE_FIELD=指定负责人
+USER_GROUPS=
+# 组长映射
+GROUP_LEADERS=
 # 事件订阅
+BROADCAST_ON=create
 FEISHU_USE_LONG_CONNECTION=true
 FEISHU_VERIFICATION_TOKEN=
 FEISHU_ENCRYPT_KEY=
@@ -155,8 +168,7 @@ async function main() {
   const hasChanges = runGitCommands();
 
   if (!hasChanges) {
-    console.log('\n=== 跳过部署 ===');
-    process.exit(0);
+    console.log('\n=== 没有代码变更，直接部署到 NAS ===');
   }
 
   deployToNAS();
