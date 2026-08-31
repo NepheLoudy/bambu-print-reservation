@@ -203,6 +203,7 @@ bambu-print-server/
 - 服务器需与打印机在同一局域网（或配置端口转发）
 - 复用knowledge-tracker的飞书应用和机器人webhook时，两个系统消息会发到同一个群
 - 端口默认为3001，与knowledge-tracker（3000）不冲突
+- 飞书事件统一由 **feishu-gateway**（本机 :3010）持有长连接并转发到本服务 `/api/feishu/event`，本服务设置 `FEISHU_USE_LONG_CONNECTION=false`；网关会把 V2 表格事件转换为本服务期望的 `bitable.record.create/update` 旧版结构（含 `record.fields`），预约/打印队列事件链路依赖此转发
 
 ## 🛠️ 技术栈
 

@@ -1,34 +1,28 @@
 {
-  "name": "bambu-print-server",
+  "name": "feishu-gateway",
   "version": "1.0.0",
-  "description": "Bambu Lab 3D打印预约系统 - 飞书联动",
+  "description": "飞书事件网关 - 共用应用的唯一长连接持有者，把事件按规则转发给各机器人",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "deploy": "node push.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "smoke": "node smoke-test.js",
     "push": "node push.js"
   },
   "keywords": [
-    "bambu",
-    "3d-printing",
     "feishu",
-    "reservation"
+    "lark",
+    "gateway",
+    "bot"
   ],
   "author": "",
   "license": "MIT",
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.2.0",
-    "bambu-link": "^1.1.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "ftp": "^0.3.10",
-    "lowdb": "^7.0.1",
-    "node-cron": "^3.0.3",
-    "ssh2": "^1.17.0",
-    "ws": "^8.17.1"
+    "ssh2": "^1.17.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"

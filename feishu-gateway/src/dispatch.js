@@ -1,0 +1,257 @@
+const lark = require('@larksuiteoapi/node-sdk');
+const config = require('./config');
+
+// 已处理事件去重（飞书可能对同一事件重复投递；机器人侧也有 message_id 去重兜底）
+const seenEvents = new Set();
+const SEEN_MAX = 2000;
+
+// 指令转发结果代回复用的飞书客户端（懒加载，未配凭证时为 null）
+let larkClient = null;
+
+function getLarkClient() {
+  if (!larkClient && config.feishu.appId && config.feishu.appSecret) {
+    larkClient = new lark.Client({
+      appId: config.feishu.appId,
+      appSecret: config.feishu.appSecret,
+      appType: lark.AppType.SelfBuild,
+      domain: lark.Domain.FeiShu,
+    });
+  }
+  return larkClient;
+}
+
+function rememberKey(key) {
+  if (seenEvents.has(key)) return true;
+  seenEvents.add(key);
+  if (seenEvents.size > SEEN_MAX) {
+    seenEvents.delete(seenEvents.values().next().value);
+  }
+  return false;
+}
+
+/**
+ * SDK 长连接投递的 data 可能是 {header, event} 包装结构，也可能是扁平事件体。
+ * 统一归一化为飞书 HTTP 回调同款 {schema, header, event} 结构后再转发。
+ */
+function normalizeFrame(eventType, data) {
+  const header =
+    data && data.header && data.header.event_type
+      ? data.header
+      : Object.assign({ event_type: eventType }, (data && data.header) || {});
+  const event = data && data.event !== undefined ? data.event : data;
+  return { schema: '2.0', header, event };
+}
+
+function findConsumer(name) {
+  return config.consumers.find((c) => c.name === name) || null;
+}
+
+function extractText(message) {
+  if (!message) return '';
+  if (message.message_type && message.message_type !== 'text') return '';
+  // content 兼容两种形态：HTTP 回调/网关转发里是 JSON 字符串，SDK 某些版本里直接是对象
+  let content = message.content;
+  if (typeof content === 'string') {
+    try {
+      content = JSON.parse(content || '{}');
+    } catch (err) {
+      return '';
+    }
+  }
+  return String((content && content.text) || '')
+    .replace(/@_user_\d+\s*/g, '')
+    .replace(/@_bot_\d+\s*/g, '')
+    .replace(/@_everyone\s*/g, '')
+    .trim();
+}
+
+function isMentioned(message) {
+  if (!message || !Array.isArray(message.mentions)) return false;
+  return message.mentions.some(
+    (m) => m && (m.id === 'self' || m.mentioned_type === 'app' || String(m.key || '').startsWith('@_bot'))
+  );
+}
+
+function parseCommand(text) {
+  if (!text || !text.startsWith('/')) return null;
+  const parts = text.split(/\s+/);
+  return { command: parts[0].toLowerCase(), args: parts.slice(1) };
+}
+
+async function postJson(url, body) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    const json = await res.json().catch(() => null);
+    return { ok: res.ok, status: res.status, body: json };
+  } catch (err) {
+    return { ok: false, status: 0, error: err.message };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function withToken(frame) {
+  return config.verificationToken ? Object.assign({}, frame, { token: config.verificationToken }) : frame;
+}
+
+function logDelivery(consumerName, what, result) {
+  if (result.ok) {
+    console.log(`[转发] → ${consumerName} ${what} ✓`);
+  } else {
+    const reason = result.error ? `error: ${result.error}` : `HTTP ${result.status}`;
+    console.error(`[转发] → ${consumerName} ${what} ✗ ${reason}`);
+  }
+}
+
+/**
+ * 指令端点（/api/chat/command）只返回 {reply} 文本，不感知来源会话，
+ * 由网关代为回复到原消息（与 hub 转发后回复的行为一致）
+ */
+async function replyText(messageId, text) {
+  const client = getLarkClient();
+  if (!client || !messageId) return;
+  try {
+    await client.im.message.reply({
+      params: { message_id: messageId },
+      data: { content: JSON.stringify({ text }), msg_type: 'text' },
+    });
+  } catch (err) {
+    console.error('[转发] 代回复指令结果失败:', err.message);
+  }
+}
+
+async function deliverTo(consumer, mode, frame, text) {
+  if (mode === 'command' && consumer.commandUrl) {
+    const parsed = parseCommand(text);
+    if (parsed) {
+      const result = await postJson(consumer.commandUrl, { command: parsed.command, args: parsed.args });
+      logDelivery(consumer.name, `指令 ${parsed.command}`, result);
+      if (result.ok && result.body && result.body.reply) {
+        await replyText(frame.event && frame.event.message && frame.event.message.message_id, result.body.reply);
+      } else if (!result.ok) {
+        // 下游服务不可用：给用户一个兜底回复，避免指令石沉大海
+        await replyText(
+          frame.event && frame.event.message && frame.event.message.message_id,
+          `❌ ${consumer.name} 服务暂不可用，请稍后再试`
+        );
+      }
+      return result;
+    }
+    // 命中 prefix 规则但不是 / 指令文本，退回原始事件转发
+  }
+  const result = await postJson(consumer.eventUrl, withToken(frame));
+  logDelivery(consumer.name, `事件 ${frame.header.event_type}`, result);
+  return result;
+}
+
+async function routeMessage(frame) {
+  const event = frame.event || {};
+  const message = event.message || {};
+  const text = extractText(message);
+  const mentioned = isMentioned(message);
+
+  if (!text && message && message.message_id) {
+    console.log(
+      `[路由] 未提取到文本 message_id=${message.message_id} message_type=${message.message_type} ` +
+      `content=${typeof message.content}:${String(JSON.stringify(message.content) || '').slice(0, 120)}`
+    );
+  }
+
+  for (const rule of config.messageRoutes) {
+    const m = rule.match || {};
+    if (m.chatId && message.chat_id !== m.chatId) continue;
+    if (m.mention && !mentioned) continue;
+    if (m.prefix && !text.toLowerCase().startsWith(String(m.prefix).toLowerCase())) continue;
+    if (m.contains && !text.toLowerCase().includes(String(m.contains).toLowerCase())) continue;
+
+    const consumer = findConsumer(rule.target);
+    if (consumer) {
+      console.log(`[路由] 消息命中规则 ${JSON.stringify(m)} → ${consumer.name} (${rule.mode || 'event'}) text="${text.slice(0, 50)}"`);
+      return deliverTo(consumer, rule.mode || 'event', frame, text);
+    }
+    console.warn(`[路由] 规则目标 ${rule.target} 未在 CONSUMERS 中定义，继续匹配下一条规则`);
+  }
+
+  const fallback = findConsumer(config.defaultTarget);
+  if (!fallback) {
+    console.warn(`[路由] 无匹配规则且默认目标 ${config.defaultTarget} 未定义，消息丢弃: "${text.slice(0, 50)}"`);
+    return { ok: false, dropped: true };
+  }
+  console.log(`[路由] 消息走默认目标 → ${fallback.name} text="${text.slice(0, 50)}"`);
+  return deliverTo(fallback, 'event', frame, text);
+}
+
+async function fanoutBitable(frame) {
+  const tableId = frame.event && frame.event.table_id;
+  const names = config.bitableTargets.length ? config.bitableTargets : config.consumers.map((c) => c.name);
+
+  for (const name of names) {
+    const consumer = findConsumer(name);
+    if (!consumer) {
+      console.warn(`[路由] bitable 目标 ${name} 未在 CONSUMERS 中定义，跳过`);
+      continue;
+    }
+
+    if (consumer.legacy) {
+      // 旧版结构消费者（如 bambu）：把 V2 action_list 拆成单记录 create/update 事件
+      const items = (frame.event && frame.event.action_list) || [];
+      const typeMap = { record_added: 'bitable.record.create', record_edited: 'bitable.record.update' };
+      for (const item of items) {
+        const legacyType = typeMap[item.action];
+        if (!legacyType) continue;
+        const legacyFrame = {
+          schema: '2.0',
+          header: { event_type: legacyType },
+          event: {
+            table_id: tableId,
+            record: { record_id: item.record_id, fields: item.after_value || item.before_value || {} },
+          },
+        };
+        const result = await postJson(consumer.eventUrl, withToken(legacyFrame));
+        logDelivery(consumer.name, `${legacyType} record=${item.record_id}`, result);
+      }
+    } else {
+      const result = await postJson(consumer.eventUrl, withToken(frame));
+      logDelivery(consumer.name, `bitable table=${tableId}`, result);
+    }
+  }
+}
+
+/**
+ * 事件总入口：归一化 → 去重 → 按类型分发
+ */
+async function dispatchFrame(eventType, data) {
+  const frame = normalizeFrame(eventType, data);
+
+  const dedupId = frame.header.event_id || (frame.event && frame.event.message && frame.event.message.message_id) || '';
+  if (dedupId && rememberKey(`${frame.header.event_type}:${dedupId}`)) {
+    console.log(`[网关] 重复事件，跳过: ${frame.header.event_type}:${dedupId}`);
+    return { ok: true, duplicated: true };
+  }
+
+  const type = frame.header.event_type;
+  if (type === 'im.message.receive_v1') {
+    return routeMessage(frame);
+  }
+  if (type === 'drive.file.bitable_record_changed_v1') {
+    return fanoutBitable(frame);
+  }
+  console.log(`[网关] 未配置分发逻辑的事件类型: ${type}，已忽略`);
+  return { ok: true, ignored: true };
+}
+
+module.exports = {
+  dispatchFrame,
+  replyText,
+  normalizeFrame,
+  extractText,
+  isMentioned,
+  parseCommand,
+};
