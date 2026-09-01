@@ -12,12 +12,13 @@ const DEFAULT_CONSUMERS = [
 
 // 消息事件路由默认规则（可用 MESSAGE_ROUTES 环境变量整体覆盖）
 // 按顺序匹配，命中即停；全部未命中转发给 defaultTarget（event 模式）
-const APPROVAL_CHAT_ID = 'oc_1ea53731a8772400450da6ab107f8331';
+//
+// ⚠️ qianli 架构铁律：除工单接单监听外，所有对话/指令逻辑统一由
+// 对话型机器人（hub = knowledge-tracker / 爆米花机-对话型）触发，
+// 由它转发给专项服务（/approval-* → approval-bot、/print-* → bambu）。
+// 专项机器人只提供 /api/chat/command 指令端点，不直接消费对话。
 const DEFAULT_MESSAGE_ROUTES = [
-  // 审批群：任何 / 指令直接交给 approval-bot（无需 @，网关代回复）
-  { match: { chatId: APPROVAL_CHAT_ID, prefix: '/' }, target: 'approval', mode: 'command' },
-  { match: { prefix: '/approval' }, target: 'approval', mode: 'command' },
-  { match: { prefix: '/print' }, target: 'bambu', mode: 'command' },
+  // 例外：工单域消息由 ticket-bot 处理（接单监听 + 工单指令）
   { match: { prefix: '/ticket' }, target: 'ticket', mode: 'event' },
   { match: { contains: '接单', mention: true }, target: 'ticket', mode: 'event' },
 ];
