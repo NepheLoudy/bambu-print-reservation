@@ -4,7 +4,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 // 下游机器人消费者默认清单（可用 CONSUMERS 环境变量整体覆盖）
 // 格式：名称|事件回调URL|指令转发URL(可选)|标记(可选, legacy=按旧版事件结构转发)
 const DEFAULT_CONSUMERS = [
-  'hub|http://localhost:2174/api/feishu/event',
+  'hub|http://localhost:3000/api/feishu/event',
   'approval|http://localhost:3002/api/feishu/event|http://localhost:3002/api/chat/command',
   'bambu|http://localhost:3001/api/feishu/event|http://localhost:3001/api/chat/command|legacy',
   'ticket|http://localhost:3003/api/feishu/event',
@@ -12,7 +12,10 @@ const DEFAULT_CONSUMERS = [
 
 // 消息事件路由默认规则（可用 MESSAGE_ROUTES 环境变量整体覆盖）
 // 按顺序匹配，命中即停；全部未命中转发给 defaultTarget（event 模式）
+const APPROVAL_CHAT_ID = 'oc_1ea53731a8772400450da6ab107f8331';
 const DEFAULT_MESSAGE_ROUTES = [
+  // 审批群：任何 / 指令直接交给 approval-bot（无需 @，网关代回复）
+  { match: { chatId: APPROVAL_CHAT_ID, prefix: '/' }, target: 'approval', mode: 'command' },
   { match: { prefix: '/approval' }, target: 'approval', mode: 'command' },
   { match: { prefix: '/print' }, target: 'bambu', mode: 'command' },
   { match: { prefix: '/ticket' }, target: 'ticket', mode: 'event' },
