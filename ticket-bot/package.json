@@ -6,10 +6,8 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "deploy": "node deploy.js",
-    "deploy:check": "node deploy-local.js",
-    "deploy:config": "node deploy-config.js",
-    "auto-deploy": "node auto-deploy.js",
+    "deploy": "node push.js",
+    "push": "node push.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
@@ -23,6 +21,7 @@
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.2.0",
     "cors": "^2.8.5",
+    "dayjs": "^1.11.13",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "node-cron": "^3.0.3",

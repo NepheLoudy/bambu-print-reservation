@@ -1,19 +1,23 @@
 const config = require('../config');
 const bitableApi = require('../feishu/bitable');
-const { normalizeForWrite } = require('../utils/fields');
+const { normalizeForWrite, toDateOnlyTimestamp } = require('../utils/fields');
+const { resolvePersonGroups, buildPersonFieldsByGroups } = require('../utils/personFields');
 
 /**
  * 同步服务：将工单记录搬运到项目看板
  * - category 有值时触发
  * - name 字段值作为父项目名称，在项目看板中查找匹配记录作为 parentId
- * - 指定负责人按组别填到对应人员字段
+ * - 指定负责人按其所属组别填到对应人员字段（机械→owner，电控/硬件→dkyjcontributers，视觉→sjcontributers，宣运→xycontributers）
  */
 
 // ============================================================
 // 状态映射：工单申请状态 → 项目看板 status
+// 已通过=发起人已结单 → completed；已拒绝/撤回等 → died
+// 审批中按审批节点推进：
+//   - 触发节点（有组员接单后通过/负责人确认消息后通过）→ waiting（等待接单/等待负责人确认）
+//   - 回执单节点（负责人已确认接单）→ in_progress
 // ============================================================
 const STATUS_MAPPING = {
-  '审批中': 'in_progress',
   '已通过': 'completed',
   '已删除': 'died',
   '已拒绝': 'died',
@@ -22,59 +26,29 @@ const STATUS_MAPPING = {
   '已撤回': 'died',
 };
 
-function mapStatus(applyStatus) {
-  if (!applyStatus) return 'pending';
-  return STATUS_MAPPING[applyStatus] || 'pending';
+function statusRank(s) {
+  return { pending: 0, waiting: 1, in_progress: 2, completed: 3, died: 4 }[s] ?? 0;
 }
 
-// ============================================================
-// 组别 → 项目看板人员字段映射
-// ============================================================
-const GROUP_TO_PERSON_FIELD = {
-  '机械组': 'owner',
-  '电控组': 'dkyjcontributers',
-  '硬件组': 'dkyjcontributers',
-  '视觉组': 'sjcontributers',
-  '宣运组': 'xycontributers',
-  '管理层': 'owner', // 管理层默认归到 owner
-};
-
 /**
- * 根据组别和指定负责人，构造项目看板的人员字段
- * @param {Array<string>} groups 组别数组（面向组别）
- * @param {{id: string, name: string}|null} assignee 指定负责人
- * @returns {object} 人员字段对象 { owner: [...], dkyjcontributers: [...], ... }
+ * status 只向前推进，防止对账 upsert 把业务事件（接单确认→in_progress）重置回 waiting
+ * completed/died 为终态直接覆盖
  */
-function buildPersonFields(groups, assignee) {
-  const personFields = {
-    owner: [],
-    dkyjcontributers: [],
-    sjcontributers: [],
-    xycontributers: [],
-  };
+function shouldOverrideStatus(current, target) {
+  if (target === 'completed' || target === 'died') return true;
+  return statusRank(target) >= statusRank(current);
+}
 
-  if (!assignee || !assignee.id) {
-    return personFields;
+function mapStatus(applyStatus, approvalNode) {
+  if (!applyStatus) return 'pending';
+  if (STATUS_MAPPING[applyStatus]) return STATUS_MAPPING[applyStatus];
+
+  // 审批中：按审批节点推进
+  if (approvalNode) {
+    if (approvalNode === config.approvalNode.closeValue) return 'in_progress';
+    if (config.approvalNode.acceptValues.includes(approvalNode)) return 'waiting';
   }
-
-  // 指定负责人按组别填到对应字段
-  const assigneeGroups = groups && groups.length > 0 ? groups : ['机械组']; // 默认归到机械组
-  const assignedFields = new Set();
-
-  for (const group of assigneeGroups) {
-    const fieldName = GROUP_TO_PERSON_FIELD[group];
-    if (fieldName && !assignedFields.has(fieldName)) {
-      personFields[fieldName] = [{ id: assignee.id }];
-      assignedFields.add(fieldName);
-    }
-  }
-
-  // 如果没有匹配到任何字段，默认放到 owner
-  if (assignedFields.size === 0) {
-    personFields.owner = [{ id: assignee.id }];
-  }
-
-  return personFields;
+  return 'pending';
 }
 
 /**
@@ -120,9 +94,10 @@ function hasCategory(fields) {
  * @param {object} sourceFields 工单字段
  * @param {string} sourceRecordId 工单 record_id
  * @param {string|null} parentRecordId 父项目 record_id
+ * @param {string[]|null} assigneeGroups 指定负责人所属组别（已解析，空则不填人员字段）
  * @returns {object} 项目看板字段
  */
-function buildTargetFields(sourceFields, sourceRecordId, parentRecordId) {
+async function buildTargetFields(sourceFields, sourceRecordId, parentRecordId, assigneeGroups = null) {
   const targetFields = {};
 
   // 1. 源记录ID（查重依据）
@@ -133,9 +108,9 @@ function buildTargetFields(sourceFields, sourceRecordId, parentRecordId) {
     targetFields['category'] = sourceFields['category'];
   }
 
-  // 3. ddl（理想结单时间）
+  // 3. ddl（理想结单时间，去掉时分秒）
   if (sourceFields['理想结单时间']) {
-    targetFields['ddl'] = sourceFields['理想结单时间'];
+    targetFields['ddl'] = toDateOnlyTimestamp(sourceFields['理想结单时间']);
   }
 
   // 4. fileToken（需求）
@@ -146,24 +121,33 @@ function buildTargetFields(sourceFields, sourceRecordId, parentRecordId) {
   // 5. priority 默认 low
   targetFields['priority'] = 'low';
 
-  // 6. status（根据申请状态映射）
+  // 6. status（申请状态 + 审批节点推进：已通过→completed，等待接单/确认→waiting，回执单→in_progress）
   const applyStatus = sourceFields['申请状态'];
-  targetFields['status'] = mapStatus(applyStatus);
+  const approvalNode = config.approvalNode.field ? sourceFields[config.approvalNode.field] : '';
+  targetFields['status'] = mapStatus(applyStatus, approvalNode);
 
   // 7. parentId（父项目关联）
   if (parentRecordId) {
     targetFields['parentId'] = [parentRecordId];
   }
 
-  // 8. 人员字段（指定负责人按组别填）
-  const groups = sourceFields['面向组别'];
+  // 8. 人员字段（指定负责人按其所属组别填）
   const assignee = sourceFields['指定负责人']?.[0] || null;
-  const personFields = buildPersonFields(groups, assignee);
-  Object.assign(targetFields, personFields);
+  if (assignee?.id) {
+    const groups = assigneeGroups && assigneeGroups.length > 0
+      ? assigneeGroups
+      : (sourceFields['面向组别'] || []).map(String);
+    Object.assign(targetFields, buildPersonFieldsByGroups(groups, assignee.id));
+  }
 
-  // 9. name（工单标题，用于识别）
-  const title = sourceFields['申请编号'] || sourceFields['需求'] || sourceFields['需求1'] || `工单-${sourceRecordId.slice(-6)}`;
-  targetFields['name'] = typeof title === 'string' ? title : (title.text || title.link || `工单-${sourceRecordId.slice(-6)}`);
+  // 9. name：支持项目统一命名「（category支持项目）」；category 为空时回退申请编号/需求
+  const category = sourceFields['category'];
+  if (category) {
+    targetFields['name'] = `（${category}支持项目）`;
+  } else {
+    const title = sourceFields['申请编号'] || sourceFields['需求'] || sourceFields['需求1'] || `工单-${sourceRecordId.slice(-6)}`;
+    targetFields['name'] = typeof title === 'string' ? title : (title.text || title.link || `工单-${sourceRecordId.slice(-6)}`);
+  }
 
   return targetFields;
 }
@@ -182,23 +166,56 @@ async function findTargetRecordByKey(sourceRecordId) {
 }
 
 /**
+ * 确保目标表存在「源记录ID」查重字段（缺失时创建，仅尝试一次）
+ */
+let keyFieldReady = false;
+async function ensureKeyField() {
+  if (keyFieldReady) return;
+  try {
+    await bitableApi.createField(
+      config.bitable.targetAppToken,
+      config.bitable.targetTableId,
+      config.sync.syncKeyField
+    );
+    console.log(`[同步服务] 已在目标表创建查重字段「${config.sync.syncKeyField}」`);
+  } catch (err) {
+    // 字段已存在或创建失败：不阻断后续同步（已存在时 upsert 依赖的字段可用）
+  }
+  keyFieldReady = true;
+}
+
+/**
  * 同步单条工单记录到项目看板
  * @param {{record_id: string, fields: object}} sourceRecord
  * @returns {Promise<{action: 'created'|'updated', targetRecordId: string, parentRecordId: string|null}>}
  */
 async function syncRecord(sourceRecord) {
+  await ensureKeyField();
+
   const { record_id, fields } = sourceRecord;
 
   // 1. 查找父项目（name 字段值）
   const parentName = fields['name'];
   const parentRecordId = await findParentProject(parentName);
 
-  // 2. 构造目标字段
-  const targetFields = buildTargetFields(fields, record_id, parentRecordId);
+  // 2. 指定负责人按其所属组别解析（USER_GROUPS → 通讯录 → 面向组别兜底）
+  const assignee = fields['指定负责人']?.[0] || null;
+  const routeGroups = config.broadcast.routeField ? fields[config.broadcast.routeField] : null;
+  const assigneeGroups = assignee ? await resolvePersonGroups(routeGroups, assignee) : null;
 
-  // 3. 查重 upsert
+  // 3. 构造目标字段
+  const targetFields = await buildTargetFields(fields, record_id, parentRecordId, assigneeGroups);
+
+  // 3. 查重 upsert（status 只向前推进，防止把业务事件状态重置回 waiting）
   const existing = await findTargetRecordByKey(record_id);
   if (existing) {
+    const currentStatus = existing.fields['status'];
+    const targetStatus = targetFields['status'];
+    if (currentStatus && targetStatus && !shouldOverrideStatus(currentStatus, targetStatus)) {
+      console.log(`[同步服务] status 防倒退: ${record_id} 保持 ${currentStatus}（目标 ${targetStatus}）`);
+      delete targetFields['status'];
+    }
+
     await bitableApi.updateRecord(
       config.bitable.targetAppToken,
       config.bitable.targetTableId,
@@ -287,5 +304,5 @@ module.exports = {
   syncAll,
   updateProjectStatus,
   mapStatus,
-  buildPersonFields,
+  shouldOverrideStatus,
 };

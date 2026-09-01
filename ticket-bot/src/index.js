@@ -5,6 +5,7 @@ const { startEventSubscription, processBitableEvent } = require('./feishu/eventS
 const { processChatMessage } = require('./services/chatService');
 const ticketService = require('./services/ticketService');
 const syncService = require('./services/syncService');
+const unclosedService = require('./services/unclosedService');
 const { startCronJobs, runSummary, getCronStatus, getSummaryHistory } = require('./cron');
 
 const app = express();
@@ -23,6 +24,17 @@ app.get('/api/health', (req, res) => {
 });
 
 // ---------- 工单查询 ----------
+
+// 未结单工单按「负责人所属组别」分桶（键为群 chatId），供 pm-robot DDL 播报分组分栏
+app.get('/api/tickets/unclosed-by-group', async (req, res) => {
+  try {
+    const result = await unclosedService.getUnclosedByGroup();
+    res.json({ result });
+  } catch (err) {
+    console.error('[API] 未结单工单分组查询失败:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 app.get('/api/tickets', async (req, res) => {
   try {
@@ -120,6 +132,32 @@ app.get('/api/bot/cron-status', (req, res) => {
   res.json(getCronStatus());
 });
 
+// 手动补播指定工单（漏播修复，走去重集合保证幂等）
+app.post('/api/bot/rebroadcast', async (req, res) => {
+  try {
+    const recordId = req.body?.recordId;
+    if (!recordId) {
+      return res.status(400).json({ error: '缺少 recordId' });
+    }
+    const result = await ticketService.rebroadcastRecord(recordId);
+    res.json({ success: true, result });
+  } catch (err) {
+    console.error('补播失败:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 手动触发播报对账（扫描触发节点工单，漏播补播/漏搬补搬）
+app.post('/api/bot/reconcile', async (req, res) => {
+  try {
+    const result = await ticketService.reconcileBroadcasts();
+    res.json({ success: true, result });
+  } catch (err) {
+    console.error('对账失败:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---------- 飞书事件 HTTP 回调（长连接未启用时使用） ----------
 
 app.post('/api/feishu/event', async (req, res) => {
@@ -137,6 +175,28 @@ app.post('/api/feishu/event', async (req, res) => {
     console.log('[HTTP回调] 已启用长连接模式，跳过HTTP回调事件处理');
     res.json({ code: 0, msg: 'success' });
     return;
+  }
+
+  if (header?.event_type === 'drive.file.bitable_record_changed_v1') {
+    setImmediate(async () => {
+      try {
+        // V2 事件结构（长连接/网关转发同款）：event.action_list[] 内含 { action, record_id, after_value }
+        const actionList = event?.action_list || [];
+        for (const item of actionList) {
+          const actionType =
+            item.action === 'record_added' ? 'create' : item.action === 'record_edited' ? 'update' : null;
+          if (!actionType) continue;
+          await processBitableEvent({
+            table_id: event?.table_id,
+            record_id: item.record_id,
+            action_type: actionType,
+            fields: item.after_value || item.before_value || undefined,
+          });
+        }
+      } catch (err) {
+        console.error('处理飞书事件失败:', err);
+      }
+    });
   }
 
   if (header?.event_type === 'bitable.record.create' || header?.event_type === 'bitable.record.update') {

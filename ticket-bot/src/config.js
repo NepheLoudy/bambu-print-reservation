@@ -137,6 +137,8 @@ const config = {
     displayFields: parseListConfig(process.env.DISPLAY_FIELDS),
     watchedFields: parseListConfig(process.env.WATCHED_FIELDS),
     on: parseListConfig(process.env.BROADCAST_ON || 'create'),
+    // 播报标记字段（写回源表，跨重启防重播；长连接事件被共用应用的其他连接抢走时由轮询对账兜底）
+    markField: process.env.BROADCAST_MARK_FIELD === '' ? '' : (process.env.BROADCAST_MARK_FIELD || '已播报'),
   },
 
   // 「是否指定人员负责」分支
@@ -146,8 +148,27 @@ const config = {
     noValue: process.env.ASSIGN_NO_VALUE || '否',
     // 指定负责人字段（人员类型）
     assigneeField: process.env.ASSIGNEE_FIELD || '',
+    // 接单确认后，将接单人写入源表该字段（人员类型）
+    supplementField: process.env.SUPPLEMENT_ASSIGNEE_FIELD || '补充负责人',
     // 人员所属组别映射（姓名或open_id:组别名），优先级最高
     userGroups: parseUserGroups(process.env.USER_GROUPS),
+  },
+
+  // 审批节点监听（替代「申请状态」作为播报与超时判断依据）
+  approvalNode: {
+    field: process.env.APPROVAL_NODE_FIELD || '审批节点',
+    // 触发播报 / 6小时未接单判断的节点值（逗号分隔多个，支持不同审批流的节点名）
+    acceptValues: parseListConfig(
+      process.env.APPROVAL_NODE_ACCEPT_VALUE || '有组员接单后通过,负责人确认消息后通过'
+    ),
+    // 触发结单提醒的节点值
+    closeValue: process.env.APPROVAL_NODE_CLOSE_VALUE || '回执单：是否结单',
+  },
+
+  // 结单提醒（临近理想结单时间时，应用机器人先私聊，未结单再转群引导）
+  closeReminder: {
+    deadlineField: process.env.DEADLINE_FIELD || '理想结单时间',
+    leadDays: Number(process.env.CLOSE_REMINDER_LEAD_DAYS || 1),
   },
 
   // 组长映射（组别名:组长open_id或姓名）
@@ -162,6 +183,9 @@ const config = {
   bot: {
     name: process.env.BOT_NAME || '工单机器人',
   },
+
+  // 忽略的群聊（其对话能力由其他项目机器人提供，如审批群归属 approval-bot）
+  ignoreChatIds: parseListConfig(process.env.IGNORE_CHAT_IDS),
 
   cron: {
     schedule: process.env.CRON_SCHEDULE || '',
