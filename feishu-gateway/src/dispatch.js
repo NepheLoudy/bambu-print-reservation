@@ -68,7 +68,7 @@ function extractText(message) {
 function isMentioned(message) {
   if (!message || !Array.isArray(message.mentions)) return false;
   return message.mentions.some(
-    (m) => m && (m.id === 'self' || m.mentioned_type === 'app' || String(m.key || '').startsWith('@_bot'))
+    (m) => m && (m.id === 'self' || m.mentioned_type === 'app' || m.mentioned_type === 'bot' || String(m.key || '').startsWith('@_bot'))
   );
 }
 
