@@ -28,6 +28,8 @@ npm run push "feat: 说明"
 
 push.js 依次做：① git add -A + commit + push（本地推 GitHub 失败不阻断）→ ② NAS 同步代码（git fetch 失败**自动降级 SFTP 打包直传**，NAS 访问不了 GitHub 是常态）→ ③ 上传本地 `.env` 到 NAS（覆盖）→ ④ npm install + pm2 restart。跑完必须看输出里的 ⚠ 行确认走了哪条路径。
 
+**每次 push 都必须在本项目 `DEVLOG.md` 文末追加一节 `vN · 日期 · 提交哈希`（一次 push = 一版，feat/fix/docs/chore 均记，revert 也记）**，格式与细则见顶层 AGENTS.md「开发日志（DEVLOG）」节。
+
 例外：`feishu-gateway` 和 `bambu-print-reservation` 在顶层 monorepo 内没有独立远端——gateway 的 push.js 只暂存 `feishu-gateway/` 路径，bambu 纯 SFTP 无 git 步骤。
 
 ## .env 规则（最重要，出过事故）

@@ -2,7 +2,6 @@ const config = require('../config');
 const reservationService = require('../services/reservation');
 const approvalService = require('../services/approvalService');
 const dispatcher = require('../services/dispatcher');
-
 // ============================================================
 // 事件订阅（事件由 feishu-gateway 转发，本服务不开长连接）
 //
@@ -76,8 +75,20 @@ async function processApprovalEvent(event) {
   }
 }
 
+/**
+ * 处理网关转发的审批任务事件（approval_task：自动审批入口）
+ */
+async function processApprovalTaskEvent(event) {
+  try {
+    await approvalService.handleApprovalTaskEvent(event || {});
+  } catch (err) {
+    console.error('[事件订阅] 处理审批任务事件失败:', err.message);
+  }
+}
+
 module.exports = {
   startEventSubscription,
   processBitableEvent,
   processApprovalEvent,
+  processApprovalTaskEvent,
 };

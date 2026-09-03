@@ -106,6 +106,9 @@ module.exports = {
     enabled: process.env.APPROVAL_PRIMARY !== 'false',
     // 审批定义 code（审批管理后台可查）。留空 = 不过滤，靠「表单含附件」自适应识别打印审批
     approvalCode: process.env.APPROVAL_CODE || '',
+    // 自动审批：审批流里「自动审批」节点的审批人 open_id（可都填同一个人）。
+    // 该审批人名下的待审批任务到达时，机器人按 AMS 规则自动同意/留人工。留空 = 不自动审批
+    autoApproverId: process.env.APPROVAL_AUTO_APPROVER_ID || '',
   },
 
   colorReference: COLOR_REFERENCE,

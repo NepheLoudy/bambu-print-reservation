@@ -1,6 +1,7 @@
 const config = require('../config');
-const { requestAPI } = require('../feishu/client');
+const { requestAPI, approveTask } = require('../feishu/client');
 const dispatcher = require('./dispatcher');
+const printerManager = require('../printer/manager');
 
 // ============================================================
 // 官方审批直连：审批实例状态变更事件（秒级）驱动打印分发
@@ -149,6 +150,90 @@ async function handleApprovalEvent(event) {
   }
 }
 
+// 自动审批任务去重（task_id 只处理一次）
+const handledTasks = new Set();
+
+/**
+ * 处理 approval_task 事件（审批任务状态变更）：
+ * 任务审批人 == 配置的自动审批人（审批流「自动审批」节点）时，
+ * 按 AMS 规则自动同意（能匹配到材料）或留人工（缺料/无附件）。
+ */
+async function handleApprovalTaskEvent(event) {
+  const autoApproverId = config.approval.autoApproverId;
+  if (!autoApproverId) return; // 未配置自动审批人，不动作
+
+  const evt = event.event && event.event.instance_id ? event.event : event;
+  const instanceId = evt.instance_id;
+  const taskId = evt.task_id;
+  if (!instanceId || !taskId) return;
+  if (handledTasks.has(taskId)) return;
+  handledTasks.add(taskId);
+  if (handledTasks.size > 500) {
+    const first = handledTasks.values().next().value;
+    handledTasks.delete(first);
+  }
+
+  const configuredCode = config.approval.approvalCode;
+  if (configuredCode && evt.approval_code && evt.approval_code !== configuredCode) return;
+
+  let instance;
+  try {
+    instance = await getInstanceDetail(instanceId);
+  } catch (err) {
+    console.error(`[自动审批] 拉取实例详情失败 ${instanceId}:`, err.message);
+    return;
+  }
+  if (!instance || String(instance.status || '').toUpperCase() !== 'PENDING') return;
+
+  // 实例任务清单：确认该 task 的审批人是否为自动审批人（任务未处理）
+  const task = (instance.task_list || []).find((t) => t.id === taskId || t.task_id === taskId);
+  if (!task) return;
+  const taskStatus = String(task.status || '').toUpperCase();
+  if (['DONE', 'APPROVED', 'REJECTED'].includes(taskStatus)) return;
+  const taskApprover = task.user_id || task.approver_id || '';
+  if (taskApprover !== autoApproverId) return;
+
+  const approvalCode = instance.approval_id || evt.approval_code;
+  const parsed = parseForm(instance.form);
+  if (!parsed.attachment) return; // 无附件不是打印审批，不代批
+
+  // 规则：任一 Bambu 打印机 AMS 装载能匹配材料（不要求空闲——排队即可），则自动同意
+  const needMaterial = String(parsed.materialType || '').trim().toUpperCase();
+  const needColor = String(parsed.color || '').trim();
+  const colorRgb = config.colorReference[needColor] || null;
+  const anyMatch = printerManager
+    .getAllPrinterStates()
+    .filter((p) => p.autoDispatch && (p.ams || []).length > 0)
+    .some((p) =>
+      dispatcher.findTray
+        ? dispatcher.findTray(p, needMaterial, colorRgb, 'exact') ||
+          dispatcher.findTray(p, needMaterial, colorRgb, 'family')
+        : true
+    );
+
+  if (!anyMatch) {
+    console.log(`[自动审批] ${instanceId} 缺料（${needMaterial || '任意'}×${needColor || '任意'}），留人工审批`);
+    return;
+  }
+
+  try {
+    const res = await approveTask({
+      approvalCode,
+      instanceCode: instanceId,
+      taskId,
+      userId: autoApproverId,
+      comment: `自动审批：AMS 可匹配 ${needMaterial || '任意材料'}×${needColor || '任意颜色'}，通过后自动分发打印`,
+    });
+    if (res.code !== 0) {
+      console.error(`[自动审批] 同意失败 ${instanceId}: ${res.msg} (code: ${res.code})`);
+    } else {
+      console.log(`[自动审批] 已自动同意 ${instanceId}（task ${taskId}）`);
+    }
+  } catch (err) {
+    console.error(`[自动审批] 调用同意接口失败 ${instanceId}:`, err.message);
+  }
+}
+
 /**
  * 订阅审批定义事件（一次性/幂等）：应用要收到某 approval_code 的事件必须先订阅
  * 用法：node -e "require('./src/services/approvalService').subscribeApproval('<approval_code>')"
@@ -169,5 +254,6 @@ module.exports = {
   parseForm,
   buildTaskFromInstance,
   handleApprovalEvent,
+  handleApprovalTaskEvent,
   subscribeApproval,
 };

@@ -102,10 +102,38 @@ async function downloadApprovalAttachment(attachmentId, name) {
   return res.arrayBuffer();
 }
 
+/**
+ * 同意审批任务（以 user_id（该任务的审批人）身份执行）
+ */
+async function approveTask({ approvalCode, instanceCode, taskId, userId, comment }) {
+  return requestAPI('POST', '/approval/v4/tasks/approve?user_id_type=open_id', {
+    approval_code: approvalCode,
+    instance_code: instanceCode,
+    task_id: taskId,
+    user_id: userId,
+    comment: comment || '',
+  });
+}
+
+/**
+ * 拒绝审批任务
+ */
+async function rejectTask({ approvalCode, instanceCode, taskId, userId, comment }) {
+  return requestAPI('POST', '/approval/v4/tasks/reject?user_id_type=open_id', {
+    approval_code: approvalCode,
+    instance_code: instanceCode,
+    task_id: taskId,
+    user_id: userId,
+    comment: comment || '',
+  });
+}
+
 module.exports = {
   getClient,
   getTenantAccessToken,
   requestAPI,
   downloadFile,
   downloadApprovalAttachment,
+  approveTask,
+  rejectTask,
 };

@@ -4,7 +4,7 @@ const config = require('./config');
 const reservationService = require('./services/reservation');
 const dispatcher = require('./services/dispatcher');
 const printerManager = require('./printer/manager');
-const { startEventSubscription, processBitableEvent, processApprovalEvent } = require('./feishu/eventSubscription');
+const { startEventSubscription, processBitableEvent, processApprovalEvent, processApprovalTaskEvent } = require('./feishu/eventSubscription');
 const {
   processChatMessage,
   executeCommand,
@@ -255,6 +255,17 @@ app.post('/api/feishu/event', async (req, res) => {
         await processApprovalEvent(event || {});
       } catch (err) {
         console.error('处理审批事件失败:', err);
+      }
+    });
+  }
+
+  // 官方审批任务事件（网关转发，秒级）：自动审批入口
+  if (header?.event_type === 'approval_task') {
+    setImmediate(async () => {
+      try {
+        await processApprovalTaskEvent(event || {});
+      } catch (err) {
+        console.error('处理审批任务事件失败:', err);
       }
     });
   }
