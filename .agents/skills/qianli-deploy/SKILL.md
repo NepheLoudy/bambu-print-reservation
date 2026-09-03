@@ -64,6 +64,7 @@ push.js 依次做：① git add -A + commit + push（本地推 GitHub 失败不�
 
 | 症状 | 原因与解法 |
 | --- | --- |
+| NAS 重启后机器人全没 | pm2 开机自启已配置（systemd 单元 `pm2-qianli`，enabled）。恢复：`pm2 resurrect` 或逐个 `pm2 start /opt/<项目>/src/index.js --name <名>`；之后必须 `pm2 save`。曾因无自启单元 + 重启，三个服务静默挂了一整天才被发现 |
 | tar 报 `Cannot connect to C:` | Windows GNU tar 把 `C:` 当主机名，加 `--force-local` 或用相对名 + cwd |
 | 机器人读不到 .env | dotenv 必须显式 `path: path.join(__dirname, '..', '.env')`——pm2 启动的 cwd 不是项目目录 |
 | 部署后起来又挂 | 看 pm2 error 日志；常见是新代码引了 package.json 没有的依赖（如 dayjs 事故），补依赖重新 push |
