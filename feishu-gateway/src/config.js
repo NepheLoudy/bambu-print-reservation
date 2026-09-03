@@ -62,20 +62,20 @@ module.exports = {
     appSecret: process.env.APP_SECRET || '',
   },
   // 长连接订阅的事件类型（逗号分隔），接入新事件类型在这里加
-  // approval_instance = 审批实例状态变更（官方审批事件，秒级；表格同步镜像有半小时延迟，不能作触发源）
+  // approval_instance = 审批实例状态变更；approval_task = 审批任务状态变更（自动审批依据）
   eventTypes: parseList(process.env.EVENT_TYPES).length
     ? parseList(process.env.EVENT_TYPES)
-    : ['im.message.receive_v1', 'drive.file.bitable_record_changed_v1', 'approval_instance'],
+    : ['im.message.receive_v1', 'drive.file.bitable_record_changed_v1', 'approval_instance', 'approval_task'],
   verificationToken: process.env.FEISHU_VERIFICATION_TOKEN || '',
   consumers: envConsumers.length ? envConsumers : parseConsumers(DEFAULT_CONSUMERS.join(';')),
   messageRoutes: parseJsonArray(process.env.MESSAGE_ROUTES, DEFAULT_MESSAGE_ROUTES),
   defaultTarget: process.env.DEFAULT_TARGET || 'hub',
   // 多维表格事件广播目标，留空 = 全部消费者（各机器人按 table_id 自行过滤）
   bitableTargets: parseList(process.env.BITABLE_TARGETS),
-  // 审批实例事件转发目标，留空 = bambu（打印分发以审批状态为准）
+  // 审批实例/任务事件转发目标，留空 = bambu+ticket（打印自动审批 / 工单接单联动）
   approvalTargets: parseList(process.env.APPROVAL_TARGETS).length
     ? parseList(process.env.APPROVAL_TARGETS)
-    : ['bambu'],
+    : ['bambu', 'ticket'],
   // 需要订阅记录变更的云文档 appToken（bitable 记录变更事件的前置条件）
   docSubscribes: parseList(process.env.DOC_SUBSCRIBES),
 };

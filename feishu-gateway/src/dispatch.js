@@ -225,11 +225,11 @@ async function fanoutBitable(frame) {
 }
 
 /**
- * 审批实例事件（approval_instance）→ 定向转发配置的目标（默认 bambu）。
- * 事件体由消费方拉审批实例详情获取状态与表单（官方审批事件不依赖表格同步，秒级）。
+ * 审批事件（approval_instance / approval_task）→ 定向转发配置的目标（默认 bambu+ticket）。
+ * 消费方各自按 approval_code 过滤、拉实例详情决策（官方审批事件不依赖表格同步，秒级）。
  */
 async function fanoutApproval(frame) {
-  const names = config.approvalTargets.length ? config.approvalTargets : ['bambu'];
+  const names = config.approvalTargets.length ? config.approvalTargets : ['bambu', 'ticket'];
   let last = null;
   for (const name of names) {
     const consumer = findConsumer(name);
@@ -238,7 +238,7 @@ async function fanoutApproval(frame) {
       continue;
     }
     const result = await postJson(consumer.eventUrl, withToken(frame));
-    logDelivery(consumer.name, `审批事件 instance=${(frame.event && frame.event.instance_id) || '?'}`, result);
+    logDelivery(consumer.name, `审批事件 ${frame.header.event_type} instance=${(frame.event && frame.event.instance_id) || '?'}`, result);
     last = result;
   }
   return last || { ok: false, dropped: true };
@@ -263,7 +263,7 @@ async function dispatchFrame(eventType, data) {
   if (type === 'drive.file.bitable_record_changed_v1') {
     return fanoutBitable(frame);
   }
-  if (type === 'approval_instance') {
+  if (type === 'approval_instance' || type === 'approval_task') {
     return fanoutApproval(frame);
   }
   console.log(`[网关] 未配置分发逻辑的事件类型: ${type}，已忽略`);
