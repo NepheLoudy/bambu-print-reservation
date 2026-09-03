@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v25**（2026-09-04 `5260175`）。
+当前最新：**v26**（2026-09-04 `37a59aa`）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -95,11 +95,15 @@
 **网关审批事件双通道——approval_instance + approval_task 转发 bambu/ticket（自动审批与工单接单联动）**
 - 自动审批（bambu）与接单自动通过（ticket）两条联动链路当天打通。
 
+## 阶段六 · DEVLOG 规则落地与全量同步（2026-09-04）
+
+### v26 · 2026-09-04 · `37a59aa` · chore
+**落地 DEVLOG 每push一版规则并同步工作区（AGENTS/skill 规则、六份开发历史建档、bambu 审批联调后续、子仓库指针）**
+- 顶层 AGENTS.md 新增「开发日志（DEVLOG）」节、qianli-deploy skill 补记版要求；六份 DEVLOG.md 诞生（按各自 push 历史回溯编号）；
+- 同批归档 bambu 审批联调后续 5 个 src 文件（其 SFTP 部署已先此上线，即 bambu v15）；ticket-bot 顶层快照同步至其自有仓库 v42+ 状态（含 approvalLinkService.js）；approval-bot → `5f4b8af`、pm-robot → `b57fae5` gitlink 指针更新；
+- 本批各项目对应版本：pm-robot v48（`b57fae5`）、approval-bot v16（`5f4b8af`）、ticket-bot v43（`918a2d5`）、bambu v15、gateway v9（`7207c20`）；
+- `tools/rm-battlescope` 为无 .gitmodules 的嵌套仓库（预存指针漂移），本次未纳入同步。
+
 ---
 
-**未发布（已改动未归档）**：
-- bambu `src/` 5 个文件（审批联动联调后续）；
-- ticket-bot 自有仓库已推进到 `b436a35`（v38~v42），顶层快照副本未同步——以 [ticket-bot/DEVLOG.md](ticket-bot/DEVLOG.md) 为准；
-- approval-bot / project-management-robot gitlink 指针待下次归档更新。
-
-**本 DEVLOG 自身**：v1~v25 为 2026-09-04 回溯建档；同批落地「每次 push 记一版」规则（顶层 AGENTS.md + qianli-deploy skill），自下一版起严格执行。
+**本 DEVLOG 自身**：v1~v25 为 2026-09-04 回溯建档；v26 起按「每次 push 记一版」规则持续追加（规则见 [AGENTS.md](AGENTS.md)，qianli-deploy skill 部署流程同有提醒）。

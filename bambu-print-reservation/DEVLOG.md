@@ -2,7 +2,14 @@
 
 版本隔离单位：一次 `npm run push`（= 一次部署）。本项目 push.js 为纯 SFTP 直传、无 git 步骤，**版本锚点取顶层 monorepo 中触碰本路径的归档提交**——两次归档之间的个别部署可能无版本记录。v1~v14 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v14**（2026-09-04 `5260175`）。
+当前最新：**v15**（2026-09-04，顶层归档 `37a59aa`）。
+
+## 阶段四 · 开发历史建档与审批联调收尾（2026-09-04）
+
+### v15 · 2026-09-04 · 顶层归档 `37a59aa` · feat
+**审批联动联调后续改动随顶层归档上线（SFTP 直传，push.js 无 git 步骤）**
+- `src/config.js`、`src/feishu/client.js`、`src/feishu/eventSubscription.js`、`src/index.js`、`src/services/approvalService.js` 五文件的审批联动收尾改动随 SFTP 部署上线；顶层 monorepo 同批归档（`37a59aa`）。
+- 同批新建本 DEVLOG（v1~v14 回溯编号，规则见顶层 AGENTS.md）。
 
 ## 阶段一 · 独立项目时期（2026-07-15 ~ 07-21）
 
@@ -62,4 +69,4 @@
 
 ---
 
-**未发布（已改动未归档）**：`src/config.js`、`src/feishu/client.js`、`src/feishu/eventSubscription.js`、`src/index.js`、`src/services/approvalService.js`——09-04 审批联动联调的后续修改，尚未随顶层归档提交记版本。
+**备注**：push.js 为纯 SFTP 直传，改动即时上线；顶层归档提交仅作版本锚点，可能与实际上线时刻有分钟级偏差。
