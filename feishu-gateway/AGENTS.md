@@ -3,6 +3,21 @@
 ## 本项目职能
 飞书事件接入层：共用应用（cli_aac7e6f6cdf8dcc0）的**唯一长连接**持有者；消息事件按 `MESSAGE_ROUTES` 规则路由到各机器人 `/api/feishu/event`；`/命令` 解析后转发 `/api/chat/command` 并代回复；表格事件广播（legacy 结构转换）；事件去重；新机器人接入登记（`CONSUMERS`）。
 
+
+## 顶层规则与交互性（每次开工先读）
+
+本会话是独立工作区，**不会自动加载顶层规则**——开工前先读一遍 `../AGENTS.md`（顶层职能总表 + 架构铁律）；涉及消息路由、@识别、指令转发的改动，再读顶层 `.agents/skills/qianli-chat-architecture/SKILL.md`。
+
+与其它机器人/服务的交互契约（改接口前先对顶层文档）：
+- 五个机器人**共用同一个飞书应用**；长连接只属于 feishu-gateway，本项目事件一律 `FEISHU_USE_LONG_CONNECTION=false`，由网关转发到本项目的 `POST /api/feishu/event`；
+- 指令交互契约：`POST /api/chat/command`，入参 `{command, args}`，回 `{reply}`（回复由调用方——网关或 hub——代发）；
+- 群播报走群自定义机器人 webhook，对话回复走飞书 IM API；
+- 部署一律项目内 `npm run push "说明"`（规则见 qianli-deploy skill 与顶层 AGENTS.md），NAS 凭证在 .env 的 NAS_*；
+- 通用坑：@识别要兼容 mentioned_type='bot'；多维表格字段值先过 fieldText 类工具再拼字符串；express.json 建议放宽到 2mb。
+
+顶层职能速览（需求跨项目即停，走上方"发错时的规定动作"）：
+ticket-bot=工单域｜approval-bot=财务审批｜project-management-robot=对话枢纽+DDL｜bambu-print-reservation=打印预约｜feishu-gateway=事件接入｜qianli 顶层=部署/架构/整理。
+
 ## 只管这些（归属信号）
 事件被抢、指令时灵时不灵、@机器人无响应（跨项目排查）、消息路由规则、新机器人接入网关、消费者登记、事件结构/去重。
 
