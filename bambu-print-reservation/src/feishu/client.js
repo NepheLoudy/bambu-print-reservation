@@ -69,7 +69,7 @@ async function requestAPI(method, path, params = {}) {
 async function downloadFile(fileToken) {
   const token = await getTenantAccessToken();
   const url = `https://open.feishu.cn/open-apis/drive/v1/medias/${fileToken}/download`;
-  
+
   const res = await fetch(url, {
     headers: {
       'Authorization': `Bearer ${token}`,
@@ -83,9 +83,29 @@ async function downloadFile(fileToken) {
   return res.arrayBuffer();
 }
 
+/**
+ * 下载官方审批表单里的附件（attachment_id 与 drive file_token 不同，走审批专用端点）
+ */
+async function downloadApprovalAttachment(attachmentId, name) {
+  const token = await getTenantAccessToken();
+  const query = new URLSearchParams({ name: name || 'attachment', user_id_type: 'open_id' });
+  const url = `https://open.feishu.cn/open-apis/approval/v4/attachments/${attachmentId}?${query}`;
+
+  const res = await fetch(url, {
+    headers: { 'Authorization': `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    throw new Error(`下载审批附件失败: ${res.status} ${res.statusText}`);
+  }
+
+  return res.arrayBuffer();
+}
+
 module.exports = {
   getClient,
   getTenantAccessToken,
   requestAPI,
   downloadFile,
+  downloadApprovalAttachment,
 };

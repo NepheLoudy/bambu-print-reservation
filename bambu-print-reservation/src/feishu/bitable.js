@@ -95,6 +95,19 @@ const bitableApi = {
     return res.data.record;
   },
 
+  async getRecord(tableId, recordId) {
+    const res = await requestAPI(
+      'GET',
+      `/bitable/v1/apps/${this.appToken}/tables/${tableId}/records/${recordId}`
+    );
+
+    if (res.code !== 0) {
+      throw new Error(`获取记录失败: ${res.msg}`);
+    }
+
+    return res.data.record;
+  },
+
   async deleteRecord(tableId, recordId) {
     const res = await requestAPI(
       'DELETE',
@@ -138,6 +151,20 @@ const bitableApi = {
     }
 
     return res.data.table;
+  },
+
+  async createField(tableId, field) {
+    const res = await requestAPI(
+      'POST',
+      `/bitable/v1/apps/${this.appToken}/tables/${tableId}/fields`,
+      field
+    );
+
+    if (res.code !== 0) {
+      throw new Error(`创建字段失败: ${res.msg} (code: ${res.code})`);
+    }
+
+    return res.data?.field;
   },
 };
 

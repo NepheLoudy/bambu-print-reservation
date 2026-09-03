@@ -1,7 +1,18 @@
 const { BambuLink } = require('bambu-link');
+const { Client: SSHClient } = require('ssh2');
 const ftp = require('ftp');
-const fs = require('fs');
-const path = require('path');
+
+// gcodeState（打印机上报的 gcode_state）→ 统一中文状态
+const GCODE_STATE_MAP = {
+  PRINTING: '打印中',
+  RESUME: '打印中',
+  PAUSE: '暂停',
+  FINISH: '已完成',
+  FAILED: '故障',
+  PREPARE: '准备中',
+  SLICING: '切片中',
+  IDLE: '空闲',
+};
 
 class PrinterClient {
   constructor(printerConfig) {
@@ -12,6 +23,9 @@ class PrinterClient {
     this.connecting = false;
     this.listeners = [];
     this.ftpClient = null;
+    this.sshClient = null;
+    // project_file 命令的序号从高段位起，避免与 bambu-link 内部序号撞车
+    this.projectSeq = 10000 + Math.floor(Math.random() * 1000);
   }
 
   async connect() {
@@ -74,6 +88,7 @@ class PrinterClient {
     }
     this.connected = false;
     this.client = null;
+    await this.disconnectFileSession();
   }
 
   on(event, callback) {
@@ -107,11 +122,111 @@ class PrinterClient {
     return this.config;
   }
 
+  /**
+   * 归一化打印状态：以 gcode_state 为准（job.stage 是数值型 mc_print_stage，判不准）
+   */
+  getPrintStatus() {
+    const state = this.getState();
+    if (!state) return null;
+
+    const job = state.job || {};
+    const temps = state.temps || {};
+    const gcodeState = String(state.gcodeState || 'IDLE').toUpperCase();
+
+    return {
+      gcodeState,
+      status: GCODE_STATE_MAP[gcodeState] || '空闲',
+      progress: job.percent || 0,
+      remainingTime: job.remainingSeconds || 0,
+      currentFile: job.file || '',
+      nozzleTemp: temps.nozzle || null,
+      bedTemp: temps.bed || null,
+      chamberTemp: temps.chamber || null,
+    };
+  }
+
+  /**
+   * AMS + 外部料架的耗材清单
+   * @returns {Array<{slot: string, type: string, colorHex: string, active: boolean, external: boolean}>}
+   */
+  getAmsTrays() {
+    const state = this.getState();
+    if (!state) return [];
+
+    const trays = [];
+    const ams = state.ams;
+    const trayNow = ams ? ams.trayNow : null;
+
+    if (ams && ams.trays) {
+      for (const tray of Object.values(ams.trays)) {
+        if (!tray) continue;
+        // existBits 标记各槽是否实际插着料盒（'1111' 从左到右）
+        const installed = ams.existBits
+          ? String(ams.existBits).charAt(Number(tray.id) - 1) !== '0'
+          : true;
+        if (!installed) continue;
+        trays.push({
+          slot: `AMS ${tray.id}`,
+          type: tray.type || '',
+          colorHex: tray.colorHex ? String(tray.colorHex).slice(0, 6) : '',
+          active: trayNow === tray.id,
+          external: false,
+        });
+      }
+    }
+
+    const vt = state.vtTray;
+    if (vt && vt.type) {
+      trays.push({
+        slot: '外部料架',
+        type: vt.type || '',
+        colorHex: vt.colorHex ? String(vt.colorHex).slice(0, 6) : '',
+        active: trayNow === 254 || trayNow === 0,
+        external: true,
+      });
+    }
+
+    return trays;
+  }
+
+  getIsPrinting() {
+    const status = this.getPrintStatus();
+    if (!status) return false;
+    return ['打印中', '暂停', '准备中', '切片中'].includes(status.status);
+  }
+
+  // ============ 打印控制 ============
+
   async startPrint(filePath) {
     if (!this.client || !this.connected) {
       throw new Error('打印机未连接');
     }
     return this.client.printGcode_file(filePath);
+  }
+
+  /**
+   * 直接下发 3mf 打印任务（X1/H2D 支持，切片参数随文件）
+   * 标准 LAN 协议 project_file 命令：url 指向上传到 /sdcard/ 的 3mf
+   */
+  async startProjectFile(fileName, subtaskName, useAms = true) {
+    if (!this.client || !this.connected) {
+      throw new Error('打印机未连接');
+    }
+    const sequenceId = ++this.projectSeq;
+    const payload = {
+      print: {
+        sequence_id: sequenceId,
+        command: 'project_file',
+        param: '',
+        url: `ftp:///sdcard/${fileName}`,
+        subtask_name: subtaskName || fileName,
+        use_ams: useAms,
+        md5: '',
+      },
+    };
+    return this.client
+      .getMqttClient()
+      .sendCommand(JSON.stringify(payload), sequenceId, true);
   }
 
   async pausePrint() {
@@ -149,31 +264,71 @@ class PrinterClient {
     return this.client.printGcode(gcode);
   }
 
-  getPrintStatus() {
-    const state = this.getState();
-    if (!state) return null;
+  // ============ 文件传输（SFTP 优先，FTP 兜底） ============
 
-    const job = state.job || {};
-    const temps = state.temps || {};
-
-    return {
-      status: job.stage || 'unknown',
-      progress: job.progress || 0,
-      remainingTime: job.remaining_time || 0,
-      currentFile: job.file || '',
-      nozzleTemp: temps.nozzle || null,
-      bedTemp: temps.bed || null,
-      chamberTemp: temps.chamber || null,
-    };
+  /**
+   * 上传 Buffer 到打印机 /sdcard/。
+   * X1C/H2D 只有 SFTP(22)；P1 系可用 FTP(21)。按配置 model 决定传输方式。
+   */
+  async uploadBuffer(buffer, remotePath) {
+    const model = String(this.config.model || '').toUpperCase();
+    if (model.includes('X1') || model.includes('H2D')) {
+      return this.sftpPut(buffer, remotePath);
+    }
+    return this.ftpPut(buffer, remotePath);
   }
 
-  getIsPrinting() {
-    const status = this.getPrintStatus();
-    if (!status) return false;
-    return ['printing', 'paused'].includes(status.status.toLowerCase());
+  sftpPut(buffer, remotePath) {
+    return new Promise((resolve, reject) => {
+      const tryUpload = (sftp) => {
+        const stream = sftp.createWriteStream(remotePath);
+        stream.on('error', (err) => reject(err));
+        stream.on('close', () => resolve());
+        stream.end(Buffer.from(buffer));
+      };
+
+      if (this.sshClient && this.sshClient.sftpReady) {
+        return tryUpload(this.sshClient.sftp);
+      }
+
+      const conn = new SSHClient();
+      conn.on('ready', () => {
+        conn.sftp((err, sftp) => {
+          if (err) {
+            conn.end();
+            return reject(err);
+          }
+          this.sshClient = conn;
+          this.sshClient.sftp = sftp;
+          this.sshClient.sftpReady = true;
+          tryUpload(sftp);
+        });
+      });
+      conn.on('error', (err) => reject(err));
+      conn.on('close', () => {
+        if (this.sshClient) this.sshClient.sftpReady = false;
+      });
+      conn.connect({
+        host: this.config.host,
+        port: 22,
+        username: 'bblp',
+        password: this.config.accessCode,
+        readyTimeout: 15000,
+      });
+    });
   }
 
-  async connectFTP() {
+  async disconnectFileSession() {
+    if (this.sshClient) {
+      this.sshClient.end();
+      this.sshClient = null;
+    }
+    if (this.ftpClient) {
+      await this.disconnectFTP();
+    }
+  }
+
+  connectFTP() {
     return new Promise((resolve, reject) => {
       this.ftpClient = new ftp();
 
@@ -205,13 +360,13 @@ class PrinterClient {
     }
   }
 
-  async uploadFile(localPath, remotePath) {
+  async ftpPut(buffer, remotePath) {
     if (!this.ftpClient) {
       await this.connectFTP();
     }
 
     return new Promise((resolve, reject) => {
-      this.ftpClient.put(localPath, remotePath, (err) => {
+      this.ftpClient.put(Buffer.from(buffer), remotePath, (err) => {
         if (err) {
           reject(err);
         } else {
@@ -221,20 +376,10 @@ class PrinterClient {
     });
   }
 
-  async uploadFileFromBuffer(buffer, remotePath) {
-    if (!this.ftpClient) {
-      await this.connectFTP();
-    }
-
-    return new Promise((resolve, reject) => {
-      this.ftpClient.put(buffer, remotePath, (err) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve();
-        }
-      });
-    });
+  async uploadFile(localPath, remotePath) {
+    const fs = require('fs');
+    const buffer = fs.readFileSync(localPath);
+    return this.uploadBuffer(buffer, remotePath);
   }
 
   async listFiles(remoteDir = '/') {
@@ -271,3 +416,4 @@ class PrinterClient {
 }
 
 module.exports = PrinterClient;
+module.exports.GCODE_STATE_MAP = GCODE_STATE_MAP;

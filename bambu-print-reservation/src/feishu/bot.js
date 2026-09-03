@@ -167,16 +167,22 @@ function buildReviewResultCard(reservation, result, comment) {
 function buildPrintStatusCard(printerName, status, progress, currentFile) {
   let statusColor = 'gray';
   let statusIcon = '🔵';
-  
-  if (status === config.printerStatus.IDLE) {
+
+  if (status === '空闲') {
     statusColor = 'green';
     statusIcon = '🟢';
-  } else if (status === config.printerStatus.PRINTING) {
+  } else if (status === '打印中' || status === '准备中') {
     statusColor = 'orange';
     statusIcon = '🟠';
-  } else if (status === config.printerStatus.FAULT) {
+  } else if (status === '暂停') {
+    statusColor = 'yellow';
+    statusIcon = '🟡';
+  } else if (status === '故障') {
     statusColor = 'red';
     statusIcon = '🔴';
+  } else if (status === '已完成') {
+    statusColor = 'turquoise';
+    statusIcon = '✅';
   }
 
   return {
@@ -210,6 +216,94 @@ function buildPrintStatusCard(printerName, status, progress, currentFile) {
         tag: 'plain_text',
       },
     },
+  };
+}
+
+function taskBrief(task) {
+  const material = [task.materialType, task.color].filter(Boolean).join('×') || '未指定材料';
+  return `${task.applicationNo || task.recordId}｜${task.fileName || '未命名'}｜${material}`;
+}
+
+/** 入队播报：审批通过进入队列 */
+function buildQueueCard(task, position) {
+  return {
+    config: { wide_screen_mode: true, enable_forward: true },
+    elements: [
+      { tag: 'markdown', content: `**✅ 审批通过，已进入打印队列**（前方还有 ${position} 单）` },
+      { tag: 'hr' },
+      { tag: 'markdown', content: `${buildAtTag(task.applicant?.id)} **任务**: ${taskBrief(task)}` },
+      { tag: 'markdown', content: `**需求材料**: ${[task.materialType, task.color].filter(Boolean).join(' × ') || '未指定（任意可用打印机）'}${task.isUrgent ? '｜⚡加急' : ''}` },
+      { tag: 'markdown', content: '📝 将按各打印机 AMS 装料自动匹配，匹配成功即开始打印' },
+    ],
+    header: { template: 'blue', title: { content: '📋 打印排队通知', tag: 'plain_text' } },
+  };
+}
+
+/** 开始打印播报 */
+function buildJobStartCard(task, printer) {
+  const ams = (printer.ams || []).filter((t) => t.type).map((t) => `${t.type}×${t.colorHex || '?'}`).join('、');
+  return {
+    config: { wide_screen_mode: true, enable_forward: true },
+    elements: [
+      { tag: 'markdown', content: `**🖨️ 开始打印**: ${printer.name}（${printer.model}）` },
+      { tag: 'hr' },
+      { tag: 'markdown', content: `${buildAtTag(task.applicant?.id)} **任务**: ${taskBrief(task)}` },
+      { tag: 'markdown', content: `**打印机装载**: ${ams || '无 AMS 数据'}` },
+      { tag: 'markdown', content: '完成后会在此群播报，可随时 @机器人 发送 /print-status 查看进度' },
+    ],
+    header: { template: 'orange', title: { content: '🖨️ 打印开始', tag: 'plain_text' } },
+  };
+}
+
+/** 完成播报 */
+function buildJobFinishCard(task, printer) {
+  const duration = task.startedAt
+    ? Math.round((Date.now() - task.startedAt) / 60000)
+    : null;
+  const durationText = duration !== null
+    ? duration >= 60
+      ? `${Math.floor(duration / 60)} 小时 ${duration % 60} 分钟`
+      : `${duration} 分钟`
+    : '未知';
+  return {
+    config: { wide_screen_mode: true, enable_forward: true },
+    elements: [
+      { tag: 'markdown', content: `**✅ 打印完成**: ${printer.name}（${printer.model}）` },
+      { tag: 'hr' },
+      { tag: 'markdown', content: `${buildAtTag(task.applicant?.id)} **任务**: ${taskBrief(task)}` },
+      { tag: 'markdown', content: `**耗时**: ${durationText}` },
+      { tag: 'markdown', content: '📦 请及时取件；若取件确认无误，可在多维表格归档' },
+    ],
+    header: { template: 'green', title: { content: '✅ 打印完成', tag: 'plain_text' } },
+  };
+}
+
+/** 失败播报 */
+function buildJobFailedCard(task, printer, reason) {
+  return {
+    config: { wide_screen_mode: true, enable_forward: true },
+    elements: [
+      { tag: 'markdown', content: `**❌ 打印异常**: ${printer ? `${printer.name}（${printer.model}）` : ''}` },
+      { tag: 'hr' },
+      { tag: 'markdown', content: `${buildAtTag(task.applicant?.id)} **任务**: ${taskBrief(task)}` },
+      { tag: 'markdown', content: `**原因**: ${reason || '未知'}` },
+      { tag: 'markdown', content: '🛠️ 请检查打印机（断料/堵头/平台），处理完成后任务会重新排队' },
+    ],
+    header: { template: 'red', title: { content: '❌ 打印异常', tag: 'plain_text' } },
+  };
+}
+
+/** 缺料提醒 */
+function buildMaterialMissingCard(waitingCount, needs) {
+  return {
+    config: { wide_screen_mode: true, enable_forward: true },
+    elements: [
+      { tag: 'markdown', content: `**⚠️ 有 ${waitingCount} 个打印任务因缺料等待**` },
+      { tag: 'hr' },
+      { tag: 'markdown', content: `**所需耗材**: ${needs}` },
+      { tag: 'markdown', content: '🔧 请为对应打印机 AMS 换料/补料，装好后会自动开始打印；或用 /print-dispatch 手动指定其它打印机' },
+    ],
+    header: { template: 'yellow', title: { content: '⚠️ 缺料提醒', tag: 'plain_text' } },
   };
 }
 
@@ -273,6 +367,11 @@ module.exports = {
   buildReservationAlertCard,
   buildReviewResultCard,
   buildPrintStatusCard,
+  buildQueueCard,
+  buildJobStartCard,
+  buildJobFinishCard,
+  buildJobFailedCard,
+  buildMaterialMissingCard,
   sendTextToChat,
   sendTextToUser,
   sendCardToChat,

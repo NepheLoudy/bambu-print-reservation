@@ -2,9 +2,19 @@ const express = require('express');
 const cors = require('cors');
 const config = require('./config');
 const reservationService = require('./services/reservation');
+const dispatcher = require('./services/dispatcher');
 const printerManager = require('./printer/manager');
-const { startEventSubscription, processBitableEvent } = require('./feishu/eventSubscription');
-const { processChatMessage, handlePrintHelpCommand, handlePrintStatusCommand, handlePrintListCommand, handlePrintPendingCommand } = require('./services/chatService');
+const { startEventSubscription, processBitableEvent, processApprovalEvent } = require('./feishu/eventSubscription');
+const {
+  processChatMessage,
+  executeCommand,
+  handlePrintHelpCommand,
+  handlePrintStatusCommand,
+  handlePrintAmsCommand,
+  handlePrintListCommand,
+  handlePrintPendingCommand,
+  handlePrintDispatchCommand,
+} = require('./services/chatService');
 
 const app = express();
 
@@ -57,17 +67,28 @@ app.put('/api/reservations/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
-    
+
     if (!status) {
       return res.status(400).json({ error: '状态不能为空' });
     }
 
-    await bitableApi.updateRecord(config.bitable.reservationTableId, id, {
-      '申请状态': status,
-    });
-    
     const reservation = await reservationService.getReservationById(id);
-    res.json(reservation);
+    if (!reservation) {
+      return res.status(404).json({ error: '预约记录不存在' });
+    }
+
+    if (status === config.status.REVIEW_APPROVED) {
+      await reservationService.handleReviewResult(id, config.reviewResult.APPROVED, '', '');
+    } else if (status === config.status.CANCELLED) {
+      await reservationService.cancelReservation(id);
+    } else {
+      const bitableApi = require('./feishu/bitable');
+      await bitableApi.updateRecord(config.bitable.reservationTableId, id, {
+        '申请状态': status,
+      });
+    }
+
+    res.json(await reservationService.getReservationById(id));
   } catch (err) {
     console.error('更新预约失败:', err);
     res.status(500).json({ error: err.message });
@@ -227,6 +248,17 @@ app.post('/api/feishu/event', async (req, res) => {
     return res.json({ challenge });
   }
 
+  // 官方审批实例事件（网关转发，秒级）：审批状态直接驱动分发
+  if (header?.event_type === 'approval_instance') {
+    setImmediate(async () => {
+      try {
+        await processApprovalEvent(event || {});
+      } catch (err) {
+        console.error('处理审批事件失败:', err);
+      }
+    });
+  }
+
   if (header?.event_type === 'bitable.record.create' || header?.event_type === 'bitable.record.update') {
     setImmediate(async () => {
       try {
@@ -266,28 +298,45 @@ app.post('/api/feishu/event', async (req, res) => {
 app.post('/api/chat/command', async (req, res) => {
   try {
     const { command, args } = req.body;
-    
+
     if (!command) {
       return res.status(400).json({ error: '指令不能为空' });
     }
 
-    const commandHandlers = {
-      '/print-help': handlePrintHelpCommand,
-      '/print-status': handlePrintStatusCommand,
-      '/print-list': handlePrintListCommand,
-      '/print-pending': handlePrintPendingCommand,
-    };
-
-    const handler = commandHandlers[command];
-    if (!handler) {
-      return res.json({ reply: `❌ 未知指令：${command}` });
-    }
-
-    const reply = await handler(args || []);
+    const reply = await executeCommand(command, args || []);
     res.json({ reply });
   } catch (err) {
     console.error('处理指令失败:', err);
     res.json({ reply: `❌ 指令执行失败：${err.message}` });
+  }
+});
+
+// ---------- 分发引擎 ----------
+
+app.get('/api/dispatch/queue', (req, res) => {
+  res.json({ queue: dispatcher.getQueueSnapshot(), printing: dispatcher.getPrintingSnapshot() });
+});
+
+app.post('/api/dispatch/manual', async (req, res) => {
+  try {
+    const { recordId, printerName } = req.body;
+    if (!recordId || !printerName) {
+      return res.status(400).json({ error: 'recordId 和 printerName 不能为空' });
+    }
+    const result = await dispatcher.manualDispatch(recordId, printerName);
+    res.json(result);
+  } catch (err) {
+    console.error('手动分发失败:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/dispatch/reconcile', async (req, res) => {
+  try {
+    await dispatcher.reconcile();
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -302,7 +351,7 @@ function startServer() {
 
   process.on('SIGINT', async () => {
     console.log('\n正在关闭服务器...');
-    await printerManager.cleanupFTPConnections();
+    await printerManager.cleanupFileSessions();
     server.close(() => {
       console.log('服务器已关闭');
       process.exit(0);

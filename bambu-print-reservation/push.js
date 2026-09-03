@@ -106,7 +106,9 @@ function exec(cmd, cb) {
 
 // ============ [2/3] 解压 + 上传 .env ============
 function deployCode() {
-  const cmd = 'mkdir -p ' + REMOTE_DIR + ' 2>/dev/null; '
+  // 首次部署需建目录：/opt 需要 sudo 建目录并授权（与其它 qianli 项目一致）
+  const sudo = (cmd) => `echo "${nasConfig.password}" | sudo -S ${cmd}`;
+  const cmd = sudo('mkdir -p ' + REMOTE_DIR) + ' && ' + sudo('chown -R qianli:qianli ' + REMOTE_DIR) + '; '
     + 'rm -rf ' + REMOTE_DIR + '/.git ' + REMOTE_DIR + '/* ' + REMOTE_DIR + '/.[!.]* 2>/dev/null || true; '
     + 'tar -xzf ' + TAR_REMOTE + ' -C ' + REMOTE_DIR;
   exec(cmd, () => {

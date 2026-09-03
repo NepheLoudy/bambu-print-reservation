@@ -1,15 +1,10 @@
 const config = require('../config');
 const bitableApi = require('../feishu/bitable');
-const { downloadFile } = require('../feishu/client');
 const { sendMessage, sendTextToUser, buildReservationAlertCard, buildReviewResultCard } = require('../feishu/bot');
-const printerManager = require('../printer/manager');
+
+// 注意：本模块被 dispatcher.js 依赖，对 dispatcher 的引用必须惰性 require（避免循环加载）
 
 class ReservationService {
-  constructor() {
-    this.printQueue = [];
-    this.isProcessingQueue = false;
-  }
-
   async getAllReservations() {
     if (!config.bitable.reservationTableId) {
       throw new Error('未配置预约表ID');
@@ -24,16 +19,15 @@ class ReservationService {
       throw new Error('未配置预约表ID');
     }
 
-    const records = await bitableApi.getAllRecords(config.bitable.reservationTableId);
-    const record = records.find((r) => r.record_id === recordId);
+    const record = await bitableApi.getRecord(config.bitable.reservationTableId, recordId);
     if (!record) return null;
     return this.formatReservation(record);
   }
 
   formatReservation(record) {
-    const fields = record.fields;
+    const fields = record.fields || {};
     const sliceFile = fields['切片文件'] && fields['切片文件'].length > 0 ? fields['切片文件'][0] : null;
-    
+
     return {
       recordId: record.record_id,
       applicationNo: fields['申请编号'],
@@ -49,6 +43,10 @@ class ReservationService {
       fileUrl: sliceFile?.url,
       screenshot: fields['切片文件详情截图'],
       isUrgent: fields['是否加急'],
+      // 分发引擎字段（审批表单补齐后生效）
+      materialType: fields[config.dispatch.materialField] || '',
+      color: fields[config.dispatch.colorField] || '',
+      assignedPrinter: fields[config.dispatch.printerField] || '',
       createdAt: record.created_time,
       updatedAt: record.updated_time,
     };
@@ -87,20 +85,6 @@ class ReservationService {
     return { valid: true, message: '' };
   }
 
-  async checkConflict(startTime, endTime, excludeRecordId = null) {
-    const reservations = await this.getAllReservations();
-    const overlapping = reservations.filter((r) => {
-      if (r.recordId === excludeRecordId) return false;
-      if (r.status === config.status.CANCELLED || r.status === config.status.COMPLETED) return false;
-
-      const rStart = new Date(r.startTime);
-
-      return startTime < rStart;
-    });
-
-    return overlapping.length > 0;
-  }
-
   async notifyReviewers(reservation) {
     try {
       const card = buildReservationAlertCard({
@@ -109,6 +93,8 @@ class ReservationService {
           '发起时间': reservation.startTime,
           '切片文件': reservation.fileName ? [{ name: reservation.fileName, file_token: reservation.fileToken }] : [],
           '是否加急': reservation.isUrgent,
+          [config.dispatch.materialField]: reservation.materialType,
+          [config.dispatch.colorField]: reservation.color,
         },
       });
 
@@ -149,7 +135,10 @@ class ReservationService {
     await this.notifyApplicant(reservation, reviewResult, reviewComment);
 
     if (reviewResult === config.reviewResult.APPROVED) {
-      await this.addToPrintQueue(recordId);
+      // 状态写回会触发表格事件 → 由事件监听统一入队；这里主动入一次兜底（幂等）
+      const dispatcher = require('./dispatcher');
+      const fresh = await this.getReservationById(recordId);
+      dispatcher.enqueue(fresh, { silent: true });
     }
 
     return { success: true };
@@ -169,7 +158,7 @@ class ReservationService {
       if (reservation.applicant && reservation.applicant.id) {
         try {
           const message = reviewResult === config.reviewResult.APPROVED
-            ? `您的打印预约已通过审批，文件将上传至打印机并排队打印。\n文件：${reservation.fileName}`
+            ? `您的打印预约已通过审批，已进入打印队列，将按材料自动匹配打印机。\n文件：${reservation.fileName}`
             : `您的打印预约未通过审批，请查看审批意见并修改后重新提交。\n文件：${reservation.fileName}\n意见：${reviewComment}`;
           await sendTextToUser(reservation.applicant.id, message);
         } catch (err) {
@@ -181,110 +170,6 @@ class ReservationService {
     }
   }
 
-  async addToPrintQueue(recordId) {
-    if (this.printQueue.includes(recordId)) {
-      return;
-    }
-
-    this.printQueue.push(recordId);
-    console.log(`[预约服务] 预约 ${recordId} 已加入打印队列`);
-
-    if (!this.isProcessingQueue) {
-      this.processPrintQueue();
-    }
-  }
-
-  async processPrintQueue() {
-    if (this.isProcessingQueue) return;
-    this.isProcessingQueue = true;
-
-    try {
-      while (this.printQueue.length > 0) {
-        const recordId = this.printQueue[0];
-
-        const availablePrinters = printerManager.getAvailablePrinters();
-        if (availablePrinters.length === 0) {
-          console.log('[预约服务] 暂无可用打印机，等待中...');
-          await new Promise((resolve) => setTimeout(resolve, 30000));
-          continue;
-        }
-
-        const reservation = await this.getReservationById(recordId);
-        if (!reservation) {
-          this.printQueue.shift();
-          continue;
-        }
-
-        let targetPrinter = availablePrinters[0];
-
-        try {
-          await this.executePrint(reservation, targetPrinter);
-          this.printQueue.shift();
-        } catch (err) {
-          console.error(`[预约服务] 执行打印失败 ${recordId}:`, err.message);
-          await new Promise((resolve) => setTimeout(resolve, 60000));
-        }
-      }
-    } finally {
-      this.isProcessingQueue = false;
-    }
-  }
-
-  async executePrint(reservation, printer) {
-    if (!config.bitable.reservationTableId) {
-      throw new Error('未配置预约表ID');
-    }
-
-    console.log(`[预约服务] 开始执行打印: ${reservation.fileName} -> ${printer.name}`);
-
-    await bitableApi.updateRecord(config.bitable.reservationTableId, reservation.recordId, {
-      '申请状态': config.status.QUEUED,
-    });
-
-    const fileBuffer = await downloadFile(reservation.fileToken);
-
-    const remotePath = await printerManager.uploadFileToPrinter(printer.id, fileBuffer, reservation.fileName);
-
-    console.log(`[预约服务] 文件已上传: ${remotePath}`);
-
-    await bitableApi.updateRecord(config.bitable.reservationTableId, reservation.recordId, {
-      '申请状态': config.status.PRINTING,
-    });
-
-    await printerManager.startPrintOnPrinter(printer.id, remotePath);
-
-    console.log(`[预约服务] 打印已开始: ${reservation.fileName}`);
-
-    await this.monitorPrintProgress(reservation, printer);
-  }
-
-  async monitorPrintProgress(reservation, printer) {
-    if (!config.bitable.reservationTableId) {
-      return;
-    }
-
-    return new Promise((resolve) => {
-      const checkInterval = setInterval(async () => {
-        try {
-          const printerState = printerManager.getPrinterState(printer.id);
-          if (!printerState) {
-            return;
-          }
-
-          if (printerState.status === 'idle' || printerState.progress >= 100) {
-            clearInterval(checkInterval);
-            await bitableApi.updateRecord(config.bitable.reservationTableId, reservation.recordId, {
-              '申请状态': config.status.COMPLETED,
-            });
-            resolve();
-          }
-        } catch (err) {
-          console.error(`[预约服务] 监控打印进度失败:`, err.message);
-        }
-      }, 30000);
-    });
-  }
-
   async cancelReservation(recordId) {
     if (!config.bitable.reservationTableId) {
       throw new Error('未配置预约表ID');
@@ -294,10 +179,8 @@ class ReservationService {
       '申请状态': config.status.CANCELLED,
     });
 
-    const index = this.printQueue.indexOf(recordId);
-    if (index > -1) {
-      this.printQueue.splice(index, 1);
-    }
+    const dispatcher = require('./dispatcher');
+    dispatcher.dequeue(recordId);
 
     return { success: true };
   }

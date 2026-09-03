@@ -225,6 +225,26 @@ async function fanoutBitable(frame) {
 }
 
 /**
+ * 审批实例事件（approval_instance）→ 定向转发配置的目标（默认 bambu）。
+ * 事件体由消费方拉审批实例详情获取状态与表单（官方审批事件不依赖表格同步，秒级）。
+ */
+async function fanoutApproval(frame) {
+  const names = config.approvalTargets.length ? config.approvalTargets : ['bambu'];
+  let last = null;
+  for (const name of names) {
+    const consumer = findConsumer(name);
+    if (!consumer) {
+      console.warn(`[路由] 审批事件目标 ${name} 未在 CONSUMERS 中定义，跳过`);
+      continue;
+    }
+    const result = await postJson(consumer.eventUrl, withToken(frame));
+    logDelivery(consumer.name, `审批事件 instance=${(frame.event && frame.event.instance_id) || '?'}`, result);
+    last = result;
+  }
+  return last || { ok: false, dropped: true };
+}
+
+/**
  * 事件总入口：归一化 → 去重 → 按类型分发
  */
 async function dispatchFrame(eventType, data) {
@@ -242,6 +262,9 @@ async function dispatchFrame(eventType, data) {
   }
   if (type === 'drive.file.bitable_record_changed_v1') {
     return fanoutBitable(frame);
+  }
+  if (type === 'approval_instance') {
+    return fanoutApproval(frame);
   }
   console.log(`[网关] 未配置分发逻辑的事件类型: ${type}，已忽略`);
   return { ok: true, ignored: true };

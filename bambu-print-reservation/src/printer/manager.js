@@ -2,6 +2,12 @@ const config = require('../config');
 const PrinterClient = require('./client');
 const bitableApi = require('../feishu/bitable');
 
+// 判断打印机是否支持自动分发（Bambu 系 MQTT+文件上传；闪铸等异构机型走人工通道）
+function isAutoDispatchable(printer) {
+  const model = String(printer.model || '').toUpperCase();
+  return model.includes('X1') || model.includes('H2D') || model.includes('P1') || model.includes('A1');
+}
+
 class PrinterManager {
   constructor() {
     this.clients = {};
@@ -14,14 +20,25 @@ class PrinterManager {
     for (const printer of config.printers) {
       this.printerStates[printer.id] = {
         ...printer,
-        status: 'disconnected',
+        autoDispatch: isAutoDispatchable(printer),
+        status: '未连接',
+        gcodeState: '',
         currentJob: '',
         progress: 0,
+        remainingTime: 0,
         nozzleTemp: null,
         bedTemp: null,
         chamberTemp: null,
+        ams: [],
+        // 当前正在执行的任务（dispatcher 写入，用于播报与状态展示）
+        activeTask: null,
         lastUpdate: new Date(),
       };
+
+      if (!this.printerStates[printer.id].autoDispatch) {
+        console.log(`[打印机管理] ${printer.name}(${printer.model}) 为非 Bambu 机型，仅登记不参与自动分发`);
+        continue;
+      }
 
       const client = new PrinterClient(printer);
       this.clients[printer.id] = client;
@@ -48,8 +65,7 @@ class PrinterManager {
       await client.connect();
     } catch (err) {
       console.error(`[打印机管理] 打印机 ${printerId} 连接失败:`, err.message);
-      this.printerStates[printerId].status = 'fault';
-      this.notifyListeners('statusChange', this.printerStates[printerId]);
+      this.updateState(printerId, { status: '故障' });
     }
   }
 
@@ -62,42 +78,76 @@ class PrinterManager {
 
   handleConnect(printerId) {
     console.log(`[打印机管理] 打印机 ${printerId} 已连接`);
-    this.printerStates[printerId].status = 'connected';
-    this.notifyListeners('statusChange', this.printerStates[printerId]);
+    // 连接建立后立刻拉一次全量状态（含 AMS），status 由 state 消息刷新
+    const client = this.clients[printerId];
+    if (client) {
+      const state = client.getState();
+      if (state) this.handleStateChange(printerId, state);
+    }
+    this.updateState(printerId, {});
   }
 
   handleDisconnect(printerId) {
     console.log(`[打印机管理] 打印机 ${printerId} 已断开`);
-    this.printerStates[printerId].status = 'disconnected';
-    this.notifyListeners('statusChange', this.printerStates[printerId]);
+    this.updateState(printerId, { status: '未连接', gcodeState: '' });
   }
 
+  /**
+   * 状态刷新：以 gcodeState 为准映射中文状态；
+   * 只在状态真正变化时发 statusChange，gcodeState 关键变迁额外发 jobEvent
+   */
   handleStateChange(printerId, state) {
-    const job = state.job || {};
-    const temps = state.temps || {};
+    const client = this.clients[printerId];
+    if (!client) return;
 
-    const newState = {
-      ...this.printerStates[printerId],
-      status: job.stage === 'printing' ? 'printing' : 
-              job.stage === 'paused' ? 'paused' : 
-              job.stage === 'finished' ? 'idle' : 'idle',
-      currentJob: job.file || '',
-      progress: job.progress || 0,
-      nozzleTemp: temps.nozzle || null,
-      bedTemp: temps.bed || null,
-      chamberTemp: temps.chamber || null,
-      remainingTime: job.remaining_time || 0,
-      lastUpdate: new Date(),
-    };
+    const status = client.getPrintStatus();
+    if (!status) return;
 
-    this.printerStates[printerId] = newState;
-    this.notifyListeners('statusChange', newState);
+    const prev = this.printerStates[printerId];
+    const prevState = prev.gcodeState;
+
+    this.updateState(printerId, {
+      status: status.status,
+      gcodeState: status.gcodeState,
+      currentJob: status.currentFile,
+      progress: status.progress,
+      remainingTime: status.remainingTime,
+      nozzleTemp: status.nozzleTemp,
+      bedTemp: status.bedTemp,
+      chamberTemp: status.chamberTemp,
+      ams: client.getAmsTrays(),
+    });
+
+    // 关键变迁 → jobEvent（dispatcher 用它触发匹配、播报用它与完成/失败）
+    if (prevState && prevState !== status.gcodeState) {
+      const to = status.gcodeState;
+      let event = null;
+      if (to === 'PRINTING' && !['RESUME'].includes(prevState)) event = 'start';
+      else if (to === 'FINISH') event = 'finish';
+      else if (to === 'FAILED') event = 'failed';
+      else if ((to === 'IDLE' || to === 'FINISH') && prevState === 'PRINTING') event = 'idle';
+
+      if (event) {
+        console.log(`[打印机管理] ${prev.name} 任务变迁: ${prevState} → ${to} (${event})`);
+        this.notifyListeners('jobEvent', { printer: this.printerStates[printerId], event, prevState, gcodeState: to });
+      }
+    }
   }
 
   handleError(printerId, err) {
     console.error(`[打印机管理] 打印机 ${printerId} 错误:`, err.message);
-    this.printerStates[printerId].status = 'fault';
-    this.notifyListeners('statusChange', this.printerStates[printerId]);
+    this.updateState(printerId, { status: '故障' });
+  }
+
+  updateState(printerId, patch) {
+    const prev = this.printerStates[printerId];
+    if (!prev) return;
+    const next = { ...prev, ...patch, lastUpdate: new Date() };
+    const changed = Object.keys(patch).some((k) => patch[k] !== prev[k]);
+    this.printerStates[printerId] = next;
+    if (changed) {
+      this.notifyListeners('statusChange', next);
+    }
   }
 
   on(event, callback) {
@@ -130,9 +180,12 @@ class PrinterManager {
     return Object.values(this.printerStates);
   }
 
+  /**
+   * 可承接自动分发的打印机：Bambu 系且空闲/已完成
+   */
   getAvailablePrinters() {
     return Object.values(this.printerStates).filter(
-      (p) => p.status === 'idle' || p.status === 'connected'
+      (p) => p.autoDispatch && ['空闲', '已完成'].includes(p.status)
     );
   }
 
@@ -152,8 +205,16 @@ class PrinterManager {
     }
 
     const remotePath = `/sdcard/${fileName}`;
-    await client.uploadFileFromBuffer(buffer, remotePath);
+    await client.uploadBuffer(Buffer.from(buffer), remotePath);
     return remotePath;
+  }
+
+  async startProjectOnPrinter(printerId, fileName, subtaskName, useAms = true) {
+    const client = this.clients[printerId];
+    if (!client || !client.connected) {
+      throw new Error('打印机未连接');
+    }
+    await client.startProjectFile(fileName, subtaskName, useAms);
   }
 
   async startPrintOnPrinter(printerId, filePath) {
@@ -194,13 +255,12 @@ class PrinterManager {
 
   async syncPrinterStatusToBitable() {
     if (!config.bitable.printerTableId) {
-      console.warn('[打印机管理] 未配置打印机表ID，跳过同步');
-      return;
+      return; // 未配置打印机表时静默跳过（每 60s 一次，不刷 warn）
     }
 
     try {
       const existingRecords = await bitableApi.getAllRecords(config.bitable.printerTableId);
-      
+
       for (const printer of Object.values(this.printerStates)) {
         const existingRecord = existingRecords.find(
           (r) => r.fields.printerName === printer.name
@@ -231,16 +291,14 @@ class PrinterManager {
           await bitableApi.createRecord(config.bitable.printerTableId, fields);
         }
       }
-
-      console.log('[打印机管理] 打印机状态已同步到多维表格');
     } catch (err) {
       console.error('[打印机管理] 同步打印机状态失败:', err.message);
     }
   }
 
-  async cleanupFTPConnections() {
+  async cleanupFileSessions() {
     for (const client of Object.values(this.clients)) {
-      await client.disconnectFTP();
+      await client.disconnectFileSession();
     }
   }
 }
