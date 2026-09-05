@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次 git 提交 + 一次部署）。本项目无独立远端，push.js 只暂存 `feishu-gateway/` 路径提交进顶层 monorepo——版本即顶层仓库中触碰本路径的提交。v1~v8 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v10**（2026-09-05 `b61269c`）。
+当前最新：**v12**（2026-09-06 顶层归档 `dbbdaf5`）。
 
 ## 阶段五 · 开发历史建档（2026-09-04）
 
@@ -57,7 +57,7 @@
 
 ## 阶段七 · 工单私聊确认路由（2026-09-05）
 
-### v11 · 2026-09-05 · 随本提交落地 · feat
+### v11 · 2026-09-05 · `cebb767` · feat
 **路由匹配器支持 chatType + 新增 p2p+接单 → ticket 规则（指定负责人私聊确认链路）+ 路由日志补 chat_id**
 - 配套 ticket-bot v48「24h 未确认私聊追问」：负责人私聊回复「接单」需路由到 ticket-bot，而私聊无 @，原 mention 规则够不着——匹配器新增 `chatType` 维度（一行），默认路由表加 `{contains:'接单', chatType:'p2p'} → ticket`（仍属工单域例外，hub 默认目标不变）。
 - 路由命中日志补 `chat=` 字段：排查「机械组接单未触发回执」时发现路由日志不带群标识无法定位来源群，一并补上。
@@ -70,3 +70,12 @@
 - wsClient.start() 加 catch + 全局 unhandledRejection 兜底：start() 返回 Promise，原调用既不 await 也不 catch——连接失败（凭证错误/网络故障）会以 unhandled rejection 直接杀死唯一长连接进程（Node≥15 默认行为）；同时 /api/health 的 ws 字段原来只反映「已发起启动」永远假绿 running，现在如实返回 error 状态，部署验证不再被误导。
 - deliverTo：command 规则命中但消费者未配指令端点时打告警日志（原先静默降级为原始事件转发，配置错误无从察觉）；express.json 放宽 2mb（与 AGENTS 建议一致，防大 bitable 帧回放 413）；EVENT_TYPES 重复 parseList 清理；nas-e2e-test.js 中 pm-robot 目录重组后的失效路径修正。
 - 文档对齐：README 路由表改为实际默认规则（/ticket 前缀、@+接单、p2p+接单 → ticket，其余 hub——原文档里的 /approval、/print 直连规则 v4 撤销后未回改），匹配条件补 chatType，审批事件一节与环境变量一览补全（EVENT_TYPES 改动需同步 NAS .env 的教训入册）；.env.example 修 hub 端口 2174→3000（照抄会导致 hub 全部消息投递失败）、补 APPROVAL_TARGETS、删无代码读取的 FEISHU_ENCRYPT_KEY；AGENTS.md 消费者口径澄清（五机器人共用应用，下游登记四个）。
+
+## 阶段九 · 例行维护（2026-09-06）
+
+### v13 · 2026-09-06 · 随本批顶层归档落地（锚点待回填） · docs
+**全仓例行 debug 扫描——网关零代码缺陷，文档纠偏三条**
+- README 部署步骤幽灵脚本修正：`npm run deploy:sftp`（package.json 无此 script，照执行会报 missing script）→ `npm run push`。
+- DEVLOG「当前最新」指针 v10 → v12（76e9daa 专项锚点回填时只补了 v12 哈希、漏改头部指针）。
+- v11 条目锚点回填 `cebb767`（当时记「随本提交落地」，回填批次遗漏）。
+- 代码侧结论：src/ 无可确认缺陷（EVENT_TYPES 订阅表 / 消费者登记 / .env 三方一致，v12 修复批次在位，事件去重与 deliverTo 降级路径完好）；`.env` 残留无消费者的 `FEISHU_ENCRYPT_KEY`、package.json 未用依赖 `cors` 均无害，仅记录不清（.env 是部署源头，是否清理属运维决策）。

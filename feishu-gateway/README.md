@@ -88,7 +88,7 @@ qianli 项目群的所有机器人共用同一个飞书自建应用（`cli_aac7e
    ```
    cd feishu-gateway
    npm install
-   npm run deploy:sftp
+   npm run push
    ```
    部署后验证：在内网可达网关端口的前提下 `curl http://10.253.33.233:3010/api/health`，`ws` 应为 `running`（若为 `error: ...` 说明长连接启动失败，查网关日志）。
 
