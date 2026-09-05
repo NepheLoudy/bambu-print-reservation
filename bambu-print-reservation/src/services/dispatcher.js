@@ -158,10 +158,19 @@ class Dispatcher {
       .finally(() => {
         this.matching = false;
         // 匹配过程中可能有新任务/新空闲，再跑一轮
-        if (this.queue.length > 0 && printerManager.getAvailablePrinters().length > 0) {
+        // （全部任务处于失败重试冷却期时不触发，等冷却定时器）
+        if (
+          this.queue.some((t) => this.isTaskReady(t)) &&
+          printerManager.getAvailablePrinters().length > 0
+        ) {
           setImmediate(() => this.trigger(reason + '-retry'));
         }
       });
+  }
+
+  /** 任务是否已过失败重试冷却期 */
+  isTaskReady(task) {
+    return !task.nextMatchAt || task.nextMatchAt <= Date.now();
   }
 
   async match(reason) {
@@ -170,7 +179,9 @@ class Dispatcher {
       if (available.length === 0) break;
 
       this.sortQueue();
-      const task = this.queue[0];
+      const task = this.queue.find((t) => this.isTaskReady(t));
+      if (!task) break; // 全部任务都在重试冷却中
+
       const result = this.matchPrinter(task, available);
 
       if (!result) {
@@ -242,9 +253,10 @@ class Dispatcher {
     return null;
   }
 
-  /** 遍历整个队列找任何一个能匹配的组合（避免队首缺料阻塞整条队列） */
+  /** 遍历整个队列找任何一个能匹配的组合（避免队首缺料阻塞整条队列；冷却中的任务跳过） */
   findAnyMatch(available) {
     for (const task of this.queue) {
+      if (!this.isTaskReady(task)) continue;
       const printer = this.matchPrinter(task, available);
       if (printer) return { task, printer };
     }
@@ -314,12 +326,38 @@ class Dispatcher {
           })
           .catch(() => {});
       }
+      // 重试上限 + 冷却：缺附件/上传失败等确定性失败若不设限，match 循环会原地死循环并刷屏
+      task.dispatchRetries = (task.dispatchRetries || 0) + 1;
+      if (task.dispatchRetries >= config.dispatch.maxRetries) {
+        console.error(
+          `[分发] 任务 ${task.recordId} 已重试 ${task.dispatchRetries} 次仍失败，退出队列，请人工处理`
+        );
+        sendMessage(
+          require('../feishu/bot').buildJobFailedCard(
+            task,
+            printer,
+            `分发失败：${err.message}；已自动重试 ${task.dispatchRetries} 次仍失败，已暂停自动分发，请人工介入`
+          )
+        ).catch(() => {});
+        return;
+      }
       task.dispatchError = err.message;
+      task.nextMatchAt = Date.now() + config.dispatch.retryCooldownMs;
       task.enqueuedAt = Date.now();
       this.queue.push(task);
       sendMessage(
-        require('../feishu/bot').buildJobFailedCard(task, printer, `分发失败：${err.message}，已重新排队`)
+        require('../feishu/bot').buildJobFailedCard(
+          task,
+          printer,
+          `分发失败：${err.message}，已重新排队（第 ${task.dispatchRetries}/${config.dispatch.maxRetries} 次重试）`
+        )
       ).catch(() => {});
+      // 冷却结束后再触发一轮匹配（否则要等到下一次入队/空闲事件才会重试）
+      setTimeout(() => {
+        if (this.queue.some((t) => t.recordId === task.recordId)) {
+          this.trigger('retry-cooldown');
+        }
+      }, config.dispatch.retryCooldownMs + 500);
     }
   }
 

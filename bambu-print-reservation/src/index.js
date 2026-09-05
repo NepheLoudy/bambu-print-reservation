@@ -19,7 +19,8 @@ const {
 const app = express();
 
 app.use(cors());
-app.use(express.json());
+// 审批事件/表单可能较大（AGENTS.md 通用坑：express.json 放宽到 2mb）
+app.use(express.json({ limit: '2mb' }));
 
 app.get('/api/health', (req, res) => {
   res.json({
@@ -163,6 +164,16 @@ app.get('/api/printers', (req, res) => {
   }
 });
 
+app.get('/api/printers/available', (req, res) => {
+  try {
+    const printers = printerManager.getAvailablePrinters();
+    res.json(printers);
+  } catch (err) {
+    console.error('获取可用打印机失败:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/printers/:id', (req, res) => {
   try {
     const { id } = req.params;
@@ -173,16 +184,6 @@ app.get('/api/printers/:id', (req, res) => {
     res.json(printer);
   } catch (err) {
     console.error('获取打印机状态失败:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get('/api/printers/available', (req, res) => {
-  try {
-    const printers = printerManager.getAvailablePrinters();
-    res.json(printers);
-  } catch (err) {
-    console.error('获取可用打印机失败:', err);
     res.status(500).json({ error: err.message });
   }
 });

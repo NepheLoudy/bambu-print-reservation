@@ -30,7 +30,8 @@ async function getInstanceDetail(instanceId) {
 }
 
 /**
- * 表单数组 → 任务字段（自适应按类型与标题关键词）
+ * 表单 → 任务字段（自适应按类型与标题关键词）
+ * 官方实例详情的 form 是「表单控件 JSON 字符串」，事件/测试里也可能是数组
  * form item: { id, type, title, custom_key?, value }
  */
 function parseForm(form) {
@@ -43,7 +44,17 @@ function parseForm(form) {
     fileName: '',
   };
 
-  for (const item of form || []) {
+  let items = form;
+  if (typeof items === 'string') {
+    try {
+      items = JSON.parse(items || '[]');
+    } catch (err) {
+      console.warn('[审批监听] 表单 JSON 解析失败:', err.message);
+      items = [];
+    }
+  }
+
+  for (const item of items || []) {
     const title = String(item.title || item.custom_key || '');
     const type = String(item.type || '');
 
@@ -87,15 +98,13 @@ function buildTaskFromInstance(instance) {
   }
 
   return {
-    recordId: instance.instance_id, // 复用 recordId 字段做去重/取消键
+    recordId: instance.instance_code, // 复用 recordId 字段做去重/取消键（实例详情响应字段为 instance_code）
     fileSource: 'approval',
     fileToken: parsed.attachment.attachmentId,
-    fileName: parsed.attachment.name || `approval_${instance.instance_id}.3mf`,
-    applicationNo: instance.instance_id,
+    fileName: parsed.attachment.name || `approval_${instance.instance_code}.3mf`,
+    applicationNo: instance.instance_code,
     status: instance.status,
-    applicant: instance.start_user_id
-      ? { id: instance.start_user_id, name: instance.start_user_name || '' }
-      : null,
+    applicant: instance.open_id ? { id: instance.open_id, name: '' } : null,
     materialType: parsed.materialType,
     color: parsed.color,
     assignedPrinter: parsed.assignedPrinter,
@@ -104,12 +113,12 @@ function buildTaskFromInstance(instance) {
 }
 
 /**
- * 处理 approval_instance 事件（网关转发，event = {approval_code?, instance_id, ...}）
+ * 处理 approval_instance 事件（网关转发，event = {approval_code?, instance_code, ...}）
  */
 async function handleApprovalEvent(event) {
-  const instanceId = event.instance_id || (event.event && event.event.instance_id);
+  const instanceId = event.instance_code || (event.event && event.event.instance_code);
   if (!instanceId) {
-    console.warn('[审批监听] 事件缺少 instance_id，忽略');
+    console.warn('[审批监听] 事件缺少 instance_code，忽略');
     return;
   }
 
@@ -129,7 +138,7 @@ async function handleApprovalEvent(event) {
   }
   if (!instance) return;
 
-  if (configuredCode && instance.approval_id && instance.approval_id !== configuredCode) {
+  if (configuredCode && instance.approval_code && instance.approval_code !== configuredCode) {
     return;
   }
 
@@ -142,7 +151,8 @@ async function handleApprovalEvent(event) {
       return;
     }
     dispatcher.enqueue(task);
-  } else if (['CANCELED', 'REJECTED', 'DELETED'].includes(status)) {
+  } else if (['CANCELED', 'REJECTED', 'DELETED', 'REVERTED', 'OVERTIME_CLOSE'].includes(status)) {
+    // REVERTED = 通过后撤销；OVERTIME_CLOSE = 超时关闭——同为终态，均需移出队列
     dispatcher.dequeue(instanceId);
     console.log(`[审批监听] 实例 ${instanceId} ${status}，已移出队列`);
   } else {
@@ -162,8 +172,8 @@ async function handleApprovalTaskEvent(event) {
   const autoApproverId = config.approval.autoApproverId;
   if (!autoApproverId) return; // 未配置自动审批人，不动作
 
-  const evt = event.event && event.event.instance_id ? event.event : event;
-  const instanceId = evt.instance_id;
+  const evt = event.event && event.event.instance_code ? event.event : event;
+  const instanceId = evt.instance_code;
   const taskId = evt.task_id;
   if (!instanceId || !taskId) return;
   if (handledTasks.has(taskId)) return;
@@ -193,7 +203,7 @@ async function handleApprovalTaskEvent(event) {
   const taskApprover = task.user_id || task.approver_id || '';
   if (taskApprover !== autoApproverId) return;
 
-  const approvalCode = instance.approval_id || evt.approval_code;
+  const approvalCode = instance.approval_code || evt.approval_code;
   const parsed = parseForm(instance.form);
   if (!parsed.attachment) return; // 无附件不是打印审批，不代批
 

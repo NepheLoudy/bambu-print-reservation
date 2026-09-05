@@ -47,18 +47,29 @@ check('字段名变化仍可解析（耗材/色彩/紧急）', () => {
   assert.equal(p.isUrgent, true);
 });
 check('无附件表单 → buildTask 返回 null（非打印审批）', () => {
-  const task = buildTaskFromInstance({ instance_id: 'i1', form: [{ type: 'text', title: '说明', value: 'x' }] });
+  const task = buildTaskFromInstance({ instance_code: 'i1', form: [{ type: 'text', title: '说明', value: 'x' }] });
   assert.equal(task, null);
 });
 check('附件 value 为数组形态兼容', () => {
   const p = parseForm([{ type: 'attachment', title: '附件', value: [{ attachment_id: 'att_9', name: 'a.3mf' }] }]);
   assert.equal(p.attachment.attachmentId, 'att_9');
 });
-check('buildTask：instance_id 作为去重键与申请编号', () => {
+check('form 为 JSON 字符串（实例详情接口的真实形态）可解析', () => {
+  const p = parseForm(JSON.stringify(FORM));
+  assert.equal(p.attachment.attachmentId, 'att_123');
+  assert.equal(p.materialType, 'PETG');
+  assert.equal(p.color, '白色');
+});
+check('form 为非法 JSON 字符串时安全降级为空表单', () => {
+  const p = parseForm('not-json{{{');
+  assert.equal(p.attachment, null);
+  assert.equal(p.materialType, '');
+});
+check('buildTask：instance_code 作为去重键与申请编号', () => {
   const task = buildTaskFromInstance({
-    instance_id: '7123456789',
+    instance_code: '7123456789',
     status: 'APPROVED',
-    start_user_id: 'ou_test',
+    open_id: 'ou_test',
     form: FORM,
   });
   assert.equal(task.recordId, '7123456789');

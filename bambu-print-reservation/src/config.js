@@ -98,6 +98,10 @@ module.exports = {
     materialRemindMinutes: Number(process.env.DISPATCH_MATERIAL_REMIND_MINUTES || 30),
     // 打印下发是否使用 AMS（多色/单色均由 AMS 供料）
     useAms: process.env.DISPATCH_USE_AMS !== 'false',
+    // 分发失败重试上限（超过后退出队列转人工，防确定性失败无限重试）
+    maxRetries: Number(process.env.DISPATCH_MAX_RETRIES || 3),
+    // 分发失败重试冷却（毫秒），冷却期内不参与匹配
+    retryCooldownMs: Number(process.env.DISPATCH_RETRY_COOLDOWN_MS || 60 * 1000),
   },
 
   // ---------- 官方审批直连（主通道） ----------

@@ -137,7 +137,8 @@ class PrinterClient {
       gcodeState,
       status: GCODE_STATE_MAP[gcodeState] || '空闲',
       progress: job.percent || 0,
-      remainingTime: job.remainingSeconds || 0,
+      // mc_remaining_time 单位是分钟（bambu-link 误命名为 remainingSeconds，勿再除以 60）
+      remainingMinutes: job.remainingSeconds || 0,
       currentFile: job.file || '',
       nozzleTemp: temps.nozzle || null,
       bedTemp: temps.bed || null,

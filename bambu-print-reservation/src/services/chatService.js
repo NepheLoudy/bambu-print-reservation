@@ -118,9 +118,8 @@ async function handlePrintStatusCommand() {
       lines.push(`   当前文件: ${printer.currentJob}`);
     }
     if (printer.status === '打印中' || printer.status === '暂停') {
-      const remain = printer.remainingTime
-        ? `，剩余 ${Math.floor(printer.remainingTime / 60)} 分钟`
-        : '';
+      // remainingMinutes 本身就是分钟（mc_remaining_time），直接展示
+      const remain = printer.remainingMinutes ? `，剩余 ${printer.remainingMinutes} 分钟` : '';
       lines.push(`   进度: ${printer.progress}%${remain}`);
     }
     const ams = (printer.ams || []).filter((t) => t.type);
