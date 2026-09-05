@@ -21,6 +21,8 @@ const DEFAULT_MESSAGE_ROUTES = [
   // 例外：工单域消息由 ticket-bot 处理（接单监听 + 工单指令）
   { match: { prefix: '/ticket' }, target: 'ticket', mode: 'event' },
   { match: { contains: '接单', mention: true }, target: 'ticket', mode: 'event' },
+  // 指定负责人的私聊确认：负责人收到 24h 追问私信后回复「接单」即视为确认（私聊无 @ 场景）
+  { match: { contains: '接单', chatType: 'p2p' }, target: 'ticket', mode: 'event' },
 ];
 
 function parseConsumers(raw) {

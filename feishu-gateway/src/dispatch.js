@@ -167,13 +167,14 @@ async function routeMessage(frame) {
   for (const rule of config.messageRoutes) {
     const m = rule.match || {};
     if (m.chatId && message.chat_id !== m.chatId) continue;
+    if (m.chatType && message.chat_type !== m.chatType) continue;
     if (m.mention && !mentioned) continue;
     if (m.prefix && !text.toLowerCase().startsWith(String(m.prefix).toLowerCase())) continue;
     if (m.contains && !text.toLowerCase().includes(String(m.contains).toLowerCase())) continue;
 
     const consumer = findConsumer(rule.target);
     if (consumer) {
-      console.log(`[路由] 消息命中规则 ${JSON.stringify(m)} → ${consumer.name} (${rule.mode || 'event'}) text="${text.slice(0, 50)}"`);
+      console.log(`[路由] 消息命中规则 ${JSON.stringify(m)} → ${consumer.name} (${rule.mode || 'event'}) chat=${message.chat_id || '?'} text="${text.slice(0, 50)}"`);
       return deliverTo(consumer, rule.mode || 'event', frame, text);
     }
     console.warn(`[路由] 规则目标 ${rule.target} 未在 CONSUMERS 中定义，继续匹配下一条规则`);
