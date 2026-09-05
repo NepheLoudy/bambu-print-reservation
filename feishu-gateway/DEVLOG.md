@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次 git 提交 + 一次部署）。本项目无独立远端，push.js 只暂存 `feishu-gateway/` 路径提交进顶层 monorepo——版本即顶层仓库中触碰本路径的提交。v1~v8 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v10**（2026-09-05，哈希见文末 v10 条目）。
+当前最新：**v10**（2026-09-05 `b61269c`）。
 
 ## 阶段五 · 开发历史建档（2026-09-04）
 
@@ -48,7 +48,7 @@
 
 ## 阶段六 · 审批事件断链修复（2026-09-05）
 
-### v10 · 2026-09-05 · `待回填` · fix
+### v10 · 2026-09-05 · `b61269c` · fix
 **网关 EVENT_TYPES 补订阅 approval_instance/approval_task——修复审批事件双通道生产断链**
 - 排查全链路时发现：v7/v8 上线的审批事件双通道在生产从未生效——网关 `.env` 的 `EVENT_TYPES` 覆盖值仍只有 `im.message.receive_v1,drive.file.bitable_record_changed_v1`，把 config.js 默认值里的两个审批事件类型盖掉了；网关日志证实从未转发过任何审批事件，bambu 打印自动审批与 ticket-bot 接单自动通过两条联动因此静默失效。
 - 修复：本地 `.env`（部署源头，push 原样覆盖 NAS）与 `.env.example` 的 `EVENT_TYPES` 补上 `approval_instance,approval_task`。代码零改动（config.js 默认值本就含双通道）。
