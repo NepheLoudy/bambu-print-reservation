@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次部署）。本项目 push.js 为纯 SFTP 直传、无 git 步骤，**版本锚点取顶层 monorepo 中触碰本路径的归档提交**——两次归档之间的个别部署可能无版本记录。v1~v14 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v16**（2026-09-05，顶层归档 `5efc0ca`）。
+当前最新：**v18**（2026-09-06，顶层归档 `b68773e`）。
 
 ## 阶段五 · 审批事件字段对齐与分发健壮化（2026-09-05）
 
@@ -90,3 +90,14 @@
 - printer/client：FTP 连接失败/上传出错置空 ftpClient 强制下轮重连（原先残留死客户端，if(!ftpClient) 判定失效永不重连）并加 connTimeout/pasvTimeout；SFTP 旧连接的 close 不再误清新会话的 sftpReady（原只判 this.sshClient 非空），被顶掉的旧连接显式 end 防泄漏，上传超时断开会话；缺附件先校验再写「打印中」（消除镜像表打印中→已通过假抖动）；manualDispatch 加忙碌校验（原先直接 dispatch 会顶掉 printing 映射，原任务永远无法写「已完成/失败」且可能与自动匹配双上传）。
 - 文档对齐：README 工作流改为审批事件主通道（原表格事件旧图自相矛盾）、状态流转补「排队中」、指令表补 /print-help、事件链路补自动审批与重试配置；.env.example 补 DISPATCH_MAX_RETRIES/DISPATCH_RETRY_COOLDOWN_MS、空 APPROVAL_CODE 误打印风险警示、对账间隔仅后备模式生效标注；DEVLOG 头部「当前最新」指针 v15→v16；AGENTS.md 职能描述对齐（打印控制仅 HTTP API）。
 - 附：审查发现「MQTT 断线无重连」不成立——bambu-link SDK 自带 reconnectPeriod=5s 自动重连。
+
+## 阶段七 · 审批事件丢失自愈（2026-09-06）
+
+### v18 · 2026-09-06 · 顶层归档 `b68773e` · feat
+**审批事件丢失自愈：失败登记重拉 + APPROVAL_CODE 窗口列表对账兜底**
+- 背景：监听链路时效审查发现——网关转发审批事件单发无重试（8s 超时只记日志），本端拉实例详情失败也只记日志即丢；审批源任务不写镜像表，旧对账兜底在主通道下已关闭且本就覆盖不到审批源。丢一次事件该单永久滞留，只能人工 /print-dispatch。
+- ① 失败登记重拉：`handleApprovalEvent` 拉详情失败登记 instance_code 进 retryQueue，对账定时器优先重拉（详情接口只要 instance_code，不依赖 APPROVAL_CODE）；窗口内一直失败打「放弃，请人工核对」日志，防实例已删导致永久重试。
+- ② 窗口列表兜底：配置 APPROVAL_CODE 时每轮 `POST /approval/v4/instances/list` 拉回看窗口内实例 ID（默认 24h，按提交时间），跳过引擎已登记（dispatcher 新增 `isKnown`）与对账确认过终态否决的，其余补拉详情——APPROVED 补入队（enqueue 幂等+播报排队卡片）、终态移出队列。**APPROVAL_CODE 留空时 ② 不生效，启动日志显式警示**（生产现状即未配置，当前仅 ① 生效）。
+- 接线与配置：兜底随审批主通道在 `startEventSubscription` 启动（后备模式不启，它走旧表格对账），启动 15s 先跑一轮补停机窗口遗漏；新增 `POST /api/approval/reconcile` 手动触发（与 /api/dispatch/reconcile 对称）；`APPROVAL_RECONCILE_MINUTES`（默认 5，0=关）/`APPROVAL_RECONCILE_WINDOW_MINUTES`（默认 1440），.env.example 同步；终态清单收敛为 TERMINAL_STATUSES 常量供事件/对账两路径共用。
+- 验证：dispatcher 18 项单测全过；部署后 health 200、启动日志见「[审批对账] 兜底已启动（每 5 分钟，回看窗口 1440 分钟）」、POST /api/approval/reconcile 空载 `{"success":true,"handled":0}`。
+- 部署附记：push 前本地/NAS .env 键级 diff 无差异；另确认生产 `PRINTER_HOSTS` 为空（0 台打印机登记，部署前既有状态）——审批→入队链路可用，自动匹配需先配打印机。
