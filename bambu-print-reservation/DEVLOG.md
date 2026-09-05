@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次部署）。本项目 push.js 为纯 SFTP 直传、无 git 步骤，**版本锚点取顶层 monorepo 中触碰本路径的归档提交**——两次归档之间的个别部署可能无版本记录。v1~v14 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v18**（2026-09-06，顶层归档 `b68773e`）。
+当前最新：**v19**（2026-09-06，随本提交落地，顶层归档锚点待本批归档提交回填）。
 
 ## 阶段五 · 审批事件字段对齐与分发健壮化（2026-09-05）
 
@@ -101,3 +101,13 @@
 - 接线与配置：兜底随审批主通道在 `startEventSubscription` 启动（后备模式不启，它走旧表格对账），启动 15s 先跑一轮补停机窗口遗漏；新增 `POST /api/approval/reconcile` 手动触发（与 /api/dispatch/reconcile 对称）；`APPROVAL_RECONCILE_MINUTES`（默认 5，0=关）/`APPROVAL_RECONCILE_WINDOW_MINUTES`（默认 1440），.env.example 同步；终态清单收敛为 TERMINAL_STATUSES 常量供事件/对账两路径共用。
 - 验证：dispatcher 18 项单测全过；部署后 health 200、启动日志见「[审批对账] 兜底已启动（每 5 分钟，回看窗口 1440 分钟）」、POST /api/approval/reconcile 空载 `{"success":true,"handled":0}`。
 - 部署附记：push 前本地/NAS .env 键级 diff 无差异；另确认生产 `PRINTER_HOSTS` 为空（0 台打印机登记，部署前既有状态）——审批→入队链路可用，自动匹配需先配打印机。
+
+## 阶段八 · 晚间静默——播报时段限制（2026-09-06）
+
+### v19 · 2026-09-06 · 随本提交落地（顶层归档锚点待本批归档提交回填） · feat
+**02:00–09:00（Asia/Shanghai）静默窗口：打印生命周期/预约通知积压到 09:00 原样补发（可配可关）**
+- 新增 `src/utils/quietHours.js`（顶层 AGENTS.md「晚间静默」规则的本仓实现）：群播卡片与私聊通知落在窗口（`QUIET_HOURS_START/END` 默认 2→9，支持跨午夜写法，`QUIET_HOURS_DISABLED=1` 关闭）内时载荷落盘积压（`.quiet-backlog.json` 持久化，重启不丢），窗口结束整点按入队顺序原样补发；启动时过点立即补冲刷（initQuietHoursFlush 接入 startServer）；补发失败保留重试 ≤3 次。
+- 接线（dispatcher 7 处 + reservation 4 处）：排队卡/开始卡/完成卡/失败卡（重试与放弃两种）/缺料提醒（原 30 分钟节流不变）/预约审批提醒卡+审批人私聊/审批结果卡+申请人私聊。
+- **挤压要为挤压之后的事情负责**：打印机控制、写表、队列匹配、审批流转发照常进行，只有消息延后；补发的是事发时刻快照（完成卡含实际完成时间），夜间过队后卡片排位可能滞后，队列实况以 /print 指令查询为准。
+- 豁免：chatService 对 /print-* 指令的回复（交互回路）不积压。
+- 其他：/api/health 附 quietHours 状态；.gitignore/.env.example 同步；README 播报段补静默说明；顶层 AGENTS.md 新增「晚间静默」规则段。

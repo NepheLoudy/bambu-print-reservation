@@ -2,6 +2,7 @@ const config = require('../config');
 const bitableApi = require('../feishu/bitable');
 const { downloadFile, downloadApprovalAttachment } = require('../feishu/client');
 const { sendMessage } = require('../feishu/bot');
+const quietHours = require('../utils/quietHours');
 const printerManager = require('../printer/manager');
 const reservationService = require('./reservation');
 
@@ -42,6 +43,15 @@ function materialMatch(required, trayType) {
   if (a === b) return 'exact';
   if (b.startsWith(a + '-') || a.startsWith(b + '-')) return 'family';
   return false;
+}
+
+/**
+ * 群播出口：晚间静默窗口（默认 02:00–09:00）内不直接发送，卡片落盘积压、
+ * 窗口结束原样补发（打印机控制/写表/队列匹配不延迟，只有消息延后）
+ */
+function announce(name, card, onError) {
+  if (quietHours.gatePayload('webhook-card', card, name)) return;
+  sendMessage(card).catch(onError);
 }
 
 class Dispatcher {
@@ -130,7 +140,7 @@ class Dispatcher {
     console.log(`[分发] 入队: ${task.applicationNo || task.recordId} ${task.materialType || ''}${task.color ? '×' + task.color : ''}${task.isUrgent ? ' [加急]' : ''}`);
 
     if (!silent) {
-      sendMessage(require('../feishu/bot').buildQueueCard(task, position)).catch((err) =>
+      announce(`排队卡 ${task.recordId}`, require('../feishu/bot').buildQueueCard(task, position), (err) =>
         console.error('[分发] 入队播报失败:', err.message)
       );
     }
@@ -287,7 +297,7 @@ class Dispatcher {
       .slice(0, 5)
       .map((t) => `${t.materialType || '任意材料'}×${t.color || '任意颜色'}（${t.applicationNo || t.fileName || t.recordId}）`)
       .join('；');
-    sendMessage(require('../feishu/bot').buildMaterialMissingCard(this.queue.length, needs)).catch(() => {});
+    announce('缺料提醒', require('../feishu/bot').buildMaterialMissingCard(this.queue.length, needs), () => {});
     console.log(`[分发] ${this.queue.length} 个任务缺料等待: ${needs}`);
   }
 
@@ -329,9 +339,10 @@ class Dispatcher {
       this.printing.set(printer.id, task);
       printerManager.updateState(printer.id, { activeTask: task });
 
-      sendMessage(
-        require('../feishu/bot').buildJobStartCard(task, printer)
-      ).catch((err) => console.error('[分发] 开始播报失败:', err.message));
+      announce(`开始卡 ${task.recordId}`,
+        require('../feishu/bot').buildJobStartCard(task, printer),
+        (err) => console.error('[分发] 开始播报失败:', err.message)
+      );
     } catch (err) {
       console.error(`[分发] 分发失败 ${task.recordId}:`, err.message);
       // 回滚状态并重新排队（下一轮再试）；审批来源无表状态可回滚
@@ -348,26 +359,30 @@ class Dispatcher {
         console.error(
           `[分发] 任务 ${task.recordId} 已重试 ${task.dispatchRetries} 次仍失败，退出队列，请人工处理`
         );
-        sendMessage(
+        announce(
+          `分发放弃卡 ${task.recordId}`,
           require('../feishu/bot').buildJobFailedCard(
             task,
             printer,
             `分发失败：${err.message}；已自动重试 ${task.dispatchRetries} 次仍失败，已暂停自动分发，请人工介入`
-          )
-        ).catch(() => {});
+          ),
+          () => {}
+        );
         return;
       }
       task.dispatchError = err.message;
       task.nextMatchAt = Date.now() + config.dispatch.retryCooldownMs;
       task.enqueuedAt = Date.now();
       this.queue.push(task);
-      sendMessage(
+      announce(
+        `分发重试卡 ${task.recordId}`,
         require('../feishu/bot').buildJobFailedCard(
           task,
           printer,
           `分发失败：${err.message}，已重新排队（第 ${task.dispatchRetries}/${config.dispatch.maxRetries} 次重试）`
-        )
-      ).catch(() => {});
+        ),
+        () => {}
+      );
       // 冷却结束后再触发一轮匹配（否则要等到下一次入队/空闲事件才会重试）
       setTimeout(() => {
         if (this.queue.some((t) => t.recordId === task.recordId)) {
@@ -391,7 +406,7 @@ class Dispatcher {
         .catch((err) => console.error('[分发] 完成写表失败:', err.message));
     }
 
-    sendMessage(require('../feishu/bot').buildJobFinishCard(task, printer)).catch(() => {});
+    announce(`完成卡 ${task.recordId}`, require('../feishu/bot').buildJobFinishCard(task, printer), () => {});
     console.log(`[分发] 完成: ${task.applicationNo || task.recordId} @ ${printer.name}`);
     this.trigger('task-finish');
   }
@@ -409,7 +424,7 @@ class Dispatcher {
         .catch(() => {});
     }
 
-    sendMessage(require('../feishu/bot').buildJobFailedCard(task, printer, reason)).catch(() => {});
+    announce(`失败卡 ${task.recordId}`, require('../feishu/bot').buildJobFailedCard(task, printer, reason), () => {});
     console.error(`[分发] 失败: ${task.applicationNo || task.recordId} @ ${printer.name} ${reason}`);
     this.trigger('task-failed');
   }

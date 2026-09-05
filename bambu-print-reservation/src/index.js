@@ -28,6 +28,7 @@ app.get('/api/health', (req, res) => {
     status: 'ok',
     time: new Date().toISOString(),
     printers: config.printers.length,
+    quietHours: require('./utils/quietHours').getStatus(),
   });
 });
 
@@ -371,6 +372,9 @@ function startServer() {
   });
 
   startEventSubscription();
+
+  // 晚间静默：启动时若有积压通知，按当前时点调度补发（过点立即、未过点等到窗口结束整点）
+  require('./utils/quietHours').initQuietHoursFlush();
 
   process.on('SIGINT', async () => {
     console.log('\n正在关闭服务器...');

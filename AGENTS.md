@@ -12,6 +12,14 @@
 详细规则与踩坑记录见 skill：`.agents/skills/qianli-chat-architecture/SKILL.md`
 （涉及消息路由、@识别、指令转发的改动，先读它）。
 
+# 晚间静默（播报时段限制）
+
+**02:00–09:00（Asia/Shanghai，`[START, END)` 可配 `QUIET_HOURS_START/END`，`QUIET_HOURS_DISABLED=1` 关闭）窗口内，所有机器人的定时/自动播报不直接发送，统一积压到 09:00 整点补发**。ticket-bot / project-management-robot / approval-bot / bambu-print-reservation 四仓各自实现，通用模块为各仓 `src/utils/quietHours.js`（积压持久化 `.quiet-backlog.json`，重启不丢，启动过点即补冲刷）。
+
+- **挤压要为挤压之后的事情负责**：可重扫任务（周报/DDL 播报/每日汇总等）冲刷时重跑整个任务函数，以补发时刻最新数据重查——夜里已了结的事不再播，标记/节流/轮次等时点逻辑以实际发送时刻为准；每小时整点重扫类（ticket-bot 超时/结单/追问）静默内整轮跳过，09:00 整点轮次天然就是冲刷；一次性事件通知（打印生命周期卡、多人单结束通告等）原样落盘载荷按序补发，业务动作（打印机控制/写表/审批通过）不延迟；
+- **不受限**：对话/指令回复（接单确认等交互回路）与人工当下主动触发（/test-*、手动补播单条等）；
+- 改动播报时机、新增播报点时必须过该闸门（新增定时播报接 `gateTask`，事件通知接 `gatePayload`），并把窗口行为写进对应 LOGIC-MAP/README。
+
 # 开发日志（DEVLOG）——每次 push 记一版
 
 每个项目（含 qianli 顶层工作区）根目录维护 `DEVLOG.md` 开发历史，**版本隔离单位 = 一次 `npm run push`（即一次 git 提交 + 一次部署）**。

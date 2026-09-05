@@ -8,10 +8,10 @@ const {
   describeTarget,
   buildDailySummaryCard,
   buildReannounceCard,
-  buildCloseReminderCard,
 } = require('../feishu/bot');
 const { formatFieldValue, formatFieldText, getCreatedTime } = require('../utils/fields');
 const { getTicketApprovalUrl } = require('../feishu/bot');
+const quietHours = require('../utils/quietHours');
 
 // 审批流原生字段名（审批表侧概念，无对应 env 配置；审批表改名需同步这里）
 const FIELD_HANDLER = '当前处理人';
@@ -30,6 +30,142 @@ const TIMEOUT_CONFIG = {
   hours: 6, // 超时阈值：6小时
   checkInterval: '0 * * * *', // 每小时检查一次
 };
+
+// ============================================================
+// 无人接单升级（超时检查的下辖分支）：同一工单第 2 轮超时提醒起，
+// 私聊「面向组别」对应的组长（GROUP_LEADERS），提醒该群工单还没有组员接单。
+//   - 轮次 = 超时检查（每小时）实际处理到该工单的次数：第 1 轮走既有分支
+//     （私信发起人 / 群内重问询卡），第 2 轮起叠加组长私聊；
+//   - 同一工单对组长的私聊间隔不小于 3 小时，避免每小时轰炸；
+//   - 轮次/间隔状态在内存：重启清零，代价仅是升级推迟一轮（下个整点重新
+//     计为第 1 轮），不涉及写库，故不落表。
+// ============================================================
+const TIMEOUT_LEADER_NUDGE = {
+  startRound: 2,
+  intervalMs: 3 * 60 * 60 * 1000,
+  stateTtlMs: 48 * 60 * 60 * 1000,
+};
+const timeoutRoundState = new Map(); // recordId -> { rounds, timestamp }
+const leaderNudgeState = new Map(); // recordId -> lastLeaderDmTs
+
+// ============================================================
+// 群内重问询节流（超时分支 2.2 专用）：公开问询从「每小时一次」改为
+// 「每 6 小时一次、每单封顶 2 次」（≈发起后 6h、12h 各问询一次）。
+// 封顶后群内不再重复问询，持续升级由「无人接单升级」的组长私聊承担。
+//   - 多人单不受限：有人接单即合并写入补充负责人、天然退出本检查；续接窗口的
+//     续接询问（ticketService 接单路径）与到期自动通过（对账路径）不经此处；
+//   - 计数在内存：重启清零，代价是封顶计数重新开始（最多多问两轮），不落表。
+// ============================================================
+const TIMEOUT_REASK = {
+  intervalMs: 6 * 60 * 60 * 1000,
+  maxCount: 2,
+  stateTtlMs: 48 * 60 * 60 * 1000,
+};
+const reaskState = new Map(); // recordId -> { count, lastTs }
+
+function pruneReaskState() {
+  const now = Date.now();
+  for (const [key, st] of reaskState) {
+    if (now - st.lastTs > TIMEOUT_REASK.stateTtlMs) reaskState.delete(key);
+  }
+}
+
+/** 本轮是否允许群内问询（未封顶且距上次 ≥6h），只读不写 */
+function reaskAllowed(recordId) {
+  pruneReaskState();
+  const st = reaskState.get(recordId);
+  if (st && st.count >= TIMEOUT_REASK.maxCount) return false;
+  if (st && st.lastTs && Date.now() - st.lastTs < TIMEOUT_REASK.intervalMs) return false;
+  return true;
+}
+
+/** 群内问询实际发出（至少一群成功）后占用一次额度 */
+function recordReask(recordId) {
+  const st = reaskState.get(recordId) || { count: 0, lastTs: 0 };
+  reaskState.set(recordId, { count: st.count + 1, lastTs: Date.now() });
+}
+
+function pruneStateMap(map, ttl) {
+  const now = Date.now();
+  for (const [key, value] of map) {
+    const ts = typeof value === 'number' ? value : value?.timestamp || 0;
+    if (now - ts > ttl) map.delete(key);
+  }
+}
+
+function bumpTimeoutRound(recordId) {
+  pruneStateMap(timeoutRoundState, TIMEOUT_LEADER_NUDGE.stateTtlMs);
+  const rounds = (timeoutRoundState.get(recordId)?.rounds || 0) + 1;
+  timeoutRoundState.set(recordId, { rounds, timestamp: Date.now() });
+  return rounds;
+}
+
+/**
+ * 组长标识 → open_id：GROUP_LEADERS 的值支持 open_id（ou_ 开头直通）
+ * 或 user_id（经通讯录解析后缓存）；解析失败按跳过处理（fail-closed）
+ */
+const leaderOpenIdCache = new Map(); // 原始标识 -> openId | null
+
+async function resolveLeaderOpenId(raw) {
+  if (raw.startsWith('ou_')) return raw;
+  if (leaderOpenIdCache.has(raw)) return leaderOpenIdCache.get(raw);
+  let openId = null;
+  try {
+    const { requestAPI } = require('../feishu/client');
+    const res = await requestAPI('GET', `/contact/v3/users/${raw}?user_id_type=user_id`);
+    if (res.code === 0) openId = res.data?.user?.open_id || null;
+  } catch (err) {
+    console.warn(`[无人接单升级] 组长标识解析请求失败「${raw}」: ${err.message}`);
+  }
+  if (!openId) console.warn(`[无人接单升级] 组长标识「${raw}」未解析到 open_id（检查 GROUP_LEADERS 值与通讯录权限）`);
+  leaderOpenIdCache.set(raw, openId);
+  return openId;
+}
+
+/**
+ * 私聊工单「面向组别」对应的组长（多组别工单的多个组长各收一条，
+ * 同一组长名下多组合并为一条；同一工单对组长间隔不小于 3 小时）
+ */
+async function nudgeGroupLeaders({ record, title, groups, elapsedHours, round }) {
+  pruneStateMap(leaderNudgeState, TIMEOUT_LEADER_NUDGE.stateTtlMs);
+  const lastDm = leaderNudgeState.get(record.record_id);
+  if (lastDm && Date.now() - lastDm < TIMEOUT_LEADER_NUDGE.intervalMs) return;
+
+  // 面向组别 → GROUP_LEADERS 原始标识（按组长去重合并组名）
+  const byLeader = new Map(); // rawId -> 组别名[]
+  for (const group of groups || []) {
+    const raw = config.groupLeaders?.get(String(group));
+    if (raw) {
+      if (!byLeader.has(raw)) byLeader.set(raw, []);
+      byLeader.get(raw).push(String(group));
+    }
+  }
+  if (byLeader.size === 0) {
+    console.log('[无人接单升级] 面向组别未配置组长（GROUP_LEADERS），跳过私聊升级');
+    return;
+  }
+
+  const approvalUrl = getTicketApprovalUrl(record.fields, record.record_id);
+  let sent = 0;
+  for (const [raw, groupNames] of byLeader) {
+    const openId = await resolveLeaderOpenId(raw);
+    if (!openId) continue;
+    try {
+      await sendTextToUser(
+        openId,
+        `🚨 工单无人接单提醒（第 ${round} 轮）\n\n` +
+        `「${groupNames.join('、')}」的工单「${title}」已发布超过 ${elapsedHours} 小时，仍没有组员接单。\n\n` +
+        `请关注组内安排：可由组员在群内 @${config.bot.name} 发送「接单」，或由你本人接单。\n` +
+        `工单详情：${approvalUrl}`
+      );
+      sent++;
+      console.log(`[无人接单升级] 已私聊组长（${groupNames.join('、')}）: ${record.record_id} 第 ${round} 轮`);
+    } catch (err) {
+      console.error(`[无人接单升级] 私聊组长失败（${groupNames.join('、')}） ${record.record_id}:`, err.message);
+    }
+  }
+  if (sent > 0) leaderNudgeState.set(record.record_id, Date.now());
+}
 
 function isFrequencyLimitError(err) {
   if (!err) return false;
@@ -174,7 +310,7 @@ async function checkTimeoutTickets() {
     }
 
     // 检查发起时间（发起时间缺失回退创建时间）
-    const createTime = fields['发起时间'] || fields['创建时间'];
+    const createTime = getCreatedTime(fields);
     if (!createTime) {
       console.warn(`[超时检查] 工单 ${record.record_id} 缺少发起时间字段，跳过`);
       continue;
@@ -215,6 +351,17 @@ async function handleTimeoutTicket(ticketInfo) {
   const title = formatFieldText(record.fields['申请编号']) || formatFieldValue(record.fields['需求1'] ?? record.fields['需求']) || `工单-${recordId.slice(-6)}`;
 
   console.log(`[超时处理] 工单 ${recordId}: 当前处理人=${currentHandler.name}, 发起人=${initiator?.name || '未知'}, 超时=${elapsedHours}小时`);
+
+  // 无人接单升级（下辖分支）：第 2 轮超时提醒起，私聊面向组别对应的组长。
+  // 先于当轮常规分支动作执行；失败不影响分支动作
+  try {
+    const round = bumpTimeoutRound(recordId);
+    if (round >= TIMEOUT_LEADER_NUDGE.startRound) {
+      await nudgeGroupLeaders({ record, title, groups, elapsedHours, round });
+    }
+  } catch (err) {
+    console.error(`[超时处理] 组长升级提醒失败（不影响常规提醒） ${recordId}:`, err.message);
+  }
 
   // 分支1：当前处理人 == 发起人
   // 此时工单多半还没人接单（候选工单处于触发节点且无补充负责人），
@@ -284,7 +431,12 @@ async function handleTimeoutTicket(ticketInfo) {
   }
 
   // 2.2 无指定负责人：重走公开问询流程，强调还没人接单，@组长
+  // 群内问询节流：每 6 小时一次、每单封顶 2 次；间隔未到或已达封顶则本轮跳过
   console.log(`[超时处理] 2.2: 无指定负责人，重走公开问询流程`);
+  if (!reaskAllowed(recordId)) {
+    console.log(`[超时处理] 2.2: 群内问询间隔未到或已达封顶（每 ${TIMEOUT_REASK.intervalMs / 3600000}h × ${TIMEOUT_REASK.maxCount} 次），本轮跳过`);
+    return { branch: 'skipped', success: false, note: '群内问询间隔未到或已达上限' };
+  }
 
   const targets = ticketService.collectTargets(groups);
   if (targets.length === 0) {
@@ -307,6 +459,9 @@ async function handleTimeoutTicket(ticketInfo) {
     }
   }
 
+  // 至少一群发送成功才占用问询额度（全失败不消耗，下轮重试）
+  if (results.some(r => r.success)) recordReask(recordId);
+
   broadcastHistory.unshift({
     time: new Date().toISOString(),
     type: 'timeout_reannounce',
@@ -319,11 +474,11 @@ async function handleTimeoutTicket(ticketInfo) {
 }
 
 // ============================================================
-// 结单提醒（理想结单时间过后 N 天，应用机器人先私聊，未结单再转群引导）
-//   1. 先由机器人本人（应用机器人，非 webhook）私聊当前处理人
-//   2. 若下次检查仍未结单，则转对应群组引导到审批界面确认结单
+// 结单提醒（理想结单时间过后 N 天，仅私聊当前处理人，无转群兜底）
+//   私聊链路已跑通（用户裁定 2026-09-05），过 ideal 结单时间后私聊一次；
+//   未结单工单的持续曝光由 pm-robot 每日 DDL 播报的「工单结单」分栏承担
 // ============================================================
-const closingRemindState = new Map(); // recordId -> { dmTime, groupNotified }
+const closingRemindState = new Map(); // recordId -> { dmTime }
 
 async function checkClosingTickets() {
   console.log('[结单提醒] 开始检查已过结单时间的工单...');
@@ -355,7 +510,7 @@ async function checkClosingTickets() {
     // 进入提醒窗口：理想结单时间过后 N 天（CLOSE_REMINDER_LEAD_DAYS）才开始提醒
     if (now < deadlineTs + leadMs) continue;
 
-    dueRecords.push({ record, handler, groups: config.broadcast.routeField ? (fields[config.broadcast.routeField] || []) : [], deadlineTs });
+    dueRecords.push({ record, handler, deadlineTs });
   }
 
   console.log(`[结单提醒] 发现 ${dueRecords.length} 条已过结单时间的工单`);
@@ -363,56 +518,29 @@ async function checkClosingTickets() {
 }
 
 async function handleClosingTicket(ticketInfo) {
-  const { record, handler, groups } = ticketInfo;
+  const { record, handler } = ticketInfo;
   const recordId = record.record_id;
   const title = formatFieldText(record.fields['申请编号']) || formatFieldValue(record.fields['需求1'] ?? record.fields['需求']) || `工单-${recordId.slice(-6)}`;
   const approvalUrl = getTicketApprovalUrl(record.fields, recordId);
 
-  const state = closingRemindState.get(recordId);
-
-  // 第一次：私聊当前处理人
-  if (!state) {
-    console.log(`[结单提醒] 私聊当前处理人: ${handler.name}(${handler.id})`);
-    try {
-      await sendTextToUser(
-        handler.id,
-        `⏰ 工单「${title}」已超过理想结单时间，请尽快完成结单\n\n` +
-        `请前往审批界面确认结单：\n${approvalUrl}`
-      );
-      closingRemindState.set(recordId, { dmTime: Date.now(), groupNotified: false });
-      return { branch: 'dm', success: true };
-    } catch (err) {
-      console.error(`[结单提醒] 私聊失败:`, err.message);
-      return { branch: 'dm', success: false, error: err.message };
-    }
+  // 只私聊：已私聊过则不再重复（重启会清状态重私聊一次）
+  if (closingRemindState.has(recordId)) {
+    return { branch: 'skip', success: false, note: '已私聊过' };
   }
 
-  // 已私聊过但未结单：转群引导
-  if (!state.groupNotified) {
-    console.log(`[结单提醒] 已私聊未结单，转群引导: ${recordId}`);
-    const targets = ticketService.collectTargets(groups);
-    if (targets.length === 0) {
-      console.log(`[结单提醒] 无可用播报目标，跳过`);
-      return { branch: 'group', success: false, error: '无播报目标' };
-    }
-
-    const results = [];
-    for (const target of targets) {
-      try {
-        const card = buildCloseReminderCard(record, handler);
-        await sendCardToTarget(target, card);
-        results.push({ target: describeTarget(target), success: true });
-      } catch (err) {
-        console.error(`[结单提醒] 群引导发送失败: ${describeTarget(target)}`, err.message);
-        results.push({ target: describeTarget(target), success: false, error: err.message });
-      }
-    }
-
-    state.groupNotified = true;
-    return { branch: 'group', success: results.some(r => r.success), results };
+  console.log(`[结单提醒] 私聊当前处理人: ${handler.name}(${handler.id})`);
+  try {
+    await sendTextToUser(
+      handler.id,
+      `⏰ 工单「${title}」已超过理想结单时间，请尽快完成结单\n\n` +
+      `请前往审批界面确认结单：\n${approvalUrl}`
+    );
+    closingRemindState.set(recordId, { dmTime: Date.now() });
+    return { branch: 'dm', success: true };
+  } catch (err) {
+    console.error(`[结单提醒] 私聊失败:`, err.message);
+    return { branch: 'dm', success: false, error: err.message };
   }
-
-  return { branch: 'skip', success: false, note: '已提醒过' };
 }
 
 async function runCloseReminderCheck() {
@@ -600,7 +728,8 @@ function startCronJobs() {
 
     summaryTask = cron.schedule(config.cron.schedule, () => {
       console.log('[定时任务] 触发工单每日汇总');
-      runSummaryWithRetry().catch(err => {
+      // 晚间静默：窗口内积压到窗口结束整点，重跑整个汇总任务（以补发时刻数据为准）
+      quietHours.gateTask('daily_summary', quietHours.shanghaiStamp(), runSummaryWithRetry, '工单每日汇总').catch(err => {
         console.error('[定时任务] 工单每日汇总失败:', err.message);
       });
     }, {
@@ -619,6 +748,11 @@ function startCronJobs() {
   }
 
   timeoutTask = cron.schedule(TIMEOUT_CONFIG.checkInterval, () => {
+    // 晚间静默：整轮跳过（不计轮次/不写提醒状态），09:00 整点轮次天然完成补跑
+    if (quietHours.inQuietHours()) {
+      console.log(`[定时任务] 晚间静默（${quietHours.quietWindowDesc()}），超时检查本轮顺延至下个整点`);
+      return;
+    }
     console.log('[定时任务] 触发超时检查');
     runTimeoutCheck().catch(err => {
       console.error('[定时任务] 超时检查失败:', err.message);
@@ -636,6 +770,11 @@ function startCronJobs() {
   }
 
   closeReminderTask = cron.schedule(TIMEOUT_CONFIG.checkInterval, () => {
+    // 晚间静默：整轮跳过（不写私聊状态），09:00 整点轮次天然完成补跑
+    if (quietHours.inQuietHours()) {
+      console.log(`[定时任务] 晚间静默（${quietHours.quietWindowDesc()}），结单提醒本轮顺延至下个整点`);
+      return;
+    }
     console.log('[定时任务] 触发结单提醒检查');
     runCloseReminderCheck().catch(err => {
       console.error('[定时任务] 结单提醒检查失败:', err.message);
@@ -653,6 +792,11 @@ function startCronJobs() {
   }
 
   assignNudgeTask = cron.schedule(TIMEOUT_CONFIG.checkInterval, () => {
+    // 晚间静默：整轮跳过（不写追问节流状态），09:00 整点轮次天然完成补跑
+    if (quietHours.inQuietHours()) {
+      console.log(`[定时任务] 晚间静默（${quietHours.quietWindowDesc()}），确认追问本轮顺延至下个整点`);
+      return;
+    }
     console.log('[定时任务] 触发指定负责人确认追问检查');
     runAssigneeNudgeCheck().catch(err => {
       console.error('[定时任务] 确认追问检查失败:', err.message);
@@ -680,6 +824,11 @@ function startCronJobs() {
   });
 
   console.log('[定时任务] 播报对账已启动，调度规则: 每分钟 (Asia/Shanghai)');
+
+  // 晚间静默：注册积压任务的冲刷执行器，并按启动时点调度积压补跑（有积压才调度）
+  quietHours.registerTask('daily_summary', runSummaryWithRetry);
+  quietHours.initQuietHoursFlush();
+
   console.log(`[定时任务] 当前时间: ${new Date().toLocaleString('zh-CN')}`);
 
   return { summaryTask, timeoutTask, closeReminderTask, reconcileTask };
@@ -739,6 +888,7 @@ function getCronStatus() {
       schedule: '* * * * *',
       config: '每分钟扫描触发节点工单，漏播补播/漏搬补搬',
     },
+    quietHours: quietHours.getStatus(),
   };
 }
 

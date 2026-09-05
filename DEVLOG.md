@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v26**（2026-09-04 `37a59aa`）。
+当前最新：**v31**（2026-09-06，随本提交落地）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -133,6 +133,25 @@
 - 版本线备注：approval-bot（缺 v16~v27）、ticket-bot（缺 v43~v49）、pm-robot（缺 v48~v53）三家 DEVLOG 条目曾中断，本次随批补注版本线出处（以各自 git 提交消息为准），并恢复逐 push 记录。
 - 部署顺序：ticket-bot → pm-robot → approval-bot → bambu（SFTP）→ 顶层归档提交 → gateway（push.js 跳过 commit 直接 SFTP 部署 + 发布顶层远端）；NAS 五进程验证见各项目记录。
 
+## 阶段十 · 四仓晚间静默联动批次（2026-09-06）
+
+### v30 · 2026-09-06 · 随本提交落地 · feat
+**晚间静默（播报时段限制）：02:00–09:00 内定时/自动播报积压到 09:00 统一补发（ticket-bot v51 / pm-robot v55 / approval-bot v29 / bambu v19）**
+- 规则入顶层 AGENTS.md 新「晚间静默」段：窗口 `[QUIET_HOURS_START, QUIET_HOURS_END)`（默认 2→9，Asia/Shanghai，支持跨午夜写法，`QUIET_HOURS_DISABLED=1` 关闭）；四仓各自落地 `src/utils/quietHours.js`，积压持久化 `.quiet-backlog.json`（五处 .gitignore 同步），重启不丢、启动过点即补冲刷、失败重试 ≤3 次。
+- 挤压负责制三形态（挤压要为挤压之后的事情负责）：①可重扫任务（ticket-bot 每日汇总、approval-bot 周报/每日提醒/催发票、pm-robot DDL 播报含逾期确认）冲刷时重跑整个任务函数，以补发时刻最新数据重查——夜里已了结的事不再播，标记/节流状态以实际发送时刻为准；②小时级重扫（ticket-bot 超时/结单/确认追问）静默内整轮零副作用跳过，09:00 整点轮次天然冲刷；③一次性事件通知（bambu 生命周期卡/预约通知 11 处、ticket-bot 多人单结束通告）原样落盘载荷按序补发，业务动作（打印机控制/写表/审批自动通过）不延迟。
+- 豁免：对话/指令回复（接单确认、/print-*、DDL 确认等交互回路）与人工当下主动触发（test-*/手动补播单条）。
+- 文档：ticket-pm/LOGIC-MAP 新增 §1.7 + §2.2 第 6 条；approval-bot/bambu README 补静默说明；四仓 .env.example 补 `QUIET_HOURS_*`。
+- 部署顺序建议：ticket-bot → pm-robot → approval-bot → bambu（SFTP）→ 顶层归档提交；bambu v19 锚点随本批归档提交回填。
+
 ---
 
 **本 DEVLOG 自身**：v1~v25 为 2026-09-04 回溯建档；v26 起按「每次 push 记一版」规则持续追加（规则见 [AGENTS.md](AGENTS.md)，qianli-deploy skill 部署流程同有提醒）。
+
+## 阶段十一 · 无负责人问询节流 + DDL 无人接单分栏（2026-09-06）
+
+### v31 · 2026-09-06 · 随本提交落地 · feat
+**无负责人工单群内问询 6h×2 封顶（组长私聊持续升级）+ DDL 播报新增「无人接单」分栏（ticket-bot v51+v52 / pm-robot v55+v56；v30 晚间静默批次的 ticket-pm 两仓随本批实际上线）**
+- ticket-bot v52：超时分支 2.2 群内重问询改**每 6h 一次、每单封顶 2 次**（≈发起后 6h/12h 各一次，内存计数重启清零）；封顶后由「无人接单升级」组长私聊（≥3h 间隔）承担持续提醒。多人单续接窗口不受限——有人接单即写补充负责人退出超时检查，续接询问/到期自动通过在 ticketService 接单与对账路径，不经此处。
+- 两仓联动（§1.6 契约 additive 扩展）：ticket-bot `GET /api/tickets/unclosed-by-group` 每群新增 `unclaimed` 桶（触发节点 + 补充负责人为空 + 距发起 ≥6h，按「面向组别」分组、时长降序）；pm-robot DDL 卡在结单分栏前新增「🆘 无人接单工单」分栏（只列标题与发布时长不 @），/test-ddl 与降级直读链路同口径。
+- 顺带整改（两仓同款）：结单分桶的服务端等值过滤改全量拉取 + 拆段匹配——并行分支「；」拼接节点值等值过滤匹配不上，会静默漏桶。
+- 部署顺序：ticket-bot v52 → pm-robot v56 → 顶层归档提交。

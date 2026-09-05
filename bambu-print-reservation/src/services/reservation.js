@@ -1,6 +1,7 @@
 const config = require('../config');
 const bitableApi = require('../feishu/bitable');
 const { sendMessage, sendTextToUser, buildReservationAlertCard, buildReviewResultCard } = require('../feishu/bot');
+const quietHours = require('../utils/quietHours');
 
 // 注意：本模块被 dispatcher.js 依赖，对 dispatcher 的引用必须惰性 require（避免循环加载）
 
@@ -98,12 +99,18 @@ class ReservationService {
         },
       });
 
-      await sendMessage(card);
+      // 晚间静默：预约通知属群播/私聊通知，静默窗口内落盘积压，窗口结束补发
+      if (!quietHours.gatePayload('webhook-card', card, `预约审批提醒卡 ${reservation.recordId || ''}`)) {
+        await sendMessage(card);
+      }
 
       if (config.reviewers && config.reviewers.length > 0) {
         for (const reviewerId of config.reviewers) {
           try {
-            await sendTextToUser(reviewerId, `有新的打印预约需要您审批，请在飞书多维表格中查看并处理。\n文件：${reservation.fileName}`);
+            const text = `有新的打印预约需要您审批，请在飞书多维表格中查看并处理。\n文件：${reservation.fileName}`;
+            if (!quietHours.gatePayload('dm-text', { openId: reviewerId, text }, `预约审批提醒私聊 ${reviewerId}`)) {
+              await sendTextToUser(reviewerId, text);
+            }
           } catch (err) {
             console.error(`[预约服务] 通知审批者 ${reviewerId} 失败:`, err.message);
           }
@@ -153,14 +160,18 @@ class ReservationService {
         },
       }, reviewResult, reviewComment);
 
-      await sendMessage(card);
+      if (!quietHours.gatePayload('webhook-card', card, `审批结果卡 ${reservation.recordId || ''}`)) {
+        await sendMessage(card);
+      }
 
       if (reservation.applicant && reservation.applicant.id) {
         try {
           const message = reviewResult === config.reviewResult.APPROVED
             ? `您的打印预约已通过审批，已进入打印队列，将按材料自动匹配打印机。\n文件：${reservation.fileName}`
             : `您的打印预约未通过审批，请查看审批意见并修改后重新提交。\n文件：${reservation.fileName}\n意见：${reviewComment}`;
-          await sendTextToUser(reservation.applicant.id, message);
+          if (!quietHours.gatePayload('dm-text', { openId: reservation.applicant.id, text: message }, `审批结果私聊 ${reservation.applicant.id}`)) {
+            await sendTextToUser(reservation.applicant.id, message);
+          }
         } catch (err) {
           console.error(`[预约服务] 通知发起人 ${reservation.applicant.id} 失败:`, err.message);
         }
