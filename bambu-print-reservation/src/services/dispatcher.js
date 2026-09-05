@@ -149,6 +149,11 @@ class Dispatcher {
     }
   }
 
+  /** 记录是否已在本引擎登记过（含排队/打印中/已完成；审批对账用于跳过已知实例） */
+  isKnown(recordId) {
+    return this.known.has(recordId);
+  }
+
   /** 触发一轮匹配（串行） */
   trigger(reason) {
     if (this.matching) return;

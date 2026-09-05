@@ -24,6 +24,10 @@ async function startEventSubscription() {
       : '[事件订阅] 表格直提交流程（后备模式）'
   );
   dispatcher.start();
+  // 审批事件丢失自愈：只随主通道开启（后备模式的任务来自表格直提交流程，走旧对账）
+  if (config.approval.enabled) {
+    approvalService.startApprovalReconciler();
+  }
 }
 
 /**

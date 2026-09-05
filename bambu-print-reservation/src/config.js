@@ -113,6 +113,10 @@ module.exports = {
     // 自动审批：审批流里「自动审批」节点的审批人 open_id（可都填同一个人）。
     // 该审批人名下的待审批任务到达时，机器人按 AMS 规则自动同意/留人工。留空 = 不自动审批
     autoApproverId: process.env.APPROVAL_AUTO_APPROVER_ID || '',
+    // 审批事件丢失自愈（分钟）：周期对账补入队，覆盖网关/处理环节丢事件；0 = 关闭
+    reconcileMinutes: Number(process.env.APPROVAL_RECONCILE_MINUTES || 5),
+    // 对账回看窗口（分钟）：按实例提交时间批量拉取；窗口外的历史丢失无法自愈
+    reconcileWindowMinutes: Number(process.env.APPROVAL_RECONCILE_WINDOW_MINUTES || 24 * 60),
   },
 
   colorReference: COLOR_REFERENCE,

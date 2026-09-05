@@ -17,6 +17,15 @@ const printerManager = require('../printer/manager');
 //   含「加急/紧急」→ 加急；含「打印机」→ 指定打印机。
 // ============================================================
 
+// 审批终态（非通过）：撤销/驳回/删除/通过后撤销/超时关闭——均需把任务移出队列
+const TERMINAL_STATUSES = ['CANCELED', 'REJECTED', 'DELETED', 'REVERTED', 'OVERTIME_CLOSE'];
+
+// 审批事件丢失自愈登记：
+//   retryQueue = 拉详情失败过的实例（下轮对账优先重拉）
+//   sweptTerminal = 对账确认过「终态否决」的实例（窗口内不再重复拉详情）
+const retryQueue = new Map();
+const sweptTerminal = new Map();
+
 /** 拉取审批实例详情 */
 async function getInstanceDetail(instanceId) {
   const res = await requestAPI(
@@ -133,6 +142,8 @@ async function handleApprovalEvent(event) {
   try {
     instance = await getInstanceDetail(instanceId);
   } catch (err) {
+    // 网关单发无重试、详情拉取失败即丢——登记进对账队列，下轮补拉（见 reconcileApprovals）
+    retryQueue.set(instanceId, Date.now());
     console.error(`[审批监听] 拉取实例详情失败 ${instanceId}:`, err.message);
     return;
   }
@@ -151,8 +162,7 @@ async function handleApprovalEvent(event) {
       return;
     }
     dispatcher.enqueue(task);
-  } else if (['CANCELED', 'REJECTED', 'DELETED', 'REVERTED', 'OVERTIME_CLOSE'].includes(status)) {
-    // REVERTED = 通过后撤销；OVERTIME_CLOSE = 超时关闭——同为终态，均需移出队列
+  } else if (TERMINAL_STATUSES.includes(status)) {
     dispatcher.dequeue(instanceId);
     console.log(`[审批监听] 实例 ${instanceId} ${status}，已移出队列`);
   } else {
@@ -259,6 +269,128 @@ async function subscribeApproval(approvalCode) {
   return true;
 }
 
+// ============================================================
+// 审批事件丢失自愈（对账兜底）
+//
+// 网关转发是单发无重试、本端拉详情失败也只记日志——任一环丢事件，
+// 该单就永久滞留（审批源不写镜像表，旧对账 recover 不到）。两条腿：
+//   ① 失败登记重拉：handleApprovalEvent 拉详情失败时登记 instance_code，
+//      对账时优先补拉（不依赖 APPROVAL_CODE，详情接口只要 instance_code）；
+//   ② 窗口列表兜底：配置了 APPROVAL_CODE 时按提交时间批量拉窗口内实例 ID，
+//      对引擎未登记过的实例补拉详情，APPROVED 补入队（enqueue 幂等）。
+// 注意：APPROVAL_CODE 留空时 ② 不生效（实例列表接口必须指定审批定义）。
+// ============================================================
+
+/**
+ * 补拉单个实例详情并做与事件路径一致的入队/移出决策
+ * @returns {boolean} true = 处理成功（可清除重试登记）；false = 拉详情失败（保留登记）
+ */
+async function recoverInstance(instanceId) {
+  let instance;
+  try {
+    instance = await getInstanceDetail(instanceId);
+  } catch (err) {
+    console.error(`[审批对账] 拉取实例详情失败 ${instanceId}:`, err.message);
+    return false;
+  }
+  if (!instance) return true;
+
+  const status = String(instance.status || '').toUpperCase();
+  if (status === 'APPROVED') {
+    const task = buildTaskFromInstance(instance);
+    if (!task) {
+      console.log(`[审批对账] 实例 ${instanceId} 已通过但无附件字段，非打印审批，忽略`);
+      return true;
+    }
+    if (dispatcher.enqueue(task)) {
+      console.log(`[审批对账] 实例 ${instanceId} 疑似漏收事件，已补入队`);
+    }
+    return true;
+  }
+  if (TERMINAL_STATUSES.includes(status)) {
+    dispatcher.dequeue(instanceId);
+    sweptTerminal.set(instanceId, Date.now());
+    return true;
+  }
+  // PENDING 等中间态：不动，等事件路径推进或下轮对账再看
+  return true;
+}
+
+/** 审批源对账：重拉失败登记 + 补扫窗口内未知实例。返回本轮补处理个数 */
+async function reconcileApprovals() {
+  const now = Date.now();
+  const windowMs = config.approval.reconcileWindowMinutes * 60 * 1000;
+  let handled = 0;
+
+  // ① 失败登记重拉（窗口内一直失败才放弃，防实例被删导致永久重试）
+  for (const [instanceId, failedAt] of retryQueue) {
+    if (now - failedAt > windowMs) {
+      retryQueue.delete(instanceId);
+      console.error(`[审批对账] 实例 ${instanceId} 重试超过窗口仍未成功，放弃（请人工核对审批单）`);
+      continue;
+    }
+    if (await recoverInstance(instanceId)) {
+      retryQueue.delete(instanceId);
+      handled++;
+    }
+  }
+
+  // ② 窗口内实例列表兜底（覆盖「事件根本没到本服务」的丢失）
+  if (config.approval.approvalCode) {
+    const res = await requestAPI('POST', '/approval/v4/instances/list', {
+      approval_code: config.approval.approvalCode,
+      start_time: String(now - windowMs),
+      end_time: String(now),
+    });
+    if (res.code !== 0) {
+      throw new Error(`拉取审批实例列表失败: ${res.msg} (code: ${res.code})`);
+    }
+    for (const instanceId of res.data?.instance_list || []) {
+      if (dispatcher.isKnown(instanceId)) continue; // 事件路径已登记（排队/打印中/已完成）
+      const terminalAt = sweptTerminal.get(instanceId);
+      if (terminalAt && now - terminalAt <= windowMs) continue;
+      if (terminalAt) sweptTerminal.delete(instanceId); // 过期清理，给新窗口让路
+      if (await recoverInstance(instanceId)) handled++;
+    }
+  }
+
+  if (handled > 0) {
+    console.log(`[审批对账] 本轮补处理 ${handled} 个实例`);
+  }
+  return handled;
+}
+
+let reconcileTimer = null;
+
+/** 启动审批对账兜底定时器（审批主通道开启时由事件订阅入口调用） */
+function startApprovalReconciler() {
+  if (reconcileTimer) return;
+  const minutes = config.approval.reconcileMinutes;
+  if (!minutes || minutes <= 0) {
+    console.log('[审批对账] 兜底已关闭（APPROVAL_RECONCILE_MINUTES=0）');
+    return;
+  }
+  if (!config.approval.approvalCode) {
+    console.warn(
+      '[审批对账] 未配置 APPROVAL_CODE，窗口列表兜底不生效（仅失败登记重拉可用）；建议配置审批定义 code'
+    );
+  }
+  reconcileTimer = setInterval(() => {
+    reconcileApprovals().catch((err) =>
+      console.error('[审批对账] 对账失败:', err.message)
+    );
+  }, Math.max(minutes, 1) * 60 * 1000);
+  // 启动后先跑一轮：把停机/重启窗口内漏掉的实例第一时间补上
+  setTimeout(() => {
+    reconcileApprovals().catch((err) =>
+      console.error('[审批对账] 启动对账失败:', err.message)
+    );
+  }, 15 * 1000);
+  console.log(
+    `[审批对账] 兜底已启动（每 ${minutes} 分钟，回看窗口 ${config.approval.reconcileWindowMinutes} 分钟）`
+  );
+}
+
 module.exports = {
   getInstanceDetail,
   parseForm,
@@ -266,4 +398,6 @@ module.exports = {
   handleApprovalEvent,
   handleApprovalTaskEvent,
   subscribeApproval,
+  reconcileApprovals,
+  startApprovalReconciler,
 };

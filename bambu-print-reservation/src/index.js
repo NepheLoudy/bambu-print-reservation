@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const config = require('./config');
 const reservationService = require('./services/reservation');
+const approvalService = require('./services/approvalService');
 const dispatcher = require('./services/dispatcher');
 const printerManager = require('./printer/manager');
 const { startEventSubscription, processBitableEvent, processApprovalEvent, processApprovalTaskEvent } = require('./feishu/eventSubscription');
@@ -347,6 +348,16 @@ app.post('/api/dispatch/reconcile', async (req, res) => {
   try {
     await dispatcher.reconcile();
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 审批源对账（手动触发）：重拉失败登记 + 补扫窗口内漏收事件的审批实例
+app.post('/api/approval/reconcile', async (req, res) => {
+  try {
+    const handled = await approvalService.reconcileApprovals();
+    res.json({ success: true, handled });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
