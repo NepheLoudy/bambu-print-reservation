@@ -65,7 +65,7 @@
 
 ## 阶段八 · 全项目审查修复批次（2026-09-06）
 
-### v12 · 2026-09-06 · 随顶层归档提交落地（hash 见回填） · fix
+### v12 · 2026-09-06 · 顶层归档 `dbbdaf5` · fix
 **全项目审查修复：长连接启动失败不再杀进程 + 健康检查如实上报 + 路由文档对齐**
 - wsClient.start() 加 catch + 全局 unhandledRejection 兜底：start() 返回 Promise，原调用既不 await 也不 catch——连接失败（凭证错误/网络故障）会以 unhandled rejection 直接杀死唯一长连接进程（Node≥15 默认行为）；同时 /api/health 的 ws 字段原来只反映「已发起启动」永远假绿 running，现在如实返回 error 状态，部署验证不再被误导。
 - deliverTo：command 规则命中但消费者未配指令端点时打告警日志（原先静默降级为原始事件转发，配置错误无从察觉）；express.json 放宽 2mb（与 AGENTS 建议一致，防大 bitable 帧回放 413）；EVENT_TYPES 重复 parseList 清理；nas-e2e-test.js 中 pm-robot 目录重组后的失效路径修正。
