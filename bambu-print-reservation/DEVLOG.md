@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次部署）。本项目 push.js 为纯 SFTP 直传、无 git 步骤，**版本锚点取顶层 monorepo 中触碰本路径的归档提交**——两次归档之间的个别部署可能无版本记录。v1~v14 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v20**（2026-09-06，随本批顶层归档落地，锚点待回填）。
+当前最新：**v20**（2026-09-06 顶层归档 `85e95cc`）。
 
 ## 阶段五 · 审批事件字段对齐与分发健壮化（2026-09-05）
 
@@ -112,7 +112,7 @@
 - 豁免：chatService 对 /print-* 指令的回复（交互回路）不积压。
 - 其他：/api/health 附 quietHours 状态；.gitignore/.env.example 同步；README 播报段补静默说明；顶层 AGENTS.md 新增「晚间静默」规则段。
 
-### v20 · 2026-09-06 · 随本批顶层归档落地（锚点待回填） · fix
+### v20 · 2026-09-06 · 顶层归档 `85e95cc` · fix
 **例行维护全仓 debug——审批自愈②窗口列表兜底三处纠偏（自 v18 上线以来从未生效）**
 - 对账 ②（窗口列表兜底）静默空转，三处叠加：①响应字段读错——`/approval/v4/instances/list` 返回 `instance_code_list`，原代码读 `instance_list`（那是另一接口 instances/query 的字段），`|| []` 把空转吞掉不报错；②`start_time/end_time` 传毫秒字符串，官方要求秒级 Unix 时间；③官方限制单次查询范围 ≤10 小时而回看窗口 24h，且未跟 `has_more/page_token` 分页。改为 8h 切片逐段拉取 + 段内翻页 + 秒级时间戳 + `instance_code_list`（SDK typings 与官方文档双证）。生产未配 `APPROVAL_CODE`，②此前休眠、无线上影响；配置后兜底才真正可用。
 - 顺带（文档）：README 部署命令去掉被 push.js 忽略的「提交说明」参数（纯 SFTP 无 git 步骤）；PRINTER-LAN-API.md dispatcher 全部行号按 v19 后代码回填（v19 接线 quietHours 后 +10~20 行系统性偏移）。
