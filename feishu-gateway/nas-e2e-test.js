@@ -56,7 +56,7 @@ function dq(s) { return s.replace(/'/g, "'\\''"); }
 const conn = new Client();
 conn.on('ready', () => {
   const sftpSteps = [
-    ['../project-management-robot/server/src/services/chatService.js', '/opt/knowledge-tracker/server/src/services/chatService.js'],
+    ['../ticket-pm/project-management-robot/server/src/services/chatService.js', '/opt/knowledge-tracker/server/src/services/chatService.js'],
   ];
   conn.sftp((err, sftp) => {
     if (err) { console.error('SFTP 失败:', err.message); process.exit(1); }

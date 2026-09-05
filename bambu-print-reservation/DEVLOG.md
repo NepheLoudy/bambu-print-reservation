@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次部署）。本项目 push.js 为纯 SFTP 直传、无 git 步骤，**版本锚点取顶层 monorepo 中触碰本路径的归档提交**——两次归档之间的个别部署可能无版本记录。v1~v14 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v15**（2026-09-04，顶层归档 `37a59aa`）。
+当前最新：**v16**（2026-09-05，顶层归档 `5efc0ca`）。
 
 ## 阶段五 · 审批事件字段对齐与分发健壮化（2026-09-05）
 
@@ -80,3 +80,13 @@
 ---
 
 **备注**：push.js 为纯 SFTP 直传，改动即时上线；顶层归档提交仅作版本锚点，可能与实际上线时刻有分钟级偏差。
+
+## 阶段六 · 全项目审查修复批次（2026-09-06）
+
+### v17 · 2026-09-06 · 顶层归档（本批，hash 见回填） · fix
+**全项目审查修复：缺料忙等死循环 + 文件传输超时 + FTP/SFTP 状态残留 + 人工分发越权**
+- dispatcher 缺料忙等修复：trigger 的 finally 在「队列有就绪任务+有空闲打印机但全部匹配不上」时条件恒真，setImmediate 无节流重跑（CPU 空转、reason 字符串无限拼接）；改为仅本轮确有分发动作才立即重跑，缺料等待靠新入队/空闲事件再触发。
+- 分发链路加超时：飞书 API fetch 20s、附件下载 120s、SFTP 上传 120s、FTP connect/pasv 30s、FTP put 60s——原先任一环节挂起会让 matching 永久为 true，此后所有入队/空闲触发的匹配被静默丢弃，进程不退出也无告警只能重启。
+- printer/client：FTP 连接失败/上传出错置空 ftpClient 强制下轮重连（原先残留死客户端，if(!ftpClient) 判定失效永不重连）并加 connTimeout/pasvTimeout；SFTP 旧连接的 close 不再误清新会话的 sftpReady（原只判 this.sshClient 非空），被顶掉的旧连接显式 end 防泄漏，上传超时断开会话；缺附件先校验再写「打印中」（消除镜像表打印中→已通过假抖动）；manualDispatch 加忙碌校验（原先直接 dispatch 会顶掉 printing 映射，原任务永远无法写「已完成/失败」且可能与自动匹配双上传）。
+- 文档对齐：README 工作流改为审批事件主通道（原表格事件旧图自相矛盾）、状态流转补「排队中」、指令表补 /print-help、事件链路补自动审批与重试配置；.env.example 补 DISPATCH_MAX_RETRIES/DISPATCH_RETRY_COOLDOWN_MS、空 APPROVAL_CODE 误打印风险警示、对账间隔仅后备模式生效标注；DEVLOG 头部「当前最新」指针 v15→v16；AGENTS.md 职能描述对齐（打印控制仅 HTTP API）。
+- 附：审查发现「MQTT 断线无重连」不成立——bambu-link SDK 自带 reconnectPeriod=5s 自动重连。

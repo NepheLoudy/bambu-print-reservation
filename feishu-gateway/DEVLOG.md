@@ -62,3 +62,11 @@
 - 配套 ticket-bot v48「24h 未确认私聊追问」：负责人私聊回复「接单」需路由到 ticket-bot，而私聊无 @，原 mention 规则够不着——匹配器新增 `chatType` 维度（一行），默认路由表加 `{contains:'接单', chatType:'p2p'} → ticket`（仍属工单域例外，hub 默认目标不变）。
 - 路由命中日志补 `chat=` 字段：排查「机械组接单未触发回执」时发现路由日志不带群标识无法定位来源群，一并补上。
 - 排查结论备忘：网关日志从未出现任何含「接单」的消息（含 hub 兜底），机械组漏回执系旧卡片引导 @爆米花机_自动型（webhook 机器人无事件）所致，非网关路由问题；新卡片引导 @对话型后依赖应用机器人在群内（运维事项）。
+
+## 阶段八 · 全项目审查修复批次（2026-09-06）
+
+### v12 · 2026-09-06 · 随顶层归档提交落地（hash 见回填） · fix
+**全项目审查修复：长连接启动失败不再杀进程 + 健康检查如实上报 + 路由文档对齐**
+- wsClient.start() 加 catch + 全局 unhandledRejection 兜底：start() 返回 Promise，原调用既不 await 也不 catch——连接失败（凭证错误/网络故障）会以 unhandled rejection 直接杀死唯一长连接进程（Node≥15 默认行为）；同时 /api/health 的 ws 字段原来只反映「已发起启动」永远假绿 running，现在如实返回 error 状态，部署验证不再被误导。
+- deliverTo：command 规则命中但消费者未配指令端点时打告警日志（原先静默降级为原始事件转发，配置错误无从察觉）；express.json 放宽 2mb（与 AGENTS 建议一致，防大 bitable 帧回放 413）；EVENT_TYPES 重复 parseList 清理；nas-e2e-test.js 中 pm-robot 目录重组后的失效路径修正。
+- 文档对齐：README 路由表改为实际默认规则（/ticket 前缀、@+接单、p2p+接单 → ticket，其余 hub——原文档里的 /approval、/print 直连规则 v4 撤销后未回改），匹配条件补 chatType，审批事件一节与环境变量一览补全（EVENT_TYPES 改动需同步 NAS .env 的教训入册）；.env.example 修 hub 端口 2174→3000（照抄会导致 hub 全部消息投递失败）、补 APPROVAL_TARGETS、删无代码读取的 FEISHU_ENCRYPT_KEY；AGENTS.md 消费者口径澄清（五机器人共用应用，下游登记四个）。

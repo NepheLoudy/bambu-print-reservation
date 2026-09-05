@@ -9,7 +9,8 @@ const reservationService = require('./reservation');
 // 打印分发引擎：任务队列 + 空闲触发匹配
 //
 // 触发时机：新任务入队 / 打印机空闲变迁（jobEvent）/ 对账周期
-// 匹配规则：指定打印机优先 → AMS 材料类型+颜色近似匹配 → 加急优先 → 负载最少
+// 匹配规则：指定打印机优先 → AMS 材料类型+颜色近似匹配 → 加急优先
+//          （「负载最少」选机为预留，未实现）
 // 执行链：飞书下载 3mf → SFTP 上传打印机 → MQTT project_file 下发 → 状态写表
 // 播报：开始/完成/失败 关键节点卡片；缺料提醒按间隔节流
 // ============================================================
@@ -48,7 +49,7 @@ class Dispatcher {
     this.queue = [];              // 待分发任务（按优先级排序后）
     this.known = new Set();       // 已处理过的 recordId（防事件与对账重复入队）
     this.printing = new Map();    // printerId → task（正在执行）
-    this.completedCount = new Map(); // printerId → 累计完成数（负载均衡用）
+    this.completedCount = new Map(); // printerId → 累计完成数（预留：按负载选机未实现，只写不读）
     this.lastMaterialRemind = 0;  // 缺料提醒节流
     this.matching = false;        // 匹配过程串行化
     this.timer = null;
@@ -152,14 +153,18 @@ class Dispatcher {
   trigger(reason) {
     if (this.matching) return;
     this.matching = true;
+    let dispatched = false;
     Promise.resolve()
       .then(() => this.match(reason))
+      .then((progressed) => { dispatched = !!progressed; })
       .catch((err) => console.error(`[分发] 匹配失败(${reason}):`, err.message))
       .finally(() => {
         this.matching = false;
-        // 匹配过程中可能有新任务/新空闲，再跑一轮
-        // （全部任务处于失败重试冷却期时不触发，等冷却定时器）
+        // 匹配过程中可能有新任务/新空闲，再跑一轮。
+        // 仅在本轮确有分发动作时才立即重跑：缺料等待若也 setImmediate 重跑，
+        // 会形成无节流的忙等循环（条件恒真：队列就绪 + 打印机空闲，但谁也匹配不上谁）
         if (
+          dispatched &&
           this.queue.some((t) => this.isTaskReady(t)) &&
           printerManager.getAvailablePrinters().length > 0
         ) {
@@ -173,7 +178,9 @@ class Dispatcher {
     return !task.nextMatchAt || task.nextMatchAt <= Date.now();
   }
 
+  /** @returns {boolean} 本轮是否发生过分发动作（供 trigger 判断是否立即重跑） */
   async match(reason) {
+    let dispatched = false;
     while (this.queue.length > 0) {
       const available = printerManager.getAvailablePrinters();
       if (available.length === 0) break;
@@ -192,10 +199,13 @@ class Dispatcher {
           break;
         }
         await this.dispatch(alternate.task, alternate.printer);
+        dispatched = true;
         continue;
       }
       await this.dispatch(task, result);
+      dispatched = true;
     }
+    return dispatched;
   }
 
   sortQueue() {
@@ -208,7 +218,7 @@ class Dispatcher {
     });
   }
 
-  /** 为单个任务选机：指定打印机 → AMS 精确 → AMS 家族 → 负载最少 */
+  /** 为单个任务选机：指定打印机 → AMS 精确 → AMS 家族 */
   matchPrinter(task, available) {
     // 双保险：只考虑真正空闲且支持自动分发的打印机（调用方列表未过滤时也不误选）
     const candidates = (available || []).filter(
@@ -284,6 +294,9 @@ class Dispatcher {
       console.log(`[分发] 开始分发: ${task.applicationNo || task.recordId} → ${printer.name}`);
 
       const fromApproval = task.fileSource === 'approval';
+      // 先校验附件再写「打印中」：缺附件的任务不该在镜像表里经历 打印中→已通过 的假抖动
+      if (!task.fileToken) throw new Error('任务缺少切片文件附件');
+
       // 审批来源不写镜像表（那是审批系统的同步数据，写入会被覆盖且无权限）；
       // 状态追踪由引擎内存完成
       if (!fromApproval) {
@@ -292,8 +305,6 @@ class Dispatcher {
           [config.dispatch.printerField]: printer.name,
         });
       }
-
-      if (!task.fileToken) throw new Error('任务缺少切片文件附件');
 
       // 远端文件名用 recordId，避免中文名/空格在 FTP URL 里出编码问题
       const remoteName = `print_${task.recordId}.3mf`;
@@ -450,6 +461,15 @@ class Dispatcher {
         manualOnly: true,
         message: `已指定 ${printer.name}（${printer.model}，需人工上传文件启动打印）：请用厂商工具将「${task.fileName}」发送到该打印机`,
       };
+    }
+
+    // 防覆盖在打任务：人工分发不走 matching 串行段，直接 dispatch 会顶掉 printing 映射，
+    // 原任务永远无法写「已完成/失败」
+    const busyTask = this.printing.get(printer.id);
+    if (busyTask) {
+      throw new Error(
+        `${printer.name} 正在打印「${busyTask.applicationNo || busyTask.fileName || busyTask.recordId}」，请等其完成后再指定`
+      );
     }
 
     this.queue = this.queue.filter((t) => t.recordId !== task.recordId);

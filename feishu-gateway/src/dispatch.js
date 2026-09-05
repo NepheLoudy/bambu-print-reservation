@@ -128,6 +128,10 @@ async function replyText(messageId, text) {
 }
 
 async function deliverTo(consumer, mode, frame, text) {
+  if (mode === 'command' && !consumer.commandUrl) {
+    // 规则声明了 command 模式但消费者没配指令端点：降级为原始事件转发，必须有日志否则配置错误无从察觉
+    console.warn(`[路由] ${consumer.name} 未配置指令端点（CONSUMERS 第三段），command 规则降级为原始事件转发`);
+  }
   if (mode === 'command' && consumer.commandUrl) {
     const parsed = parseCommand(text);
     if (parsed) {

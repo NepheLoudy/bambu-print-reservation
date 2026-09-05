@@ -73,6 +73,20 @@ function parseUserGroups(value) {
 }
 
 /**
+ * 解析兜底群 DEFAULT_CHAT_ID：支持「组别名=chat_id|webhook_url」完整格式，
+ * 也支持裸 chat_id / webhook:URL（后者没有 = 号，parseRouteTargets 解析不了会被静默丢弃）
+ */
+function parseDefaultTarget(value) {
+  const p = String(value || '').trim();
+  if (!p) return null;
+  if (p.includes('=')) return parseRouteTargets(p)[0] || null;
+  if (p.startsWith('webhook:')) {
+    return { value: 'default', chatId: '', webhookUrl: p.slice('webhook:'.length).trim() };
+  }
+  return { value: 'default', chatId: p, webhookUrl: '' };
+}
+
+/**
  * 解析组长映射 "组别名:组长open_id或姓名,..."
  * @returns {Map<string, string>}
  */
@@ -128,8 +142,8 @@ const config = {
     // 路由字段（面向组别，多选 → 一条工单并行分发到多个组群）
     routeField,
     routes: parseRouteTargets(process.env.GROUP_ROUTES),
-    // 兜底群：chat_id 或 webhook:URL
-    defaultTarget: parseRouteTargets(process.env.DEFAULT_CHAT_ID)[0] || null,
+    // 兜底群：chat_id 或 webhook:URL（也兼容 组别名=chat_id|webhook_url 完整格式）
+    defaultTarget: parseDefaultTarget(process.env.DEFAULT_CHAT_ID),
     titleField: process.env.TITLE_FIELD || '',
     statusField,
     pendingStatus: process.env.PENDING_STATUS || '',
@@ -137,11 +151,8 @@ const config = {
     displayFields: parseListConfig(process.env.DISPLAY_FIELDS),
     watchedFields: parseListConfig(process.env.WATCHED_FIELDS),
     on: parseListConfig(process.env.BROADCAST_ON || 'create'),
-    // 播报标记字段（写回源表，跨重启防重播；长连接事件被共用应用的其他连接抢走时由轮询对账兜底）
+    // 播报标记字段（写回源表，跨重启防重播；网关不可用期间的事件由轮询对账兜底）
     markField: process.env.BROADCAST_MARK_FIELD === '' ? '' : (process.env.BROADCAST_MARK_FIELD || '已播报'),
-    // 接单 @ 对象：群自定义机器人（webhook 播报者）名称。webhook 收不到事件，
-    // 接单监听由每分钟回扫群消息（IM 消息列表 API）按 mention 结构匹配实现
-    acceptBotName: process.env.ACCEPT_BOT_NAME || '爆米花机_自动型',
   },
 
   // 「是否指定人员负责」分支
@@ -157,6 +168,19 @@ const config = {
     userGroups: parseUserGroups(process.env.USER_GROUPS),
   },
 
+  // 多人接单（无指定负责人工单）：工单表「是否允许多人接单」=是 时——
+  // 有人接单后不即时通过审批（合并写补充负责人），开放 N 小时续接窗口；
+  // 窗口内再有人接单 → 重置计时并在已有人接单的群发续接询问；
+  // 到期无人续接 → 由每分钟对账自动通过全部触发节点审批。
+  // 计时器为工单级（面向多组别共享同一窗口）；截止时间写回源表字段，跨重启恢复。
+  // 字段取值与「是否指定人员负责」同模式：审批表单字段需同步到工单多维表，缺列按「否」走现状
+  multiAccept: {
+    field: process.env.MULTI_ACCEPT_FIELD || '是否允许多人接单',
+    yesValue: process.env.MULTI_ACCEPT_YES_VALUE || '是',
+    windowHours: Number(process.env.MULTI_ACCEPT_WINDOW_HOURS || 6),
+    windowField: process.env.MULTI_ACCEPT_WINDOW_FIELD || '多人接单截止',
+  },
+
   // 审批节点监听（替代「申请状态」作为播报与超时判断依据）
   approvalNode: {
     field: process.env.APPROVAL_NODE_FIELD || '审批节点',
@@ -164,6 +188,8 @@ const config = {
     acceptValues: parseListConfig(
       process.env.APPROVAL_NODE_ACCEPT_VALUE || '群内有组员接单后通过,有组员接单后通过,负责人确认消息后通过'
     ),
+    // 指定负责人工单的触发节点（「公示即绑定」与对账补绑定只作用于该节点的工单）
+    assignAcceptValue: process.env.APPROVAL_NODE_ASSIGN_ACCEPT_VALUE || '负责人确认消息后通过',
     // 触发结单提醒的节点值
     closeValue: process.env.APPROVAL_NODE_CLOSE_VALUE || '回执单：是否结单',
   },
@@ -172,9 +198,11 @@ const config = {
   approval: {
     // 工单审批定义 code（审批管理后台可查）。留空 = 联动关闭
     approvalCode: process.env.APPROVAL_CODE || '',
-    // 「群内有组员接单后通过」节点审批人 open_id（节点审批人可全部为同一人）。
-    // 机器人以该身份自动同意。留空 = 不过滤审批人（实例当前待审任务即联动对象）
+    // 联动节点审批人 open_id（「群内有组员接单后通过」/「负责人确认消息后通过」等
+    // 触发节点审批人，单值与逗号分隔多值并存，节点审批人可全部配置为同一人）。
+    // 机器人以任务审批人身份自动同意；名单全空 = 联动关闭
     autoApproverId: process.env.APPROVAL_AUTO_APPROVER_ID || '',
+    autoApproverIds: parseListConfig(process.env.APPROVAL_AUTO_APPROVER_IDS),
   },
 
   // 结单提醒（临近理想结单时间时，应用机器人先私聊，未结单再转群引导）
@@ -185,6 +213,12 @@ const config = {
 
   // 组长映射（组别名:组长open_id或姓名）
   groupLeaders: parseGroupLeaders(process.env.GROUP_LEADERS),
+
+  // 指定负责人确认追问：公示即绑定后超过 N 小时未确认 → 私聊负责人追问，
+  // 负责人私聊回复「接单」或群内 @机器人 发送「接单」均可完成确认
+  assignNudge: {
+    hours: Number(process.env.ASSIGN_NUDGE_HOURS || 24),
+  },
 
   feishuEvent: {
     verificationToken: process.env.FEISHU_VERIFICATION_TOKEN || '',
@@ -223,6 +257,27 @@ function getWatchedFieldNames() {
 }
 
 /**
+ * 审批节点字段值拆段：按组别并行的审批流会把同一层多个分支的节点名以
+ * 「；」等分隔符拼接写入同一字段（如「群内有组员接单后通过；群内有组员接单后通过；…」，
+ * 单组别工单则恰好是单个值），必须拆段后匹配，整串精确比对会对不上导致不播报/不联动
+ */
+function splitNodeValues(value) {
+  return String(value ?? '')
+    .split(/[;；,，、|]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/**
+ * 审批节点字段值是否命中目标节点集合（任一段命中即命中）
+ * @param {string|Array} value 审批节点字段原始值（可能为多段拼接）
+ * @param {string[]} targets 触发节点值集合
+ */
+function matchNodeValue(value, targets) {
+  return splitNodeValues(value).some((seg) => targets.includes(seg));
+}
+
+/**
  * 播报卡片展示字段：优先 DISPLAY_FIELDS，否则回退监听字段集合
  */
 function getDisplayFieldNames() {
@@ -235,4 +290,6 @@ module.exports = {
   ...config,
   getWatchedFieldNames,
   getDisplayFieldNames,
+  splitNodeValues,
+  matchNodeValue,
 };

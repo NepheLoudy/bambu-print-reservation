@@ -9,7 +9,7 @@ qianli 项目群的所有机器人共用同一个飞书自建应用（`cli_aac7e
 - `im.message.receive_v1`（@机器人消息）：随机落到某个机器人，指令时灵时不灵；
 - `drive.file.bitable_record_changed_v1`（多维表格变更）：随机落到某个机器人，靠各项目自己的轮询对账兜底补漏。
 
-各项目此前的缓解办法（现保留为兜底，不再是唯一防线）：
+各项目此前的缓解办法（仅历史背景；接入网关后部分项目已移除自建兜底）：
 
 | 项目 | 缓解办法 |
 | --- | --- |
@@ -40,17 +40,19 @@ qianli 项目群的所有机器人共用同一个飞书自建应用（`cli_aac7e
 
 ### 消息事件路由（按顺序匹配，命中即停；未命中走默认目标 hub）
 
+默认规则只放行**工单域**消息直送 ticket-bot（架构铁律：其余对话/指令一律由 hub 触发与转发）：
+
 | 规则 | 目标 | 模式 |
 | --- | --- | --- |
-| 文本以 `/approval` 开头 | approval | command（解析指令 POST `/api/chat/command`，网关代为回复结果） |
-| 文本以 `/print` 开头 | bambu | command |
 | 文本以 `/ticket` 开头 | ticket | event（转发原始事件，机器人自行回复） |
-| @机器人 且包含「接单」 | ticket | event（接单确认） |
-| 其他所有消息（默认） | hub | event（对话 / 关键词 / DDL 确认 / 会议提醒） |
+| @机器人 且包含「接单」 | ticket | event（工单群接单确认） |
+| 私聊（p2p）包含「接单」 | ticket | event（指定负责人私聊确认，无 @ 场景） |
+| 其他所有消息（默认） | hub | event（对话 / 关键词 / DDL 确认 / 会议提醒；`/approval-*`、`/print-*` 由 hub 转发给对应专项服务） |
 
-> 接单确认的完整语义是「在工单群内 @机器人（任意文本）」。网关默认规则只拦截「@ + 含接单」的消息直送 ticket-bot；其他 @ 消息走 hub。漏掉的接单不用担心——ticket-bot 每分钟对账自带「接单补录回扫」，会扫描工单群里的 @机器人 消息补录。若想让某个工单群的所有 @ 消息都直送 ticket-bot，在 `MESSAGE_ROUTES` 里加一条 `{"match":{"chatId":"oc_xxx"},"target":"ticket","mode":"event"}` 即可。
+> `/approval-*`、`/print-*` 不在网关默认路由里：由 hub 收到后转发给 approval-bot / bambu 的 `POST /api/chat/command`。command 模式仅在 `MESSAGE_ROUTES` 显式配置时才由网关启用（当前生产未启用）。
+> 接单确认的完整语义是「在工单群内 @机器人（任意文本）」。网关默认规则只拦截「@ + 含接单」的消息直送 ticket-bot；其他 @ 消息走 hub。漏掉的接单由 ticket-bot 分钟级对账兜底（按工单审批节点状态补播报/补联动）。若想让某个工单群的所有 @ 消息都直送 ticket-bot，在 `MESSAGE_ROUTES` 里加一条 `{"match":{"chatId":"oc_xxx"},"target":"ticket","mode":"event"}` 即可。
 
-规则可用环境变量 `MESSAGE_ROUTES`（JSON 数组）整体覆盖，支持 `chatId` / `mention` / `prefix` / `contains` 四种匹配条件（同一规则内 AND 关系），例如把审批群整体划给 approval-bot：
+规则可用环境变量 `MESSAGE_ROUTES`（JSON 数组）整体覆盖，支持 `chatId` / `chatType` / `mention` / `prefix` / `contains` 五种匹配条件（同一规则内 AND 关系），例如把审批群整体划给 approval-bot：
 
 ```json
 [{"match":{"chatId":"oc_xxx"},"target":"approval","mode":"event"},
@@ -59,7 +61,26 @@ qianli 项目群的所有机器人共用同一个飞书自建应用（`cli_aac7e
 
 ### 多维表格事件
 
-广播给全部消费者（可用 `BITABLE_TARGETS` 收窄）。各机器人已有 table_id 过滤，互不干扰。对标记 `legacy` 的消费者（bambu），网关把 V2 `action_list` 事件拆成旧版 `bitable.record.create/update` 单记录事件并附上 `after_value` 字段，bambu 无需改代码即可恢复预约事件链路。
+广播给全部消费者（可用 `BITABLE_TARGETS` 收窄）。各机器人已有 table_id 过滤，互不干扰。对标记 `legacy` 的消费者（bambu），网关把 V2 `action_list` 事件拆成旧版 `bitable.record.create/update` 单记录事件（`record.fields` 取 `after_value`，缺省回退 `before_value`），bambu 无需改代码即可恢复预约事件链路。
+
+### 审批事件（approval_instance / approval_task）
+
+定向转发给 `APPROVAL_TARGETS` 配置的消费者（留空默认 bambu+ticket：打印自动审批 / 工单接单联动）。消费方各自按 approval_code 过滤。
+
+### 环境变量一览
+
+| 变量 | 说明 |
+| --- | --- |
+| `PORT` | 网关监听端口，默认 3010 |
+| `APP_ID` / `APP_SECRET` | 共用应用凭证，缺任一则只起 HTTP 服务不连长连接 |
+| `EVENT_TYPES` | 长连接订阅的事件类型（逗号分隔）。**改动需同步 NAS 上的 .env**（v10 生产断链即代码默认值与线上 .env 不一致导致） |
+| `CONSUMERS` | 下游消费者登记，覆盖默认清单 |
+| `MESSAGE_ROUTES` | 消息路由规则（JSON 数组），覆盖默认规则 |
+| `DEFAULT_TARGET` | 消息未命中任何规则时的目标，默认 hub |
+| `BITABLE_TARGETS` | 表格事件广播目标，留空=全部消费者 |
+| `APPROVAL_TARGETS` | 审批事件转发目标，留空=bambu+ticket |
+| `DOC_SUBSCRIBES` | 启动时需订阅记录变更的云文档 appToken（逗号分隔） |
+| `FEISHU_VERIFICATION_TOKEN` | 透传给下游机器人的校验 token（可选） |
 
 ## 部署与切换步骤
 
@@ -69,9 +90,9 @@ qianli 项目群的所有机器人共用同一个飞书自建应用（`cli_aac7e
    npm install
    npm run deploy:sftp
    ```
-   部署后验证：`curl http://10.253.33.233:3010/api/health`，`ws` 应为 `running`。
+   部署后验证：在内网可达网关端口的前提下 `curl http://10.253.33.233:3010/api/health`，`ws` 应为 `running`（若为 `error: ...` 说明长连接启动失败，查网关日志）。
 
-2. **切换各机器人**（改 `.env` 后 `pm2 restart`，各项目 deploy.js 模板已同步改为 false）：
+2. **切换各机器人**（改 `.env` 后 `pm2 restart`）：
    - project-management-robot：`FEISHU_USE_LONG_CONNECTION=false`
    - approval-bot：`FEISHU_USE_LONG_CONNECTION=false`
    - bambu-print-reservation：`FEISHU_USE_LONG_CONNECTION=false`
@@ -102,4 +123,5 @@ curl -X POST http://localhost:3010/api/dispatch -H "Content-Type: application/js
 
 1. 机器人本身：监听本机一个未占用端口，实现 `POST /api/feishu/event`（处理 `{header, event}` 标准回调结构），`.env` 设 `FEISHU_USE_LONG_CONNECTION=false`；
 2. 网关 `CONSUMERS` 追加一行 `名称|http://localhost:端口/api/feishu/event`（需要指令模式再加指令 URL）；
-3. 如需多维表格事件：机器人内按 table_id 过滤；如需消息事件：在 `MESSAGE_ROUTES` 加规则或走默认 hub。
+3. 如需多维表格事件：机器人内按 table_id 过滤；如需消息事件：在 `MESSAGE_ROUTES` 加规则或走默认 hub；
+4. 如需接入全新事件类型（非消息/表格/审批）：在网关 `.env` 的 `EVENT_TYPES` 追加，并在 `src/dispatch.js` 的 `dispatchFrame` 里加分发逻辑——**NAS 上的 .env 要同步改**，否则新事件到不了网关。

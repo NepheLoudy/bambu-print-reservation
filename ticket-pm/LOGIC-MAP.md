@@ -1,0 +1,246 @@
+# ticket-pm 播报 / 分支 / 事件触发逻辑总览
+
+> 覆盖范围：`ticket-bot/`（工单域）与 `project-management-robot/`（对话枢纽 hub），含两项目联动契约。
+> 行号以 2026-09-05 修复批次后的代码为准；重构后请同步更新本文件（它是两项目分支逻辑的权威速查）。
+> 本文只描述"现在是什么"，改动决策记录在各项目 DEVLOG.md。
+
+---
+
+## 0. 全局架构与事件流
+
+```
+飞书开放平台
+   │（长连接只属于 feishu-gateway；两项目一律 FEISHU_USE_LONG_CONNECTION=false）
+   ▼
+feishu-gateway（事件接入 + 路由分工，不在本工作区）
+   │  POST /api/feishu/event  → 原始事件转发
+   │  POST /api/chat/command  → hub 转发业务指令给 approval-bot / bambu（ticket-bot 无此端点，走上方原始事件转发）
+   ├──────────────► ticket-bot  :3003  工单域例外（/ticket-* 指令、@机器人+接单、p2p+接单）
+   └──────────────► pm-robot(hub):3000  其余全部消息（对话/指令分发/关键词/会议/DDL确认）
+                        │ 转发 /approval-* → approval-bot:3002
+                        │ 转发 /print-*    → bambu:3001
+                        │ DDL 卡工单分栏取数 → ticket-bot GET /api/tickets/unclosed-by-group
+                        ▼
+ approval-bot / bambu-print-reservation / feishu-gateway（均在顶层，不归本工作区）
+```
+
+发送通道约定（"播报卡互不越界"）：
+- **ticket-bot 播报**：应用机器人（对话型）IM API 优先（chat_id，能收 @ 事件），失败回退群自定义机器人 webhook（`ticket-bot/src/feishu/bot.js:88` `sendCardToTarget`）。
+- **pm-robot 播报**：群自定义机器人 webhook（DDL 卡、每日汇总类）；对话回复走飞书 IM API（reply → chat_id 降级）。
+- 工单播报卡 / 接单回执 / 超时问询 → ticket-bot；DDL 卡 / 逾期确认 / 会议提醒 / 语录 → pm-robot。"播报对象/@谁"跟着卡片走。
+
+---
+
+## 1. ticket-bot（工单域）
+
+### 1.1 事件入口（`src/index.js` + `src/feishu/eventSubscription.js`）
+
+`POST /api/feishu/event`（网关转发，`useLongConnection=false` 生效）按 `header.event_type` 分四路，全部 `setImmediate` 异步处理、立即回 `{code:0}`：
+
+| 事件 | 处理 | 说明 |
+| --- | --- | --- |
+| `drive.file.bitable_record_changed_v1` | `processBitableEvent`：`record_added`→`handleRecordCreate`，`record_edited`→`handleRecordUpdate` | 只处理源表；V2 结构 `event.action_list[]` |
+| `bitable.record.create` / `bitable.record.update` | 同上（V1 兼容分支） | 与上面互斥，实际走哪个取决于网关转发格式 |
+| `approval_task` | `approvalLinkService.handleApprovalTaskEvent` | 缓存待审任务供接单自动通过 |
+| `im.message.receive_v1` | `chatService.processChatMessage` | 接单确认 + /ticket-* 指令 |
+
+长连接模式（本地调试用）走 `eventSubscription.js` 的 WSClient，同一套 handler；`FEISHU_USE_LONG_CONNECTION !== 'false'` 时 HTTP 回调跳过处理。
+
+### 1.2 工单播报主链路（`src/services/ticketService.js`）
+
+**总开关**：`isBroadcastEnabled()` = `BROADCAST_ON` 含 `create`（create/update 两条事件路径共用，无独立 update 开关）。
+
+**创建事件 `handleRecordCreate`**：
+1. 去重：`recentCreateEvents`（record_id，TTL 10 分钟）。
+2. category 有值 → 搬运到项目看板（`syncIfCategoryPresent` → `syncService.syncRecord`，upsert 幂等）。
+3. 审批节点（`approvalNode.field`，默认「审批节点」）命中触发值（`acceptValues` = 「群内有组员接单后通过 / 有组员接单后通过 / 负责人确认消息后通过」）→ `broadcastTicket(record, 'create')`；未命中则只搬运不播报。
+
+**更新事件 `handleRecordUpdate`**：搬运 + 节点命中触发值时 `broadcastTicket(record, 'publish')`（该记录从未播报过才会真播）。
+
+**`broadcastTicket` 的五层防重播**（顺序）：
+1. `broadcastedRecords` 内存 Set（进程内跨创建/更新事件去重）；
+2. 源表标记字段「已播报」（`BROADCAST_MARK_FIELD`，写时间戳+场景，跨重启防重播）；
+3. 发送前重查最新记录：补充负责人已有值 → 跳过（已有人接单）；节点已推进 → 跳过；
+4. 发送后**至少一群成功**才写内存 Set + 源表标记（全败允许对账重试）；
+5. 每分钟对账兜底（见 1.4）。
+
+**播报分支（按「是否指定人员负责」）**：
+
+| 分支 | 条件 | 播报目标 | 卡片 | 待接单登记 |
+| --- | --- | --- | --- | --- |
+| 未指定负责人 | `assign.field` = `assign.noValue`（否） | 按「面向组别」（`routeField`，多选并行分发）经 `GROUP_ROUTES` 映射；无命中回退 `DEFAULT_CHAT_ID` 兜底群 | `buildTicketOpenCard`（蓝，任一组员可接） | `expectedAssigneeId = null`（任一组员可确认） |
+| 已指定负责人 | = `assign.yesValue`（是） | 负责人所属组别（`resolvePersonGroups`：USER_GROUPS → 飞书通讯录部门 → 工单面向组别兜底）→ `GROUP_ROUTES` | `buildTicketAssignCard`（蓝，@负责人本人） | `expectedAssigneeId = 负责人 open_id`（仅本人可确认） |
+| 值无法识别 | 其它 | 不播报，留 history | — | — |
+
+**公示即绑定 `bindAssignedTicket`**（仅指定负责人分支，播报成功后执行）：
+- 写源表「补充负责人」= 指定负责人（幂等）；
+- 按负责人组别合并写看板人员字段（机械→owner，电控/硬件→dkyjcontributers，视觉→sjcontributers，宣运→xycontributers，未识别→owner；merge 不清空其它组别）。
+- **只做绑定**——状态推进和审批自动通过等本人确认后才触发。
+
+组别→群映射关系（`GROUP_ROUTES`，`parseRouteTargets` 支持 `值=chat_id|webhook_url` 新格式与旧格式）：`config.broadcast.routes`；`collectTargets` 按值匹配并按 chatId/webhook 去重，一条工单可并行分发多个组群。
+
+### 1.3 接单确认（事件驱动，无轮询回扫）
+
+**入口 A：群内 @机器人 + 「接单」**（网关宽口径路由：含「接单」且 @机器人 → 本项目；本服务二次校验 `isSelfMention`）。
+**入口 B：负责人私聊回复「接单」**（网关 p2p+接单 路由）。
+
+两个入口都要求**去空白后整句等于「接单 / 确认接单」**（`chatService.isExactAcceptText`）；含「接单」但非整句（如"还没人接单吗""我不想接单"）只回一条提示，**不触发任何写操作**。消息级去重：`processedMessages`（message_id，TTL 5 分钟）。`IGNORE_CHAT_IDS` 内的群整条跳过。
+
+**群内链路 `handleAcceptOrder(chatId, userId, ...)`**：
+1. 定位工单：优先 `pendingOrdersByChat`（内存，播报成功时按群登记）；为空（重启后必空）→ 回退查源表：**仅触发节点** + 补充负责人为空 / "指定即绑定未确认"（补充负责人==指定负责人）/ **多人单窗口期**（多人单补充负责人已有人也开放）+ 面向组别覆盖该群（或指定负责人的组别覆盖该群）。**命中的全部候选升序入列**（电控/硬件共群等多组别场景），不是只取一条。
+2. 从队尾（最新）找第一条发送者可接的：`expectedAssigneeId` 为空 → 任一组员；非空 → 仅指定负责人本人。
+3. 重查源表守卫（拉取失败按拒绝处理）：指定负责人工单他人确认 → 拒绝；审批节点已推进 → 拒绝；非多人单已被他人接单 / 本人已确认过 → 拒绝（防跨群陈旧条目产生虚假接单回执）。
+4. 副作用（顺序）：看板状态 → `in_progress`；**合并**写源表「补充负责人」（多人陆续接单不覆盖）；按接单人组别合并写看板人员字段；从待接单列表移除；群内发绿色「接单确认」卡。
+5. 审批分支（见下）：多人单 → 开续接窗口不通过审批；其余 → 批量自动通过。
+6. 失败时群内回 `⚠️ 原因`（无待接单工单 / 已指定其他负责人 / 处理异常）。
+
+**审批联动 `autoApproveForTicket`（批量通过）**：无指定负责人分支的审批流按「面向组别」**并行**展开（机械/电控/硬件/视觉/管理层/宣运各有「XX有组员接单后通过」节点），面向复数组别的工单会同时挂多个待审任务——缓存按 `{申请编号 → {taskId → 任务}}` 存集合，通过时**逐个同意全部任务**流程才能汇合。守卫：工单审批节点仍在触发值内；缓存优先，缺失按申请编号反查审批实例（14 天窗口）兜底；以白名单审批人（`APPROVAL_AUTO_APPROVER_ID(S)`）身份同意。
+
+**多人接单分支（`config.multiAccept`，仅无指定负责人工单）**：
+- 条件：工单表字段「是否允许多人接单」（`MULTI_ACCEPT_FIELD`）=「是」。与「是否指定人员负责」同模式，**审批表单字段需同步到工单多维表**，缺列/为空按「否」走现状（接单即通过）。
+- 有人接单时：**不通过审批**；写窗口截止 = now + `MULTI_ACCEPT_WINDOW_HOURS`（默认 6h）到源表字段「多人接单截止」（自动创建，跨重启恢复）；向**已有人接单的群**（各接单人组别映射到的播报群 ∪ 本次接单发生的群）发「👥 多人接单进行中」卡（当前 N 人、截止时间、续接方式）。
+- 窗口内再有人接单：合并补充负责人 → 重置窗口（再来 6 小时）→ 再次群内通告（"再次播报再来6小时"）。**计时器为工单级**：面向复数组别共享同一窗口；续接询问只发已有人接单的群，不广播全部面向组别。
+- 窗口到期（每分钟对账检查，10 分钟节流）：自动通过该实例**全部**触发节点任务，并向已接单的群发「✅ 多人接单结束」卡；通过失败（任务未到达等）下轮重试。
+- 指定负责人工单即使字段=是也不走多人分支（走「负责人确认消息后通过」单人确认）。
+
+**私聊链路 `handleAssigneeDmConfirm(userId)`**：扫描源表定位"节点仍在「负责人确认消息后通过」+ 指定负责人==发送者 + 补充负责人==发送者"（即已绑定未确认）的最新工单 → 找到公示群 → 登记 `expectedAssigneeId` → 复用群内链路完成全部副作用（群内回执 + 审批联动）。无候选回 `no-pending` 引导去群里 @机器人。
+
+### 1.4 定时任务（`src/cron/index.js`，均 Asia/Shanghai）
+
+| 任务 | 调度 | 条件 | 分支与动作 |
+| --- | --- | --- | --- |
+| 每日汇总 | `CRON_SCHEDULE`（默认未启用） | — | 统计卡发**全部路由群+兜底群**（去重）；频控错误指数退避重试 ≤3 次 |
+| 播报对账 | 每分钟 | 源表全量扫描，节点 ∈ 触发节点 ∪ 「回执单：是否结单」 | 回执单节点：只补搬运；触发节点：无标记 → 补播（含补绑定），有标记 → 跳过（**已播报指定工单的补偿绑定只作用于触发节点工单**）；另挂**审批联动补偿**——多人单窗口到期自动通过（+结束通告）、非多人单接单后审批未通过的补通过（10 分钟节流，指定负责人工单不代通过）。背景：共用应用多条长连接随机分发事件，约 1/N 丢失由这里兜底 |
+| 超时检查 | 每小时 | 节点 ∈ 触发节点 + 补充负责人为空 + 当前处理人有值 + 距发起时间 > 6h | 分支1 当前处理人==发起人 → 私信发起人"无人接单，是否仍需要/去审批界面撤回或结单"；分支2.1 指定负责人 → 私信当前处理人引导"接单确认"；分支2.2 无指定负责人 → 群内重问询卡（@组长，`GROUP_LEADERS`）。**注意**：绑定成功的指定工单天然被跳过，本任务实际覆盖"公示后无人响应"的工单 |
+| 结单提醒 | 每小时 | 节点 =「回执单：是否结单」+ 当前处理人有值 + 已过「理想结单时间」+ `CLOSE_REMINDER_LEAD_DAYS` 天 | 第一次：私聊当前处理人；已私聊未结单（=下一轮检查，即 1 小时后）：群内结单引导卡；已群引导：跳过。状态在内存（重启会重私聊一轮） |
+| 指定负责人确认追问 | 每小时 | 节点 =「负责人确认消息后通过」+ 已绑定（补充负责人==指定负责人）+ 距发起时间 > `ASSIGN_NUDGE_HOURS`（默认24h） | 私聊负责人提醒确认（群 @机器人 或私聊「接单」均可完成）；同工单追问间隔不小于 N 小时；追问记录 7 天淘汰 |
+
+### 1.5 指令（`/ticket-*`，`src/services/chatService.js`）
+
+- 仅群内触发；私聊仅白名单（`P2P_COMMAND_OPEN_IDS` / `P2P_COMMAND_CHAT_IDS`，open_id 与 p2p chat_id 任一命中），与 hub 同套规则同套环境变量。
+- `/ticket-help` `/ticket-list` `/ticket-pending` `/ticket-status` `/ticket-sync`（全量同步源表→看板）。
+- 另有运维 API：`POST /api/bot/rebroadcast`（按 recordId 补播，走同一去重）、`POST /api/bot/reconcile`（手动对账）、`POST /api/bot/test-summary`、`POST /api/bot/test-nudge`。
+
+### 1.6 未结单工单 API（供 hub DDL 分栏，两项目唯一直接调用）
+
+`GET /api/tickets/unclosed-by-group`（`src/services/unclosedService.js`）：
+- 判定：节点 =「回执单：是否结单」+「理想结单时间」在 7 日内（含已超期）；
+- **播报对象：指定负责人 → 补充负责人（去重并集），不取发起人/当前处理人**；两者都空不播；
+- 分组：负责人组别（USER_GROUPS → 通讯录 → 面向组别兜底）→ `GROUP_ROUTES` 映射为群 chatId（并集，一票多组会出现在多群）；
+- 分桶：≤2 天 `urgent`、2–7 天 `week`；返回 `{ result: { [chatId]: { urgent, week } } }`。
+- 口径说明：管理层/未匹配到播报群组别的工单不出现在任何 DDL 分栏（管理层群只做工单发布/问询播报）。
+
+---
+
+## 2. project-management-robot（对话枢纽 hub）
+
+### 2.1 消息处理管道（`server/src/feishu/eventSubscription.js` `handleMessageEvent`，HTTP 回调与长连接共用）
+
+```
+p2p 消息：  ① DDL逾期确认(handleP2PReply) → handled? 终止
+            ② chatService（私聊无需@；指令需私聊白名单）
+群聊消息：  ① chatService（必须@机器人；审批群(APPROVAL_CHAT_ID)指令整体切换为 /approval-*）
+            ② DDL逾期确认(handleReply，仅4个播报群；确认必须来源匹配：p2p发的只能私聊回、群发的只能同群回)
+            ③ 关键词监听（KEYWORD_CHAT_ID 限定，未配置则全部群）
+            ④ 会议提醒（所有群，仅会议卡片消息，5分钟/群去重，@所有人）
+```
+
+每一环 handled 即终止管道；DDL 确认"未识别回复"在群聊静默放行给后续环节。
+
+### 2.2 DDL 每日播报（`server/src/cron/index.js` `runDDLBroadcast`，默认每天 12:00）
+
+1. 防重：`.broadcast-state.json` 记 `lastBroadcastDate`，同日跳过。**标记在至少一群送达后才落盘**——全败当天可 `/test-broadcast` 重跑；部分成功用各群 `/test-ddl` 补发（它不受标记限制）。
+2. 频控错误指数退避重试 ≤3 次；`deliveredGroups` 跨重试持久，重试只补失败群；同 webhook / 同 chatId 去重防一卡多发。
+3. 逐群（`broadcastGroups`：owner / dkyj / sj / xy 四群，各对应项目表一个人员字段）：只播该字段有人的项目，树形层级渲染逾期（@）/ 2日内（@）/ 本周概览 / 意外暂停。
+4. **未结单工单分栏**（跨项目）：
+   - 主链路：`ticketCloseService.getGroupedBuckets()` → ticket-bot `/api/tickets/unclosed-by-group`（10s 超时，冷缓存余量），按群取 `groupedTickets[chatId]`，各组只看到自己负责人的工单；
+   - 降级①：接口失败 → `getUnclosedBuckets()` 直读工单表，全群共用同一份（不分组），**播报对象口径与主链路一致：指定负责人 → 补充负责人**；
+   - 降级②：直读也失败 → 本次无工单分栏，DDL 播报不受影响。
+5. 逾期确认：基于 owner 字段数据递归收集逾期项目 → 逐项目私聊 owner（见 2.3）。
+
+卡片工单分栏只列负责人姓名不 @（结单提醒由 ticket-bot 私聊完成）。
+
+### 2.3 DDL 逾期确认（`server/src/services/ddlConfirmService.js`）
+
+- 发送：仅私聊（`sentMode: 'p2p'`）；每 owner 每项目一条待确认记录（TTL 7 天，重复发送去重）；230013（离队/未激活）/230053（拒收）安静跳过，**不再群聊降级**。
+- 回复：**来源必须匹配**——p2p 发的确认只能私聊回；解析只认整句确认/否认词（是/是的/确认/完成/做完了/好/没问题/done/ok… ↔ 否/不/不是/没完成/还没/not yet…），**不做 contains 宽松匹配**（防"你是谁""是的（附和别人）"误改项目状态）。
+- 回复"是" → 项目状态写 `completed`（失败回滚待确认记录并告知）；"否" → 状态不变；未识别 → 私聊引导（群聊静默）。
+- 指令消息（`/` 开头）不进确认流程。
+
+### 2.4 对话与指令分发（`server/src/services/chatService.js`）
+
+- 群聊需 @机器人（`isMentionedBot` 兼容 mentioned_type app/bot/self/名称）；私聊白名单同 ticket-bot 同套环境变量。
+- 本项目指令：`/help` `/status` `/test-ddl` `/keywords` `/history`；`/print-*` → 转发 bambu `POST /api/chat/command`；**审批群**（`APPROVAL_CHAT_ID`）内 `/help` 与其余指令整体切换为 `/approval-*` → 转发 approval-bot，其它指令提示"本群仅财务指令"。
+- `/test-ddl` 守卫：非播报群的群聊里拒绝执行（防止测试卡经 owner webhook 兜底跨群打到 owner 群）；私聊管理员保留 owner 群兜底。
+- 普通对话：审批群回财务引导文案，其余回 popcorn 引导文案；回复用 message reply，失败降级 chat_id 直发。
+- `/test-ddl` 在播报群内按该群 webhook + mentionField 测试，返回逾期/紧急/本周计数。
+
+### 2.5 关键词监听与会议提醒（简）
+
+- 发言记录（`keywordService`，原关键词监听）：v23 起记录 `KEYWORD_CHAT_ID` 群的**全部消息**（父记录固定「全部发言」，`keywords.json`/`/keywords` 仅展示兼容），每条消息写一条子记录；群内 @机器人 的消息走对话链路不记录。
+- 会议提醒（`meetingReminderService`）：所有群仅识别会议卡片（share_chat / share_calendar / calendar_event / video_chat / interactive 卡片特征），5 分钟窗口去重后 @所有人提醒。
+
+---
+
+## 3. 跨项目联动契约（改接口前逐条核对）
+
+1. **DDL 分栏取数**（唯一直接调用）：pm-robot → ticket-bot `GET /api/tickets/unclosed-by-group`。数据口径、负责人取值（指定→补充，不取发起人/当前处理人）、分桶规则在 ticket-bot；分栏展示与卡片其它栏目在 pm-robot。**两边降级直读链路的负责人口径必须一致**。pm-robot 侧 10s 超时降级，不影响 DDL 播报本身。
+2. **网关路由分工互斥**：ticket-bot 只做工单域例外（`/ticket-*`、@机器人+接单、p2p+接单）；hub 接其余全部并转发 `/approval-*`、`/print-*`。改路由时两项目 `IGNORE_CHAT_IDS` / 群门禁要与网关路由表一起核对。
+3. **指令门禁同套**：指令仅群内 + 私聊白名单（`P2P_COMMAND_OPEN_IDS`/`P2P_COMMAND_CHAT_IDS`），两项目同款同值。
+4. **播报卡互不越界**：工单播报/接单回执/超时问询/结单提醒 → ticket-bot；DDL 卡/逾期确认/会议提醒/语录 → pm-robot。
+5. **事件全经网关**：两项目 `FEISHU_USE_LONG_CONNECTION=false`，收 `POST /api/feishu/event`；hub 转发指令走 `POST /api/chat/command`。
+
+审批节点值（两项目各自配置，需保持一致）：触发播报/联动 = 「群内有组员接单后通过」「有组员接单后通过」「负责人确认消息后通过」（指定负责人的公示即绑定只作用于最后一个）；结单相关 = 「回执单：是否结单」。无指定负责人分支的审批流按「面向组别」并行展开（每组一个「XX有组员接单后通过」节点，需全部通过流程才汇合），联动侧按任务集合批量通过。
+
+---
+
+## 4. 已知限制与待核实（本次评审未改，改前先确认业务）
+
+| # | 事项 | 位置 | 说明 |
+| --- | --- | --- | --- |
+| 1 | 指定负责人工单只取第一个 assignee | `ticket-bot/src/services/ticketService.js` broadcastTicket | `f[assigneeField]?.[0]`；多负责人时仅第一人被公示/绑定/限权。未结单 API 已支持多负责人并集，两处口径不同 |
+| 2 | 超时分支依赖「当前处理人」字段取值 | `ticket-bot/src/cron/index.js` checkTimeoutTickets | 若审批流在未接单阶段把当前处理人留空或留为审批管理员，分支1/2.1 的对象判断会失真、2.2（群内重问询@组长）可能不可达。需结合实际审批流核实字段语义 |
+| 3 | 结单提醒 DM→群升级只隔 1 小时，状态仅内存 | `ticket-bot/src/cron/index.js` closingRemindState | 下一轮每小时检查即转群引导；重启后重私聊一轮 |
+| 4 | 逾期确认"是"直接写 completed | `pm-robot ddlConfirmService` | 私聊一句整句"是"就会改项目表状态（现在已限定只能私聊回复 + 整句匹配）；如需二次确认可加待确认快照/撤销窗口 |
+| 5 | owner 群的工单分栏取决于 GROUP_ROUTES 映射 | 两项目 | hub 的 owner 群（mentionField=owner）只有在 ticket-bot `GROUP_ROUTES` 把某组别映射到同一 chatId 时才有工单分栏；否则该群 DDL 卡永远无工单栏 |
+| 6 | `/test-ddl` 私聊执行时测试卡发到 owner 群 webhook | `pm-robot chatService` | 管理员私聊测试的既定行为，注意别在正式时间误触发 |
+| 7 | 待接单多工单同群时"接单"默认作用于最新一张 | `ticket-bot ticketService` handleAcceptOrder | 无"接单2"这类编号指定；错张需等该张被接/对账后自然轮转 |
+| 8 | 「是否允许多人接单」依赖审批表单 → 工单表同名字段同步 | `ticket-bot config.multiAccept` | 工单表缺列/为空时按「否」处理（接单即通过，现状）；上线前确认审批表单字段会落到工单多维表 |
+
+---
+
+## 5. 修复记录（2026-09-05 批次，评审驱动的行为修正）
+
+| # | 修复 | 项目 / 文件 | 行为变化 |
+| --- | --- | --- | --- |
+| 1 | 接单确认改**整句精确匹配**（接单/确认接单），含"接单"但非整句只回提示不触发 | ticket-bot `chatService.js` | "还没人接单吗""我不想接单"等不再误触发接单/审批自动通过 |
+| 2 | 接单回退匹配池**只收触发节点**（原含回执单节点）；命中的**全部候选升序入列**（原只入一条） | ticket-bot `ticketService.js` | 重启后 stray"接单"不再作用到已接单工单；共群多工单时授权检查可落到发送者真正可接的那张 |
+| 3 | 超时分支文案按"无人接单"语义修正；「补充负责人/是否指定人员负责/面向组别」改走 config；发起时间统一 `getCreatedTime`（发起时间→创建时间回退） | ticket-bot `cron/index.js`、`utils/fields.js`、`ticketService.js` | 分支1 不再误导发起人去"结单"；字段改名时不再静默失效 |
+| 4 | 播报开关收敛为 `isBroadcastEnabled()`（含注释说明 create/update 共用） | ticket-bot `ticketService.js` | 行为不变，消除 `includes('create')` 裸判语义陷阱 |
+| 5 | DDL 逾期确认：p2p 发出的确认**只能私聊回复**；解析删除 contains 宽松分支、只认整句词表 | pm-robot `ddlConfirmService.js` | 群里/私聊的日常消息不再被误判成"已完成"而改项目状态 |
+| 6 | 降级直读链路播报对象改为**指定负责人→补充负责人**（原取当前处理人），与主链路及两项目文档口径对齐；新增可选 env `TICKET_ASSIGNEE_FIELD` / `TICKET_SUPPLEMENT_FIELD`（有默认值，NAS `.env` 无需必配） | pm-robot `ticketCloseService.js`、`config.js` | ticket-bot 挂掉降级那天，DDL 卡工单分栏的负责人口径与平时一致 |
+| 7 | DDL 播报"今日已播报"标记改为**至少一群送达后落盘**（原进门即写） | pm-robot `cron/index.js` | 全败当天不再被标记吞掉，可 `/test-broadcast` 重跑；部分成功用各群 `/test-ddl` 补发 |
+| 8 | `/test-ddl` 在未配置播报的群聊里拒绝执行（私聊保留 owner 群兜底） | pm-robot `chatService.js` | 测试卡不再意外跨群打到 owner 群 |
+| 9 | **审批节点值改拆段匹配**（`config.matchNodeValue`，按 `;；,，、|` 拆段任一命中） | ticket-bot `config.js`、`ticketService.js`、`approvalLinkService.js`、`syncService.js`（mapStatus）、`cron/index.js` | **线上漏播报根因**：按组别并行的新审批流把多个分支节点名以「；」拼接写入「审批节点」字段（如 5 组工单 = 5 段重复），原整串精确匹配对不上 → 创建事件不播报、对账不补播、审批联动拒绝。修后该工单部署即被对账自动补播 |
+
+## 6. 功能新增：多人接单（2026-09-05，需求方提供审批流截图）
+
+无指定负责人工单在审批表单勾选「是否允许多人接单」=是 时的续接窗口机制（`ticket-bot config.multiAccept` + `ticketService` + `approvalLinkService`）：
+
+```
+公开问询播报（现状不变）
+   └─ 有人 @接单 → 合并写补充负责人 + 看板人员字段（状态 in_progress，现状不变）
+        ├─ 「是否允许多人接单」≠是 → 接单即批量通过全部触发节点审批（原行为，扩展为批量）
+        └─ =是 → 不通过审批；写「多人接单截止」= now+6h（工单级计时器，多组别共享）
+                 → 向已有人接单的群（接单人组别群 ∪ 接单发生群）发「👥 多人接单进行中」卡
+                 ├─ 窗口内又有人接单 → 合并补充负责人 → 重置 6h → 再次群内通告（循环）
+                 └─ 窗口到期无人续接 → 每分钟对账自动通过全部触发节点任务（10 分钟节流，
+                                        失败下轮重试）→ 向已接单的群发「✅ 多人接单结束」卡
+                                        → 审批流汇合推进到「回执单：是否结单」（走既有结单提醒）
+```
+
+配套改动：审批联动缓存改 `{申请编号 → {taskId → 任务}}` 集合并**批量通过**（并行分支全部任务才能汇合流转，原单任务缓存会被后到任务覆盖）；接单回退池放行"多人单窗口期"工单（补充负责人已有人仍可续接）；对账新增非多人单"接单后审批补通过"补偿。配置与环境变量见 `.env.example`「多人接单」段。
+
+> **上线前提（2026-09-05 核查）**：工单表已有「是否允许多人接单」列（单选，列名与 `MULTI_ACCEPT_FIELD` 默认值一致），但近期记录该列取值均为空——审批表单 → 多维表格的同步自动化尚未映射该字段。**映射补上并确认新单有值前，多人单分支不生效**（一律按"否"走接单即通过）。
+
+> **并行分支节点值格式**：按组别并行的审批流会把该层多个分支的节点名以「；」拼接写入「审批节点」字段（实测 5 组工单 = `群内有组员接单后通过；×5`）。所有触发节点判断统一走 `config.matchNodeValue` 拆段匹配（播报/对账/审批联动守卫/超时检查），新增判断处不要再用整串精确比对。

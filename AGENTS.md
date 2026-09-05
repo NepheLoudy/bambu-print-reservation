@@ -27,6 +27,7 @@
 # 项目职能划分总表（防需求发错会话）
 
 每个项目目录有自己的 `AGENTS.md` 边界声明；各会话收到需求先对号入座，**发现发错立即提醒并停止开发**。
+**ticket-bot 与 project-management-robot 已归拢到 `ticket-pm/`**（工单+对话枢纽/项目管理联动开发区，该目录有自己的 `AGENTS.md`，内含两项目联动契约）；两项目的 git、push、DEVLOG 版本仍**各自分立**，没有整目录部署；approval-bot、feishu-gateway、bambu-print-reservation 仍在本仓库根目录。
 
 | 项目（会话） | 职能 | 归属信号（需求关键词） |
 | --- | --- | --- |
@@ -41,4 +42,13 @@
 - DDL 卡片"未结单工单分栏"的**数据口径/负责人取值** → ticket-bot；分栏**展示样式/卡片其它栏** → project-management-robot；
 - "播报对象/@谁" → 看哪张卡：工单播报卡 → ticket-bot，DDL 卡 → project-management-robot，催办周报 → approval-bot；
 - "指令时灵时不灵/@没反应" → 先查 feishu-gateway（连接/路由/消费者），再查业务机器人；
+- 工单审批联动：**接单→审批任务自动通过、审批人白名单、审批节点配置、24h 追问** → ticket-bot；**审批群指令、催办周报、催发票私聊、审批实例链接** → approval-bot；
+- 工单×项目管理联动：DDL 分栏取数是 pm-robot 调 ticket-bot 的 HTTP API（`unclosed-by-group`），改出入参两边同批；两项目同住 `ticket-pm/`，联动契约见 `ticket-pm/AGENTS.md`；
+- approval_instance / approval_task 审批事件"收不到/重复" → 先查 feishu-gateway 的 EVENT_TYPES 订阅与消费者登记（同"指令时灵时不灵"规则）；
 - 部署一律 `npm run push`（见 `.agents/skills/qianli-deploy/SKILL.md`），部署失败排查放顶层会话。
+
+# 顶层非项目目录（勿与现役项目混淆）
+
+- `archive/`：历史归档。`archive/project-configs/` 存有 approval-bot / bambu-print-server / knowledge-tracker 的旧 `.env` 备份（**已被顶层 git 跟踪，密钥应视为已泄露、待轮换**；勿把新配置备份进去）；`widget-*.json` 是旧小组件配置存档。
+- `tools/`：与飞书机器人业务无关的独立工具（`rm-battlescope` 为 RoboMaster 赛事数据分析工具，自带 README 与依赖）。
+- `sop/`：SOP 静态页（`site-sop-planet` 带 Windows 一键部署脚本；`sop-misc` 为散页 HTML）。需求落在这些目录时先与用户确认再动。

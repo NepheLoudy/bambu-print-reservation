@@ -46,6 +46,8 @@ async function requestAPI(method, path, params = {}) {
 
   const options = {
     method,
+    // 无超时的 fetch 一旦挂起会把分发引擎的串行匹配段永久卡死
+    signal: AbortSignal.timeout(20000),
     headers: {
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json; charset=utf-8',
@@ -74,6 +76,8 @@ async function downloadFile(fileToken) {
     headers: {
       'Authorization': `Bearer ${token}`,
     },
+    // 3mf 切片文件可能几十 MB，给长一些但有限的超时
+    signal: AbortSignal.timeout(120000),
   });
 
   if (!res.ok) {
@@ -93,6 +97,7 @@ async function downloadApprovalAttachment(attachmentId, name) {
 
   const res = await fetch(url, {
     headers: { 'Authorization': `Bearer ${token}` },
+    signal: AbortSignal.timeout(120000),
   });
 
   if (!res.ok) {

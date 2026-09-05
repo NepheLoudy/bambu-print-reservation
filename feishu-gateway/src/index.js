@@ -4,14 +4,15 @@ const config = require('./config');
 const { dispatchFrame } = require('./dispatch');
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '2mb' }));
 
 let wsStarted = false;
+let wsLastError = null;
 
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
-    ws: wsStarted ? 'running' : 'stopped',
+    ws: wsLastError ? `error: ${wsLastError}` : wsStarted ? 'running' : 'stopped',
     uptime: process.uptime(),
     defaultTarget: config.defaultTarget,
     consumers: config.consumers,
@@ -65,10 +66,23 @@ function startWs() {
     });
   }
 
-  wsClient.start({ eventDispatcher: dispatcher });
+  // start() 返回 Promise：连接失败（凭证错误/网络故障）若不 catch 会变成 unhandled rejection 直接杀死进程，
+  // 而本进程是共用应用的唯一长连接，必须存活并由 /api/health 暴露真实状态
+  wsClient
+    .start({ eventDispatcher: dispatcher })
+    .catch((err) => {
+      wsStarted = false;
+      wsLastError = err.message;
+      console.error('[网关] 长连接启动失败:', err.message);
+    });
   wsStarted = true;
   console.log(`📡 长连接已启动（共用应用本机唯一连接），订阅事件: ${config.eventTypes.join(', ')}`);
 }
+
+// 兜底：任何未捕获的 Promise 拒绝只记日志，不允许击垮唯一长连接进程
+process.on('unhandledRejection', (err) => {
+  console.error('[网关] 未处理的 Promise 拒绝:', (err && err.message) || err);
+});
 
 // 多维表格记录变更事件的前置条件：订阅对应云文档（幂等，可重复调用）
 async function subscribeDocs() {

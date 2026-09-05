@@ -6,15 +6,17 @@
 
 ```
 本地切片(Bambu Studio 等) → 3mf
-   ↓ 飞书「打印审批表」提交：切片文件附件 + 材料类型 + 颜色 + 是否加急
-   ↓ 专人审批（多维表格改「申请状态=已通过」）
-   ↓ feishu-gateway 秒级推送表格变更事件（对比旧版半小时轮询）
-本服务：回查记录 → 进入队列（加急优先）
+   ↓ 飞书官方审批表单提交（附件 + 材料类型 + 颜色 + 可选指定打印机）
+   ↓ 审批人通过（或机器人按 AMS 匹配规则自动同意，APPROVAL_AUTO_APPROVER_ID）
+   ↓ feishu-gateway 秒级推送 approval_instance / approval_task 事件（主通道）
+本服务：解析表单 → 进入队列（加急优先）
    ↓ 打印机空闲触发匹配
    ↓ AMS 装料匹配：材料类型(精确→家族) + 颜色(redmean 近似)
-   ↓ 飞书下载 3mf → SFTP 上传打印机 /sdcard/ → MQTT project_file 下发
+   ↓ 飞书下载 3mf → SFTP/FTP 上传打印机 /sdcard/ → MQTT project_file 下发
    ↓ gcodeState 变迁监听：开始/完成/失败 → 群 webhook 播报
 ```
+
+> 多维表格「打印预约表」只是审批数据的半小时级镜像（后备模式才作为事件来源），主通道下改表格状态不会触发分发。
 
 ## 打印机支持
 
@@ -28,13 +30,14 @@
 
 | 指令 | 说明 |
 | --- | --- |
+| `/print-help` | 显示帮助（`/help` 同效） |
 | `/print-status` | 打印机状态 + AMS 耗材 + 当前任务进度 + 等待队列 |
 | `/print-ams` | 所有打印机装载耗材明细 |
 | `/print-list` | 全部预约记录 |
 | `/print-pending` | 待审批预约 |
-| `/print-dispatch <申请编号> <打印机名>` | 人工强制指定分发 |
+| `/print-dispatch <申请编号> <打印机名>` | 人工强制指定分发（打印机有在打任务时会拒绝） |
 
-播报（webhook 群机器人）：新预约通知、审批结果、入队、打印开始/完成/失败、缺料提醒（30 分钟节流）。
+播报（webhook 群机器人）：新预约通知、入队、打印开始/完成/失败、缺料提醒（30 分钟节流）。主通道下审批结果卡由飞书审批消息承担，本服务不再重复发。
 
 ## 分发匹配规则（按序）
 
@@ -44,16 +47,16 @@
 4. 家族匹配（PLA-CF ↔ PLA）
 5. 加急优先出队，队首缺料不阻塞后续任务
 
-## 多维表格字段
+## 多维表格与审批表单字段
 
-审批表（已有字段之外新增）：`材料类型`（单选）、`颜色`（单选）、`指定打印机`（单选，可空）。
-状态流转：`待审批 → 已通过/已驳回 → 打印中 → 已完成`（任意时刻可 `已取消`）。
+主通道下材料/颜色/指定打印机是**官方审批表单字段**，按标题关键词自适应解析（`APPROVAL_CODE` 留空时依赖「表单含附件」识别打印审批，建议配置 code 收窄）；`scripts/add-dispatch-fields.js` 仅对旧版表格直提交流程有意义。
+状态流转：`待审批 → 已通过/已驳回 → 排队中 → 打印中 → 已完成`（分发失败回滚「排队中」重试；任意时刻可 `已取消`）。
 
 > **文档权限**：需在飞书中把应用「爆米花机」添加为该多维表格的**可编辑协作者**，否则写状态会报 91403。
 
 ## 事件链路（qianli 架构）
 
-事件由 feishu-gateway（共用应用唯一长连接）转发：**审批实例事件 approval_instance → `POST /api/feishu/event`（主通道，秒级）**；表格事件（legacy 结构）仅后备模式（APPROVAL_PRIMARY=false 时启用+对账）；指令 → `POST /api/chat/command`。本服务 `FEISHU_USE_LONG_CONNECTION=false`。
+事件由 feishu-gateway（共用应用唯一长连接）转发：**审批实例事件 approval_instance → `POST /api/feishu/event`（主通道，秒级）**；approval_task 事件驱动自动审批（`APPROVAL_AUTO_APPROVER_ID`）；表格事件（legacy 结构）仅后备模式（APPROVAL_PRIMARY=false 时启用+对账）；指令 → `POST /api/chat/command`。本服务 `FEISHU_USE_LONG_CONNECTION=false`。分发失败按 `DISPATCH_MAX_RETRIES` 次上限重试，每次间隔 `DISPATCH_RETRY_COOLDOWN_MS`，超限退出队列转人工。
 
 前置配置（一次性）：① 开发者后台事件订阅添加「审批实例状态变更 approval_instance」；② 应用开通审批读取权限；③ 拿到审批定义 code 后调 subscribeApproval 订阅（见 .env.example）。
 
@@ -69,4 +72,5 @@ npm run push "提交说明"
 
 ```
 node test/dispatcher-test.js   # 分发引擎匹配逻辑单测（18 项）
+node test/approval-test.js     # 审批事件解析/自动审批逻辑单测（10 项）
 ```

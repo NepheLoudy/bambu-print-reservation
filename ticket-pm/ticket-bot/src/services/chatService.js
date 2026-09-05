@@ -44,17 +44,70 @@ function extractText(data) {
   return text.replace(/@_user_\d+/g, '').trim();
 }
 
+// 消息去重（网关重启窗口内飞书可能重复投递同一事件；@触发对话与接单回执由网关独占路由分立，
+// 本服务只处理工单域消息，此处兜底防同一条消息触发两次接单/回执）
+const processedMessages = new Map(); // message_id -> timestamp
+const MSG_DEDUP_TTL = 5 * 60 * 1000;
+
+function pruneProcessedMessages() {
+  const now = Date.now();
+  for (const [key, ts] of processedMessages) {
+    if (now - ts > MSG_DEDUP_TTL) processedMessages.delete(key);
+  }
+}
+
 /**
- * 处理收到的聊天消息事件（长连接 / HTTP 回调通用）
+ * 严格判断 @ 的是本项目机器人（对话型本体），避免把 @ 其它机器人含「接单」的消息当接单
+ * （网关的 mention 判定较宽，这里是本服务的二次校验）。
+ * name 比对只作兜底：共用应用下机器人在群里的实际显示名可能与配置名不一致
+ * （与 pm-robot 同套放宽规则），mentioned_type=app/bot 即认定 @ 的是本应用机器人
+ */
+function isSelfMention(data) {
+  const mentions = data?.message?.mentions || [];
+  return mentions.some((m) => {
+    if (!m) return false;
+    if (m.mentioned_type === 'app' || m.id === 'self') return true;
+    if (m.mentioned_type === 'bot') return true;
+    return m.name === config.bot.name;
+  });
+}
+
+/**
+ * 接单确认文本匹配：
+ * - 网关按「含接单且 @机器人 / p2p 含接单」宽口径路由，本服务只认去空白后
+ *   全等的「接单 / 确认接单」，避免「还没人接单吗」「我不想接单」这类消息
+ *   被误当成接单确认（误触发会写补充负责人、推进状态并自动通过审批）
+ */
+function isAcceptRelatedText(text) {
+  return (text || '').replace(/\s+/g, '').includes('接单');
+}
+
+function isExactAcceptText(text) {
+  const t = (text || '').replace(/\s+/g, '');
+  return t === '接单' || t === '确认接单';
+}
+
+/**
+ * 处理收到的聊天消息事件（网关转发的 im.message.receive_v1）
+ * 两条路径：接单确认（@对话型 + 「接单」）与 /ticket-* 指令
  */
 async function processChatMessage(data) {
   const message = data?.message;
   if (!message) return;
 
+  pruneProcessedMessages();
+  const messageId = message.message_id;
+  if (messageId && processedMessages.has(messageId)) {
+    console.log(`[聊天服务] 重复消息跳过: ${messageId}`);
+    return;
+  }
+  if (messageId) processedMessages.set(messageId, Date.now());
+
   const text = extractText(data);
   const chatId = message.chat_id;
   const userId = data?.sender?.sender_id?.open_id;
   const userName = data?.sender?.sender_id?.name || '';
+  const chatType = message.chat_type || message.chatMode || '';
 
   // 忽略群（如审批群）不参与接单与指令处理，避免抢走其专属对话能力
   if (chatId && config.ignoreChatIds.includes(chatId)) {
@@ -62,8 +115,39 @@ async function processChatMessage(data) {
     return;
   }
 
-  // 接单确认不走本事件路径：接单 @ 对象是群自定义机器人「爆米花机_自动型」（webhook，收不到事件），
-  // 由 ticketService 的每分钟消息回扫按 mention 结构匹配，这里只处理对话型机器人的指令。
+  // 接单确认：群内 @对话型机器人 发送「接单」（网关把含「接单」且 @机器人 的消息秒级路由到本项目）
+  if (chatType === 'group' && isAcceptRelatedText(text) && isSelfMention(data)) {
+    if (!isExactAcceptText(text)) {
+      console.log(`[聊天服务] 含「接单」但非精确指令，提示后忽略: ${userName || userId} 在群 ${chatId}`);
+      await sendTextToChat(chatId, '💡 接单确认请单独发送「接单」两个字，刚才的消息不会触发接单');
+      return;
+    }
+    console.log(`[聊天服务] 收到接单确认: ${userName || userId} 在群 ${chatId}`);
+    const result = await ticketService.handleAcceptOrder(chatId, userId, userName, text);
+    if (!result?.success && result?.reason) {
+      await sendTextToChat(chatId, `⚠️ ${result.reason}`);
+    }
+    return;
+  }
+
+  // 指定负责人的私聊确认：负责人在 24h 追问私信中回复「接单」（网关按 p2p+接单 路由到本服务）
+  if (chatType !== 'group' && !text.startsWith('/') && isAcceptRelatedText(text)) {
+    if (!isExactAcceptText(text)) {
+      console.log(`[聊天服务] 私聊含「接单」但非精确指令，提示后忽略: ${userName || userId}`);
+      await sendTextToUser(userId, '💡 如需确认接单，请直接回复「接单」两个字，刚才的消息不会触发确认');
+      return;
+    }
+    console.log(`[聊天服务] 收到私聊接单确认: ${userName || userId}`);
+    const result = await ticketService.handleAssigneeDmConfirm(userId, userName);
+    if (result?.success) {
+      await sendTextToUser(userId, `✅ 已确认接单：${result.title}`);
+    } else if (result?.reason === 'no-pending') {
+      await sendTextToUser(userId, '当前没有待你确认的指定负责人工单；如需接单请到对应工单群 @机器人 发送「接单」');
+    } else {
+      await sendTextToUser(userId, `⚠️ 确认未完成：${result?.reason || '未知原因'}`);
+    }
+    return;
+  }
 
   if (!text) return;
 
@@ -72,7 +156,6 @@ async function processChatMessage(data) {
   if (!handler) return;
 
   // 指令仅群内触发并回复到对应群；私聊指令仅白名单账号/会话可用（与 hub 同套规则）
-  const chatType = message.chat_type || message.chatMode || '';
   if (chatType !== 'group' && !isP2pCommandAllowed(userId, chatId)) {
     console.log(`[聊天服务] 拒绝私聊指令 ${cmd} - sender: ${userId || '未知'} chat_id: ${chatId}`);
     if (chatId) {
@@ -168,4 +251,5 @@ async function syncAllTickets() {
 
 module.exports = {
   processChatMessage,
+  isSelfMention,
 };

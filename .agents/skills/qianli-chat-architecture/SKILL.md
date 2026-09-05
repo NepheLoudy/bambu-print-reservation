@@ -23,6 +23,7 @@ feishu-gateway（NAS, :3010）── 持有共用应用的唯一长连接，统�
    │                      ├─ /print-*    → 转发 bambu（:3001, /api/chat/command）
    │                      └─ 普通对话 / 关键词 / DDL / /help → 对话型自行处理
    │
+   ├─ 审批域事件（approval_instance / approval_task）→ 转发 bambu（打印审批联动）/ ticket-bot（接单→审批任务自动通过）
    └─ 多维表格事件（drive.file.bitable_record_changed_v1）→ 广播给各消费者自行过滤
 ```
 
@@ -54,7 +55,8 @@ feishu-gateway（NAS, :3010）── 持有共用应用的唯一长连接，统�
 ## 相关代码位置
 
 - 网关路由表：`feishu-gateway/src/config.js`（DEFAULT_MESSAGE_ROUTES、DEFAULT_CONSUMERS）
-- 对话型分发逻辑：`project-management-robot/server/src/services/chatService.js`
+- 对话型分发逻辑：`ticket-pm/project-management-robot/server/src/services/chatService.js`
   （isApprovalGroup / handleApprovalCommand / handlePrintCommand）
+- 接单自动通过审批任务：`ticket-pm/ticket-bot/src/services/approvalLinkService.js`（approval_task 按审批人白名单缓存 + 接单后以审批人身份调同意 API）
 - approval-bot 指令端点：`approval-bot/src/index.js`（POST /api/chat/command）
-- 工单例外：`ticket-bot/src/services/chatService.js`（IGNORE_CHAT_IDS 跳过审批群）
+- 工单例外：`ticket-pm/ticket-bot/src/services/chatService.js`（IGNORE_CHAT_IDS 跳过审批群）

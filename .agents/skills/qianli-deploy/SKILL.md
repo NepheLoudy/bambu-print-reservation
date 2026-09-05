@@ -5,7 +5,7 @@ description: qianli 工作区飞书机器人项目的统一部署与开发链路
 
 # qianli 机器人统一部署链路
 
-五个飞书项目全部用同一条链路：**项目根目录 `npm run push "提交说明"` 一条命令完成 提交→推送→部署→上传 .env→重启**。不要手写 SSH/SCP 部署命令，不要恢复任何独立 deploy 脚本。
+五个飞书项目共用同一条链路口径：**项目根目录 `npm run push "提交说明"` 一条命令完成 提交→推送→部署→上传 .env→重启**。不要手写 SSH/SCP 部署命令，不要恢复任何独立 deploy 脚本。（实现形态有三种：approval-bot / pm-robot / ticket-bot 独立仓库 git push + NAS 同步；gateway 只暂存自身路径推顶层远端、部署走 SFTP；bambu 纯 SFTP 无 git。）
 
 ## 项目清单
 
@@ -15,7 +15,9 @@ description: qianli 工作区飞书机器人项目的统一部署与开发链路
 | project-management-robot | /opt/knowledge-tracker | knowledge-tracker | 3000 | 对话枢纽（hub），DDL 播报 |
 | approval-bot | /opt/approval-bot | approval-bot | 3002 | 财务审批（纯定时催办） |
 | ticket-bot | /opt/ticket-bot | ticket-bot | 3003 | 工单播报/接单/分桶 API |
-| bambu-print-reservation | /opt/bambu-print-server | bambu-print-server | 3001 | 打印预约（尚未部署到 NAS） |
+| bambu-print-reservation | /opt/bambu-print-server | bambu-print-server | 3001 | 打印预约（纯 SFTP 部署，无 git 步骤） |
+
+本地目录布局：ticket-bot 与 project-management-robot 归拢在 `ticket-pm/` 下（`ticket-pm/<项目名>`，联动契约见该目录 AGENTS.md）；approval-bot、feishu-gateway、bambu-print-reservation 在本仓库根目录。部署命令不变，仍在各自项目目录内执行。
 
 NAS：10.253.33.233，SSH 端口 8500，用户 qianli。凭证在各项目 `.env` 的 `NAS_HOST/NAS_PORT/NAS_USER/NAS_PASSWORD`，不在脚本里。
 
@@ -34,7 +36,7 @@ push.js 依次做：① git add -A + commit + push（本地推 GitHub 失败不�
 
 ## .env 规则（最重要，出过事故）
 
-- `.env` 永不进 git（.gitignore 已挡），飞书密钥和 NAS 凭证只存在于本地 `.env` 与 NAS `.env` 两处。
+- `.env` 永不进 git（.gitignore 已挡）。**已知例外**：顶层 `archive/project-configs/` 里有三份历史 `.env` 备份（approval-bot / bambu-print-server / knowledge-tracker）已被顶层仓库跟踪——属于遗留问题，其中的密钥应视为已泄露处理（轮换），不要再往里加新配置，也不要把新项目的 .env 备份进去。飞书密钥和 NAS 凭证的正式存放处只有本地 `.env` 与 NAS `.env` 两处。
 - **本地 `.env` 就是部署源头：每次 push 都会原样覆盖 NAS 的 .env。** 所以部署前必须确认本地 `.env` 与 NAS 线上意图一致——拿不准就先下载 NAS 的 .env diff 一下（曾发生过：本地残留 `FEISHU_USE_LONG_CONNECTION=true` 被推上去，差点恢复双长连接抢事件）。
 - 改线上配置的正确姿势：改本地 `.env` → `npm run push`。不要直接 sed NAS 的 .env（会被下次部署覆盖回去）。
 - 新增配置项：同步改 `.env.example`（提交）+ 各环境 `.env`（不提交）。

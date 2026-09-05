@@ -56,6 +56,7 @@ function parseJsonArray(raw, fallback) {
 }
 
 const envConsumers = parseConsumers(process.env.CONSUMERS);
+const envEventTypes = parseList(process.env.EVENT_TYPES);
 
 module.exports = {
   port: process.env.PORT || 3010,
@@ -65,8 +66,8 @@ module.exports = {
   },
   // 长连接订阅的事件类型（逗号分隔），接入新事件类型在这里加
   // approval_instance = 审批实例状态变更；approval_task = 审批任务状态变更（自动审批依据）
-  eventTypes: parseList(process.env.EVENT_TYPES).length
-    ? parseList(process.env.EVENT_TYPES)
+  eventTypes: envEventTypes.length
+    ? envEventTypes
     : ['im.message.receive_v1', 'drive.file.bitable_record_changed_v1', 'approval_instance', 'approval_task'],
   verificationToken: process.env.FEISHU_VERIFICATION_TOKEN || '',
   consumers: envConsumers.length ? envConsumers : parseConsumers(DEFAULT_CONSUMERS.join(';')),

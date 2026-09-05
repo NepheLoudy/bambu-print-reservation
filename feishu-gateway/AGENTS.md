@@ -9,7 +9,7 @@
 本会话是独立工作区，**不会自动加载顶层规则**——开工前先读一遍 `../AGENTS.md`（顶层职能总表 + 架构铁律）；涉及消息路由、@识别、指令转发的改动，再读顶层 `.agents/skills/qianli-chat-architecture/SKILL.md`。
 
 与其它机器人/服务的交互契约（改接口前先对顶层文档）：
-- 五个机器人**共用同一个飞书应用**；长连接只属于 feishu-gateway，本项目事件一律 `FEISHU_USE_LONG_CONNECTION=false`，由网关转发到本项目的 `POST /api/feishu/event`；
+- 五个机器人**共用同一个飞书应用**（网关自身不消费事件，下游消费者登记为其中四个：hub/approval/bambu/ticket）；长连接只属于 feishu-gateway，各机器人事件一律 `FEISHU_USE_LONG_CONNECTION=false`，由网关转发到本项目的 `POST /api/feishu/event`；
 - 指令交互契约：`POST /api/chat/command`，入参 `{command, args}`，回 `{reply}`（回复由调用方——网关或 hub——代发）；
 - 群播报走群自定义机器人 webhook，对话回复走飞书 IM API；
 - 部署一律项目内 `npm run push "说明"`（规则见 qianli-deploy skill 与顶层 AGENTS.md），NAS 凭证在 .env 的 NAS_*；

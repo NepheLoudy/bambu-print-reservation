@@ -14,6 +14,10 @@ const GCODE_STATE_MAP = {
   IDLE: '空闲',
 };
 
+// 文件传输超时：挂起的上传会把分发引擎的串行匹配段永久卡死
+const SFTP_TIMEOUT_MS = 120 * 1000;
+const FTP_TIMEOUT_MS = 60 * 1000;
+
 class PrinterClient {
   constructor(printerConfig) {
     this.config = printerConfig;
@@ -283,8 +287,23 @@ class PrinterClient {
     return new Promise((resolve, reject) => {
       const tryUpload = (sftp) => {
         const stream = sftp.createWriteStream(remotePath);
-        stream.on('error', (err) => reject(err));
-        stream.on('close', () => resolve());
+        const timer = setTimeout(() => {
+          // 超时视为会话已坏：断开并置空，下次上传重建连接
+          stream.destroy();
+          if (this.sshClient) {
+            try { this.sshClient.end(); } catch (e) { /* ignore */ }
+            this.sshClient = null;
+          }
+          reject(new Error(`SFTP 上传超时（${SFTP_TIMEOUT_MS / 1000}s）: ${remotePath}`));
+        }, SFTP_TIMEOUT_MS);
+        stream.on('error', (err) => {
+          clearTimeout(timer);
+          reject(err);
+        });
+        stream.on('close', () => {
+          clearTimeout(timer);
+          resolve();
+        });
         stream.end(Buffer.from(buffer));
       };
 
@@ -299,6 +318,10 @@ class PrinterClient {
             conn.end();
             return reject(err);
           }
+          // 顶掉旧会话时显式关闭，避免连接泄漏
+          if (this.sshClient && this.sshClient !== conn) {
+            try { this.sshClient.end(); } catch (e) { /* ignore */ }
+          }
           this.sshClient = conn;
           this.sshClient.sftp = sftp;
           this.sshClient.sftpReady = true;
@@ -307,7 +330,10 @@ class PrinterClient {
       });
       conn.on('error', (err) => reject(err));
       conn.on('close', () => {
-        if (this.sshClient) this.sshClient.sftpReady = false;
+        // 只处理当前会话的关闭：旧连接的 close 不能误清新会话的 sftpReady
+        if (this.sshClient === conn) {
+          this.sshClient = null;
+        }
       });
       conn.connect({
         host: this.config.host,
@@ -331,21 +357,26 @@ class PrinterClient {
 
   connectFTP() {
     return new Promise((resolve, reject) => {
-      this.ftpClient = new ftp();
+      const client = new ftp();
+      this.ftpClient = client;
 
-      this.ftpClient.on('ready', () => {
+      client.on('ready', () => {
         resolve();
       });
 
-      this.ftpClient.on('error', (err) => {
+      client.on('error', (err) => {
+        // 连接失败/中途掉线后残留死客户端，会让后续操作永远挂在坏连接上：置空强制下轮重连
+        if (this.ftpClient === client) this.ftpClient = null;
         reject(err);
       });
 
-      this.ftpClient.connect({
+      client.connect({
         host: this.config.host,
         user: 'bblp',
         password: this.config.accessCode,
         port: 21,
+        connTimeout: 30000,
+        pasvTimeout: 30000,
       });
     });
   }
@@ -366,10 +397,19 @@ class PrinterClient {
       await this.connectFTP();
     }
 
+    const client = this.ftpClient;
     return new Promise((resolve, reject) => {
-      this.ftpClient.put(Buffer.from(buffer), remotePath, (err) => {
+      const fail = (err) => {
+        if (this.ftpClient === client) this.ftpClient = null; // 出错视为连接已坏，下次重连
+        reject(err);
+      };
+      const timer = setTimeout(() => {
+        fail(new Error(`FTP 上传超时（${FTP_TIMEOUT_MS / 1000}s）: ${remotePath}`));
+      }, FTP_TIMEOUT_MS);
+      client.put(Buffer.from(buffer), remotePath, (err) => {
+        clearTimeout(timer);
         if (err) {
-          reject(err);
+          fail(err);
         } else {
           resolve();
         }
