@@ -63,7 +63,7 @@
 ## 部署
 
 ```
-npm run push "提交说明"
+npm run push
 ```
 
 详见顶层 `.agents/skills/qianli-deploy/SKILL.md`。NAS 路径 `/opt/bambu-print-server`，pm2 进程 `bambu-print-server`，端口 3001。

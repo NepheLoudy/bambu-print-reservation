@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v31**（2026-09-06，随本提交落地）。
+当前最新：**v32**（2026-09-06，随本提交落地）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -155,3 +155,15 @@
 - 两仓联动（§1.6 契约 additive 扩展）：ticket-bot `GET /api/tickets/unclosed-by-group` 每群新增 `unclaimed` 桶（触发节点 + 补充负责人为空 + 距发起 ≥6h，按「面向组别」分组、时长降序）；pm-robot DDL 卡在结单分栏前新增「🆘 无人接单工单」分栏（只列标题与发布时长不 @），/test-ddl 与降级直读链路同口径。
 - 顺带整改（两仓同款）：结单分桶的服务端等值过滤改全量拉取 + 拆段匹配——并行分支「；」拼接节点值等值过滤匹配不上，会静默漏桶。
 - 部署顺序：ticket-bot v52 → pm-robot v56 → 顶层归档提交。
+
+## 阶段十二 · 全仓例行维护批次（2026-09-06）
+
+### v32 · 2026-09-06 · 随本提交落地 · fix
+**五仓例行 debug 扫描：代码纠偏 6 处 + 文档/锚点对齐（approval-bot v29 首推 + ticket-bot v53 / pm-robot v57 / bambu v20 / gateway v13）**
+- approval-bot v29（存量改动随批首推）：晚间静默落地（三定时任务 gateTask 积压重跑）——v30 四仓批次中唯一未 push 的一仓，本批补齐上线。
+- bambu v20：审批自愈②窗口列表兜底三处纠偏（响应字段 `instance_list`→`instance_code_list`、时间戳毫秒→秒、24h 窗口按官方 ≤10h 限制切片 + 分页）——自 v18 上线以来该兜底从未生效（生产未配 APPROVAL_CODE 休眠中，无线上影响）。
+- ticket-bot v53：「；」拼接拆段匹配残留 2 处整改（结单提醒服务端等值过滤致多组别工单结单私聊永不触发、对账「回执单」整串比对致补搬运/状态推进跳过）+ cron-status「提前/过后」文案反义修正 + README 对齐 v50~v52。
+- pm-robot v57：降级直读链路拆段分隔符补齐 `,` `，` `|`（与 ticket-bot splitNodeValues 同字符类）+ README/keywords/.env.example 文案与清单纠偏。
+- gateway v13：README 幽灵部署脚本（deploy:sftp→push）、DEVLOG 指针 v10→v12、v11 锚点回填 `cebb767`；bambu v19 锚点回填 `cca9970`；bambu PRINTER-LAN-API dispatcher 行号回填。
+- 意图不明未动（记录备查）：bambu approval_task 路径失败不登记自愈、对账重复拉详情噪音、数值 env 无 NaN 防护；四仓 QUIET_HOURS_DISABLED=1 时遗留积压不冲刷不清理；pm-robot 空 chatId 回落口径、静默冲刷中登记的调度窗口；gateway .env 死键 FEISHU_ENCRYPT_KEY 与未用依赖 cors。
+- 部署顺序：approval-bot → ticket-bot → pm-robot → bambu（SFTP）→ gateway → 顶层归档提交。

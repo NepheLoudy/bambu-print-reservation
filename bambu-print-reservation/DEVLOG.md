@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次部署）。本项目 push.js 为纯 SFTP 直传、无 git 步骤，**版本锚点取顶层 monorepo 中触碰本路径的归档提交**——两次归档之间的个别部署可能无版本记录。v1~v14 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v19**（2026-09-06，随本提交落地，顶层归档锚点待本批归档提交回填）。
+当前最新：**v20**（2026-09-06，随本批顶层归档落地，锚点待回填）。
 
 ## 阶段五 · 审批事件字段对齐与分发健壮化（2026-09-05）
 
@@ -104,10 +104,17 @@
 
 ## 阶段八 · 晚间静默——播报时段限制（2026-09-06）
 
-### v19 · 2026-09-06 · 随本提交落地（顶层归档锚点待本批归档提交回填） · feat
+### v19 · 2026-09-06 · 顶层归档 `cca9970` · feat
 **02:00–09:00（Asia/Shanghai）静默窗口：打印生命周期/预约通知积压到 09:00 原样补发（可配可关）**
 - 新增 `src/utils/quietHours.js`（顶层 AGENTS.md「晚间静默」规则的本仓实现）：群播卡片与私聊通知落在窗口（`QUIET_HOURS_START/END` 默认 2→9，支持跨午夜写法，`QUIET_HOURS_DISABLED=1` 关闭）内时载荷落盘积压（`.quiet-backlog.json` 持久化，重启不丢），窗口结束整点按入队顺序原样补发；启动时过点立即补冲刷（initQuietHoursFlush 接入 startServer）；补发失败保留重试 ≤3 次。
 - 接线（dispatcher 7 处 + reservation 4 处）：排队卡/开始卡/完成卡/失败卡（重试与放弃两种）/缺料提醒（原 30 分钟节流不变）/预约审批提醒卡+审批人私聊/审批结果卡+申请人私聊。
 - **挤压要为挤压之后的事情负责**：打印机控制、写表、队列匹配、审批流转发照常进行，只有消息延后；补发的是事发时刻快照（完成卡含实际完成时间），夜间过队后卡片排位可能滞后，队列实况以 /print 指令查询为准。
 - 豁免：chatService 对 /print-* 指令的回复（交互回路）不积压。
 - 其他：/api/health 附 quietHours 状态；.gitignore/.env.example 同步；README 播报段补静默说明；顶层 AGENTS.md 新增「晚间静默」规则段。
+
+### v20 · 2026-09-06 · 随本批顶层归档落地（锚点待回填） · fix
+**例行维护全仓 debug——审批自愈②窗口列表兜底三处纠偏（自 v18 上线以来从未生效）**
+- 对账 ②（窗口列表兜底）静默空转，三处叠加：①响应字段读错——`/approval/v4/instances/list` 返回 `instance_code_list`，原代码读 `instance_list`（那是另一接口 instances/query 的字段），`|| []` 把空转吞掉不报错；②`start_time/end_time` 传毫秒字符串，官方要求秒级 Unix 时间；③官方限制单次查询范围 ≤10 小时而回看窗口 24h，且未跟 `has_more/page_token` 分页。改为 8h 切片逐段拉取 + 段内翻页 + 秒级时间戳 + `instance_code_list`（SDK typings 与官方文档双证）。生产未配 `APPROVAL_CODE`，②此前休眠、无线上影响；配置后兜底才真正可用。
+- 顺带（文档）：README 部署命令去掉被 push.js 忽略的「提交说明」参数（纯 SFTP 无 git 步骤）；PRINTER-LAN-API.md dispatcher 全部行号按 v19 后代码回填（v19 接线 quietHours 后 +10~20 行系统性偏移）。
+- 已知限制（意图不明，未动）：approval_task 自动审批路径拉详情失败不登记重拉（与 instance 路径 v18 前失败模式同构，是否自愈待裁定）；对账对「APPROVED 无附件 / PENDING」实例不做已见登记，窗口内每轮重复拉详情（噪音非正确性）；数值型 env 无 NaN 防护。
+- 单测：test/approval-test.js、test/dispatcher-test.js 全部通过；README「审批单测 10 项」计数核对无误。

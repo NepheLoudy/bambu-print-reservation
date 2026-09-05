@@ -335,17 +335,32 @@ async function reconcileApprovals() {
     }
   }
 
-  // ② 窗口内实例列表兜底（覆盖「事件根本没到本服务」的丢失）
+  // ② 窗口内实例列表兜底（覆盖「事件根本没到本服务」的丢失）。
+  //    官方接口限制：单次查询时间范围 ≤10 小时、start_time/end_time 为秒级 Unix 时间，
+  //    回看窗口按 8h 切片逐段拉取并跟随 has_more/page_token 翻页；
+  //    响应实例 ID 字段为 instance_code_list（instance_list 是另一接口 query 的字段）
   if (config.approval.approvalCode) {
-    const res = await requestAPI('POST', '/approval/v4/instances/list', {
-      approval_code: config.approval.approvalCode,
-      start_time: String(now - windowMs),
-      end_time: String(now),
-    });
-    if (res.code !== 0) {
-      throw new Error(`拉取审批实例列表失败: ${res.msg} (code: ${res.code})`);
+    const SLICE_MS = 8 * 60 * 60 * 1000;
+    const instanceCodes = [];
+    for (let sliceEnd = now; sliceEnd > now - windowMs; ) {
+      const sliceStart = Math.max(sliceEnd - SLICE_MS, now - windowMs);
+      let pageToken;
+      do {
+        const res = await requestAPI('POST', '/approval/v4/instances/list', {
+          approval_code: config.approval.approvalCode,
+          start_time: String(Math.floor(sliceStart / 1000)),
+          end_time: String(Math.floor(sliceEnd / 1000)),
+          ...(pageToken ? { page_token: pageToken } : {}),
+        });
+        if (res.code !== 0) {
+          throw new Error(`拉取审批实例列表失败: ${res.msg} (code: ${res.code})`);
+        }
+        instanceCodes.push(...(res.data?.instance_code_list || []));
+        pageToken = res.data?.has_more ? res.data?.page_token : undefined;
+      } while (pageToken);
+      sliceEnd = sliceStart;
     }
-    for (const instanceId of res.data?.instance_list || []) {
+    for (const instanceId of instanceCodes) {
       if (dispatcher.isKnown(instanceId)) continue; // 事件路径已登记（排队/打印中/已完成）
       const terminalAt = sweptTerminal.get(instanceId);
       if (terminalAt && now - terminalAt <= windowMs) continue;

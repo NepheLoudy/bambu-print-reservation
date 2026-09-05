@@ -121,18 +121,18 @@
       │  POST /api/feishu/event（index.js:241，verificationToken 校验后 setImmediate 异步处理）
       ▼
 【分发引擎 dispatcher】（src/services/dispatcher.js）
-      enqueue（幂等：known/queue 双查，dispatcher.js:122-139）→ 触发匹配 trigger/match
+      enqueue（幂等：known/queue 双查，dispatcher.js:132-149）→ 触发匹配 trigger/match
       匹配：指定打印机优先 → AMS 材料类型精确/家族 + 颜色 redmean 近似 → 加急优先
-            （dispatcher.js:222-249）；打印机空闲（jobEvent idle）同样触发（bindPrinterEvents :77-89）
+            （dispatcher.js:237-264）；打印机空闲（jobEvent idle）同样触发（bindPrinterEvents :87-99）
       ▼ 匹配成功
-【执行分发 dispatch】（dispatcher.js:290-373）
+【执行分发 dispatch】（dispatcher.js:305-393）
       ① 下载 3mf：审批附件 downloadApprovalAttachment（fileSource='approval'，不写预约镜像表）
       ② 上传：printerManager.uploadFileToPrinter → /sdcard/print_{recordId}.3mf
              model 含 X1/H2D → SFTP:22；否则(P1/A1) → FTP:21（client.js:278-284）
       ③ 下发：startProjectOnPrinter → MQTT project_file 帧（高段位 sequence_id，client.js:216-235）
-      ④ 登记 printing[printerId]=task、updateState activeTask（dispatcher.js:324-325）
+      ④ 登记 printing[printerId]=task、updateState activeTask（dispatcher.js:339-340）
       ⑤ 群播报「开始打印」卡片
-      ┆ 失败：回滚/重新排队，maxRetries 上限后退出队列转人工（dispatcher.js:341-371）
+      ┆ 失败：回滚/重新排队，maxRetries 上限后退出队列转人工（dispatcher.js:356-386）
       ▼
 【打印机 LAN 通道】（src/printer/client.js + node_modules/bambu-link）
       MQTT mqtts://<ip>:8883，bblp + Access Code
@@ -146,12 +146,12 @@
       → 关键变迁 jobEvent（start/finish/failed/idle，manager.js:121-134）
       ▼
 【下游动作】
-      finish → completeTask：清映射、播报完成卡片、触发下轮匹配（dispatcher.js:375-392）
-      failed → failTask：写回队列态、播报失败卡片（dispatcher.js:394-410）
+      finish → completeTask：清映射、播报完成卡片、触发下轮匹配（dispatcher.js:395-412）
+      failed → failTask：写回队列态、播报失败卡片（dispatcher.js:414-430）
       idle   → 下一轮匹配（新任务自动上机）
       每 60s → 打印机状态镜像表 upsert（manager.js:256-297, 308-310，仅展示）
 【控制面（仅 HTTP，无聊天指令）】POST /api/printers/:id/{print,pause,resume,stop}（index.js:191-239）
-      取消任务（dequeue → stopPrint）是引擎内唯一控制调用（dispatcher.js:146）
+      取消任务（dequeue → stopPrint）是引擎内唯一控制调用（dispatcher.js:151-160）
 ```
 
 ---
@@ -180,16 +180,16 @@
 ### 4.4 状态事件分级（manager）
 
 - `handleStateChange`（`manager.js:99-135`）：先 `updateState` 全字段刷新（仅变化时发 `statusChange`，`manager.js:142-151`）；再按 gcodeState 变迁发 `jobEvent`——PRINTING（非 RESUME 而来）→ `start`、FINISH → `finish`、FAILED → `failed`、PRINTING→IDLE/FINISH → `idle`（`manager.js:121-134`）。
-- `jobEvent` 只被 dispatcher 消费（`bindPrinterEvents`，`dispatcher.js:77-89`）；`statusChange` 供查询接口/页面使用。
+- `jobEvent` 只被 dispatcher 消费（`bindPrinterEvents`，`dispatcher.js:87-99`）；`statusChange` 供查询接口/页面使用。
 
-### 4.5 分发引擎（dispatcher，单例 `dispatcher.js:485`）
+### 4.5 分发引擎（dispatcher，单例 `dispatcher.js:505`）
 
-- 启动 `start`（`dispatcher.js:58-75`）：主通道开启（`approval.enabled` 默认 true）时**关闭预约镜像表对账**（防重复入队），仅靠事件秒级驱动；主通道关闭时退回分钟级对账兜底（`reconcile` `dispatcher.js:92-117`，幂等补漏 + 重启后恢复打印中映射）。
-- 队列与幂等：`queue + known Set + printing Map`；入队三查（known/queue）防事件与对账重复（`dispatcher.js:122-139`）。
-- 匹配串行化：`matching` 锁 + 完成后按需 `setImmediate` 重跑（`trigger` `dispatcher.js:153-174`）；队首匹配不到不阻塞后续任务（`findAnyMatch`），全队列缺料才发缺料提醒（节流 `materialRemindMinutes`，`dispatcher.js:276-287`）。
-- 分发执行链（`dispatch` `dispatcher.js:290-373`）：见总图；失败处理为「回滚表状态 → 重试计数 → 冷却 `nextMatchAt` → 重新入队 → 冷却后定时再触发」，达 `maxRetries` 退出队列并发人工介入卡片（`dispatcher.js:341-371`）。
-- 完成/失败：`completeTask`（`dispatcher.js:375-392`）、`failTask`（`dispatcher.js:394-410`）——清 `printing` 映射与 `activeTask`、非审批源写预约镜像表状态、播报卡片、触发下轮。
-- 取消：`dequeue`（`dispatcher.js:141-150`）对打印中任务调用 `stopPrintOnPrinter` 停机并释放映射。
+- 启动 `start`（`dispatcher.js:68-85`）：主通道开启（`approval.enabled` 默认 true）时**关闭预约镜像表对账**（防重复入队），仅靠事件秒级驱动；主通道关闭时退回分钟级对账兜底（`reconcile` `dispatcher.js:102-127`，幂等补漏 + 重启后恢复打印中映射）。
+- 队列与幂等：`queue + known Set + printing Map`；入队三查（known/queue）防事件与对账重复（`dispatcher.js:132-149`）。
+- 匹配串行化：`matching` 锁 + 完成后按需 `setImmediate` 重跑（`trigger` `dispatcher.js:168-189`）；队首匹配不到不阻塞后续任务（`findAnyMatch`），全队列缺料才发缺料提醒（节流 `materialRemindMinutes`，`dispatcher.js:291-303`）。
+- 分发执行链（`dispatch` `dispatcher.js:305-393`）：见总图；失败处理为「回滚表状态 → 重试计数 → 冷却 `nextMatchAt` → 重新入队 → 冷却后定时再触发」，达 `maxRetries` 退出队列并发人工介入卡片（`dispatcher.js:356-386`）。
+- 完成/失败：`completeTask`（`dispatcher.js:395-412`）、`failTask`（`dispatcher.js:414-430`）——清 `printing` 映射与 `activeTask`、非审批源写预约镜像表状态、播报卡片、触发下轮。
+- 取消：`dequeue`（`dispatcher.js:151-160`）对打印中任务调用 `stopPrintOnPrinter` 停机并释放映射。
 
 ### 4.6 事件入口（index.js）
 
