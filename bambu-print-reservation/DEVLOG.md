@@ -4,6 +4,16 @@
 
 当前最新：**v15**（2026-09-04，顶层归档 `37a59aa`）。
 
+## 阶段五 · 审批事件字段对齐与分发健壮化（2026-09-05）
+
+### v16 · 2026-09-05 · 顶层归档 `5efc0ca` · feat
+**审批事件字段对齐官方接口 + remainingMinutes 单位修正 + 分发重试上限与冷却（SFTP 已上线）**
+- `approvalService.js`：事件/实例详情字段对齐官方响应——`instance_code`（原 instance_id）、`approval_code`、申请人取 `open_id`；`parseForm` 兼容「表单控件 JSON 字符串」形态；终态扩充 `REVERTED`（通过后撤销）/`OVERTIME_CLOSE`（超时关闭），均移出队列。
+- `printer/client.js`/`manager.js`/`chatService.js`：`remainingTime → remainingMinutes`——mc_remaining_time 单位本就是分钟，修掉误除 60 导致的剩余时间显示错误。
+- `dispatcher.js`：分发失败重试上限（`DISPATCH_MAX_RETRIES=3`，超过退出队列转人工）+ 冷却期（`DISPATCH_RETRY_COOLDOWN_MS=60s`，冷却中不参与匹配），修掉缺附件等确定性失败导致的匹配死循环刷屏。
+- `index.js`：`express.json` 放宽 2mb；`/api/printers/available` 移到 `/api/printers/:id` 之前修路由遮蔽；`config.js` 增补两个分发重试环境变量。
+- 本批经 push.js 纯 SFTP 部署上线，锚点为顶层归档提交 `5efc0ca`。
+
 ## 阶段四 · 开发历史建档与审批联调收尾（2026-09-04）
 
 ### v15 · 2026-09-04 · 顶层归档 `37a59aa` · feat
