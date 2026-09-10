@@ -78,6 +78,7 @@ function startLocal(id) {
   child.stdout.on('data', (d) => d.toString().split(/\r?\n/).forEach((l) => l && pushLog(id, l)));
   child.stderr.on('data', (d) => d.toString().split(/\r?\n/).forEach((l) => l && pushLog(id, `[err] ${l}`)));
   child.on('exit', (code) => pushLog(id, `[退出] code=${code}`));
+  child.on('error', (err) => { pushLog(id, `[spawn错误] ${err.message}`); });
   return { ok: true, pid: child.pid };
 }
 
@@ -105,9 +106,10 @@ function runAction(id, cmd, cwdRel, args = []) {
   const child = spawn(useShell ? `${cmd} ${args.map((a) => `"${a}"`).join(' ')}` : cmd, args.length && !useShell ? args : [], {
     cwd, shell: useShell, env: { ...process.env },
   });
-  child.stdout.on('data', (d) => entry.log.push(...d.toString().split(/\r?\n/).filter(Boolean)));
-  child.stderr.on('data', (d) => entry.log.push(...d.toString().split(/\r?\n/).filter(Boolean).map((l) => `[err] ${l}`)));
-  child.on('exit', (code) => { entry.running = false; entry.exitCode = code; entry.log.push(`[结束] code=${code}`); if (entry.log.length > LOG_CAP * 4) entry.log.splice(0, entry.log.length - LOG_CAP * 4); });
+  child.stdout.on('data', (d) => { entry.log.push(...d.toString().split(/\r?\n/).filter(Boolean)); if (entry.log.length > LOG_CAP * 4) entry.log.splice(0, entry.log.length - LOG_CAP * 4); });
+  child.stderr.on('data', (d) => { entry.log.push(...d.toString().split(/\r?\n/).filter(Boolean).map((l) => `[err] ${l}`)); if (entry.log.length > LOG_CAP * 4) entry.log.splice(0, entry.log.length - LOG_CAP * 4); });
+  child.on('error', (err) => { entry.running = false; entry.exitCode = -1; entry.log.push(`[spawn错误] ${err.message}（cwd: ${cwd}）`); });
+  child.on('exit', (code) => { entry.running = false; entry.exitCode = code; entry.log.push(`[结束] code=${code}`); });
   return { ok: true };
 }
 
@@ -199,10 +201,10 @@ app.post('/api/action/:id', (req, res) => {
     entry = (proj.quickActions || []).find((a) => a.id === actionId);
     if (actionId === 'push') entry = { cmd: 'npm', args: ['run', 'push'], cwd: proj.dir };
   } else if (cmd === 'push') {
-    // push 快捷指令：npm run push "<提交说明>"（cwd 需为有 push.js 的项目根）
-    entry = { cmd: 'npm', args: ['run', 'push', ...(req.body.message ? [String(req.body.message)] : [])], cwd: cwd || proj.dir };
+    // push 快捷指令：npm run push "<提交说明>"（cwd 相对 proj.dir，默认项目根）
+    entry = { cmd: 'npm', args: ['run', 'push', ...(req.body.message ? [String(req.body.message)] : [])], cwd: cwd || '' };
   } else if (cmd) {
-    entry = { cmd, args, cwd: cwd || proj.dir };
+    entry = { cmd, args, cwd };
   }
   if (!entry) return res.status(400).json({ error: '未知动作' });
   const cwdRel = path.join(proj.dir, entry.cwd || '');

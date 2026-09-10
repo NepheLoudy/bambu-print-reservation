@@ -25,11 +25,11 @@ module.exports = {
       ],
       commands: ['（无业务指令，纯路由层）'],
       permissions: ['长连接独占（其它服务 FEISHU_USE_LONG_CONNECTION=false）', '消息路由表 DEFAULT_MESSAGE_ROUTES / 消费者登记 CONSUMERS'],
-      localRun: { script: 'src/index.js', cwd: '', env: {} },
+      localRun: null,
       quickActions: [
         { id: 'install', label: 'npm install', cmd: 'npm install', cwd: '' },
       ],
-      notes: '改路由/消费者登记先读 .agents/skills/qianli-chat-architecture/SKILL.md',
+      notes: '改路由/消费者登记先读 .agents/skills/qianli-chat-architecture/SKILL.md；不提供本地启动——本地实例会与 NAS 抢共用应用唯一长连接，生产事件会被随机分流',
     },
     {
       id: 'hub',
@@ -59,7 +59,6 @@ module.exports = {
         '私聊基础指令白名单 P2P_COMMAND_OPEN_IDS / P2P_COMMAND_CHAT_IDS（值日指令不限）',
       ],
       localRun: { script: 'src/index.js', cwd: '', env: {} },
-      test: { cmd: 'node scripts/stub-test-duty-branch.js', cwd: '' },
       quickActions: [
         { id: 'install', label: 'npm install', cmd: 'npm install', cwd: '' },
         { id: 'test-duty', label: '值日分支 stub 测试', cmd: 'node scripts/stub-test-duty-branch.js', cwd: '' },
@@ -149,7 +148,6 @@ module.exports = {
         '真实名册 config/members.json、whitelist.json 不进 git（push.js 显式 SFTP 上 NAS）',
       ],
       localRun: { script: 'src/index.js', cwd: '', env: {} },
-      test: { cmd: 'npm run test:schedule && npm run test:flow', cwd: '' },
       quickActions: [
         { id: 'install', label: 'npm install', cmd: 'npm install', cwd: '' },
         { id: 'test', label: '排班+闭环 stub 测试', cmd: 'npm run test:schedule && npm run test:flow', cwd: '' },
@@ -169,7 +167,7 @@ module.exports = {
       deploy: '仅本机运行（node server.js），不部署 NAS',
       role: '全项目可视化运维：端口职能/权限/指令清单、本地与 NAS 服务状态、运行日志、更新状态；本地测试进程启停；npm push 等快捷指令。',
       listening: ['仅 127.0.0.1，无外部访问'],
-      commands: ['HTTP API：/api/overview /api/local/:id/start|stop|log /api/action/:id /api/nas/status|log|restart'],
+      commands: ['HTTP API：/api/overview（含 NAS 状态） /api/local/:id/start|stop|log /api/action/:id 与 /api/action/:id/log /api/nas/log/:name /api/nas/restart/:name'],
       permissions: ['NAS 凭据直读 approval-bot/.env（不复制、不入库）'],
       localRun: null,
       quickActions: [],

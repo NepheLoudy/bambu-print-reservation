@@ -178,3 +178,14 @@
 - 新增 `dashboard/`：本地运维台（仅 127.0.0.1:3100）：端口职能/权限/指令/监听/状态/日志/更新可视化 + 本地测试进程启停 + npm push 快捷指令；`dashboard/registry.js` 为全项目权能清单单一事实来源
 - 隐私整改（全仓）：archive/project-configs 旧 .env 退出 git 跟踪（密钥维持"已泄露待轮换"定性）；gateway nas-e2e-test 群号改 env；duty-bot-plan.md 入 gitignore；顶层 AGENTS.md 总表加 duty-bot 行 + 快递申领群裁定 + dashboard 条目；架构 skill 补 duty 分支
 - ticket-bot 脱敏改动（DEVLOG/stub/注释人名）随其在途功能批同推，本批未动
+
+### v34 · 2026-09-11 · 随本提交落地 · fix
+
+**顶层归档：全仓审计 debug 批（duty v2 / hub v66 / approval v31 / dashboard 修复）**
+
+- 三路并行审计（文本/代码/逻辑三侧）六仓全量过一遍：3×P1 + 15×P2 + 20×P3；P1 与高危 P2 当批修复（明细见各仓 DEVLOG），P3 与行为取舍项汇总至桌面《设计意图待定项》文档
+- dashboard：push 快捷指令 cwd 双重拼接修复（spawn 必失败且无人监听 error 会击垮运维台）、运行期日志封顶、registry 修正误写 API 与 gateway 不提供本地启动的说明（防本地实例抢唯一长连接）
+- duty-bot v2：对账补收口（P1）、加罚双插入（P1）、附件并发锁、会话日期守卫、消息幂等、test-generate 默认 dryRun 等
+- hub v66：/test-ddl 参数错位（P1，v53 回归）、值日群关键词回答关闭、DDL 确认 p2p 图片静默、.env.example 补 DUTY 键
+- approval-bot v31：飞书客户端 15s 超时（催发票互斥锁卡死隐患）、积压文件外迁
+- ticket-bot/bambu：client 超时与 quietHours 能力已改在工作区，随各自下一批推送（ticket-bot 在途功能批未动）
