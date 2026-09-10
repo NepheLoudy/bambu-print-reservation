@@ -3,3 +3,10 @@
 
 # 晚间静默积压文件（运行时状态，勿提交）
 .quiet-backlog.json
+
+# 值日机器人规划文档（内含成员姓名与播报群凭据，仅本地留存）
+duty-bot-plan.md
+
+# 历史配置备份含真实密钥与成员信息，不再跟踪（密钥应视为已泄露、待轮换；widget 存档仍跟踪）
+archive/project-configs/*.env
+archive/project-configs/*.env.example

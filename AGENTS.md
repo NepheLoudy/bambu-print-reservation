@@ -43,6 +43,7 @@
 | approval-bot | 财务审批域：审批群 `/approval-*`、催办周报（发票/报销单/转账）、每日待审批提醒 | 审批、发票、报销、转账、财务、采购 |
 | project-management-robot | 对话枢纽+项目管理：各群 @对话与指令分发、关键词、DDL 播报与逾期确认、会议提醒、项目表 | DDL、逾期、项目表、对话、关键词、会议、语录 |
 | bambu-print-reservation | 打印预约域：`/print-*`、预约审批、打印机控制 | 打印、预约、打印机、Bambu |
+| duty-bot | 值日域：排班生成与轮转/缺勤补偿、值日私信提醒与收口、照片凭证写表、值日助手（私信说明/群看板）、值日数据接口 | 值日、排班表、轮岗、值日请假、总负责/工位区/装配区、值日照片凭证、值日看板、昨日值日播报 |
 | feishu-gateway | 事件接入层：唯一长连接、消息路由规则、表格事件广播、消费者登记 | 事件被抢、指令没到、@无响应（跨项目）、接入新机器人 |
 | qianli 顶层 | 跨项目：部署链路 push.js、架构、工作区整理、多项目联调 | 部署、推送、架构、整理 |
 
@@ -53,10 +54,14 @@
 - 工单审批联动：**接单→审批任务自动通过、审批人白名单、审批节点配置、24h 追问** → ticket-bot；**审批群指令、催办周报、催发票私聊、审批实例链接** → approval-bot；
 - 工单×项目管理联动：DDL 分栏取数是 pm-robot 调 ticket-bot 的 HTTP API（`unclosed-by-group`），改出入参两边同批；两项目同住 `ticket-pm/`，联动契约见 `ticket-pm/AGENTS.md`；
 - approval_instance / approval_task 审批事件"收不到/重复" → 先查 feishu-gateway 的 EVENT_TYPES 订阅与消费者登记（同"指令时灵时不灵"规则）；
+- 值日域需求（排班/轮岗/值日请假/值日照片/值日看板）→ duty-bot；「昨日值日播报」卡片与播报 cron 在 pm-robot（数据取 duty-bot `GET /api/duty/brief`）；
+- 值日专用群（快递申领群，pm-robot `.env` 的 `DUTY_CHAT_ID`）：hub 基础指令与关键词回答整体关闭，仅放行「值日助手」；群变更只改 `DUTY_CHAT_ID`；
+- 各机器人权能/指令/监听/权限全景与端口：看 `dashboard/registry.js`（单一事实来源，改权能须同步）与本地运维台；
 - 部署一律 `npm run push`（见 `.agents/skills/qianli-deploy/SKILL.md`），部署失败排查放顶层会话。
 
 # 顶层非项目目录（勿与现役项目混淆）
 
-- `archive/`：历史归档。`archive/project-configs/` 存有 approval-bot / bambu-print-server / knowledge-tracker 的旧 `.env` 备份（**已被顶层 git 跟踪，密钥应视为已泄露、待轮换**；勿把新配置备份进去）；`widget-*.json` 是旧小组件配置存档。
+- `archive/`：历史归档。`archive/project-configs/` 存有 approval-bot / bambu-print-server / knowledge-tracker 的旧 `.env` 备份（**已退出 git 跟踪，仅本地与历史提交留存；历史提交中的密钥应视为已泄露、待轮换**；勿把新配置备份进去）；`widget-*.json` 是旧小组件配置存档。
 - `tools/`：与飞书机器人业务无关的独立工具（`rm-battlescope` 为 RoboMaster 赛事数据分析工具，自带 README 与依赖）。
+- `dashboard/`：本地运维台（仅本机 `127.0.0.1:3100`，不部署 NAS）：全机器人端口职能/权限/指令/服务状态/日志/更新可视化、本地测试进程启停、npm push 快捷指令；NAS 凭据直读 approval-bot/.env，不入库。
 - `sop/`：SOP 静态页（`site-sop-planet` 带 Windows 一键部署脚本；`sop-misc` 为散页 HTML）。需求落在这些目录时先与用户确认再动。

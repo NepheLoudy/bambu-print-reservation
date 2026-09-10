@@ -11,7 +11,12 @@ const path = require('path');
 
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 
-const FINANCE_CHAT_ID = 'oc_1ea53731a8772400450da6ab107f8331';
+// 群 id 等同凭据，不硬编码进仓库：E2E_FINANCE_CHAT_ID=oc_xxx node nas-e2e-test.js
+const FINANCE_CHAT_ID = process.env.E2E_FINANCE_CHAT_ID || '';
+if (!FINANCE_CHAT_ID) {
+  console.error('缺少 E2E_FINANCE_CHAT_ID 环境变量（财务群 chat_id），拒绝执行');
+  process.exit(1);
+}
 
 const realMention = {
   key: '@_user_1',

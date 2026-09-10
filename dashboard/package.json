@@ -1,0 +1,19 @@
+{
+  "name": "qianli-dashboard",
+  "version": "1.0.0",
+  "description": "qianli 项目群本地运维台 - 各机器人端口职能/权限/状态/日志可视化 + 本地测试进程与部署快捷指令（仅本机运行，不部署 NAS）",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "keywords": ["ops", "dashboard"],
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.19.2",
+    "ssh2": "^1.17.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}

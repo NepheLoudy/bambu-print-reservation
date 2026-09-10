@@ -108,7 +108,7 @@
 
 ### v27 · 2026-09-05 · `5efc0ca` · feat
 **指令仅群内触发（私聊白名单）多项目联动 + bambu 审批事件字段修正批次归档**
-- 新规落地：指令只在群里触发并回复到对应群，私聊指令仅管理员白名单可用——ticket-bot v44（`47ac274`）与 pm-robot/hub v49（`220abba`）同套规则（`P2P_COMMAND_OPEN_IDS`/`P2P_COMMAND_CHAT_IDS`）；管理员账号=张国皓 `ou_249993fe…`（git 提交邮箱手机号经飞书 batch_get_id 反查确认）；本地 .env 已配置，push 随批上传 NAS。
+- 新规落地：指令只在群里触发并回复到对应群，私聊指令仅管理员白名单可用——ticket-bot v44（`47ac274`）与 pm-robot/hub v49（`220abba`）同套规则（`P2P_COMMAND_OPEN_IDS`/`P2P_COMMAND_CHAT_IDS`）；管理员账号为白名单管理员本人（open_id 见本地 .env）；本地 .env 已配置，push 随批上传 NAS。
 - pm-robot v50（`e7b4a0b`）：会议提醒卡片识别对非 JSON content 安全降级（全量 debug 发现的 error 日志噪音，功能无损）。
 - bambu v16（SFTP 已上线，归档锚点 `5efc0ca`）：审批事件字段对齐官方接口（instance_code/approval_code/open_id）、parseForm 兼容 JSON 字符串、终态扩充 REVERTED/OVERTIME_CLOSE、remainingMinutes 单位修正、分发重试上限+冷却、express.json 2mb、/api/printers/available 路由顺序修正。
 - approval-bot v17（`5e3f31e`）：v16 建档条目补交；ticket-bot/pm-robot 同款「当前最新」头部残留随批补交。
@@ -167,3 +167,14 @@
 - gateway v13：README 幽灵部署脚本（deploy:sftp→push）、DEVLOG 指针 v10→v12、v11 锚点回填 `cebb767`；bambu v19 锚点回填 `cca9970`；bambu PRINTER-LAN-API dispatcher 行号回填。
 - 意图不明未动（记录备查）：bambu approval_task 路径失败不登记自愈、对账重复拉详情噪音、数值 env 无 NaN 防护；四仓 QUIET_HOURS_DISABLED=1 时遗留积压不冲刷不清理；pm-robot 空 chatId 回落口径、静默冲刷中登记的调度窗口；gateway .env 死键 FEISHU_ENCRYPT_KEY 与未用依赖 cors。
 - 部署顺序：approval-bot → ticket-bot → pm-robot → bambu（SFTP）→ gateway → 顶层归档提交。
+
+### v33 · 2026-09-11 · 随本提交落地 · feat
+
+**顶层归档：duty-bot v1 首推（Duty-Management）+ hub v65 值日联动 + 本地运维台 + 全仓隐私整改**
+
+- duty-bot v1 首推上线（:3006，pm2 duty-bot，仓库 NepheLoudy/Duty-Management）：排班轮转（三岗均等）/私信闭环/值日助手/数据接口；M0 剩表格 token 回填与名册补全
+- pm-robot v65：hub 值日分支 + 值日专用群（快递申领群，DUTY_CHAT_ID）仅放行「值日助手」+ 关键词回答 .local 私有覆盖
+- approval-bot v30：提醒回落变量通用化 + 文档脱敏
+- 新增 `dashboard/`：本地运维台（仅 127.0.0.1:3100）：端口职能/权限/指令/监听/状态/日志/更新可视化 + 本地测试进程启停 + npm push 快捷指令；`dashboard/registry.js` 为全项目权能清单单一事实来源
+- 隐私整改（全仓）：archive/project-configs 旧 .env 退出 git 跟踪（密钥维持"已泄露待轮换"定性）；gateway nas-e2e-test 群号改 env；duty-bot-plan.md 入 gitignore；顶层 AGENTS.md 总表加 duty-bot 行 + 快递申领群裁定 + dashboard 条目；架构 skill 补 duty 分支
+- ticket-bot 脱敏改动（DEVLOG/stub/注释人名）随其在途功能批同推，本批未动
