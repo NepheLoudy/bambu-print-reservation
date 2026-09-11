@@ -29,7 +29,8 @@
 - **管辖/权限口径的权威在各自机器人后端**，消费方短缓存 + 断联兜底（范例：hub 消费 duty-bot `GET /api/duty/policy`）；
 - **名册类**优先自动读飞书通讯录（open_id 直取组织架构），手工名册/绑定只作兜底（范例：duty-bot `syncFromContacts`）；
 - 新增定制项：先加窗口，再同步 `dashboard/registry.js` 登记与本文档；
-- 现状：duty-bot（`/api/duty/policy`、`/api/duty/roster`、`/api/duty/whitelist`）、hub（`/api/hub/policy` + autoreplies 两表窗口）、approval-bot（`/api/approval/policy`）；ticket-bot（`/api/tickets/policy`）与 bambu（`/api/print/policy`）随各自在途批补上。
+- 现状：duty-bot（`/api/duty/policy`、`/api/duty/roster`、`/api/duty/whitelist`）、hub（`/api/hub/policy` + 关键词回答表 CRUD `/api/autoreplies/rules*`，写 `.local.json` 即时生效，push 会用本地 xlsx 版覆盖）、approval-bot（`/api/approval/policy`）；ticket-bot（`/api/tickets/policy`）与 bambu（`/api/print/policy`）随各自在途批补上；
+- **界面**：本地运维台「🧰 定制中心」（registry `windows` 清单 + `/api/nas/api` SSH 代理直达 NAS 本机接口）——白名单增删、名册刷新、各域 policy 全景查看、关键词回答表可视化编辑（增删改/启停/切表）都在运维台点选完成。
 
 # 开发日志（DEVLOG）——每次 push 记一版
 

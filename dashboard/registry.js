@@ -52,7 +52,7 @@ module.exports = {
         '/help /status /test-ddl /keywords /autoreply /history',
         '/approval-* → approval-bot（:3002）',
         '/print-* → bambu（:3001）',
-        '值日助手 / 我要请假 / 查询我的下一次值日 / 绑定 X / 是 / 否 / 生成排班表 → duty-bot（:3006）',
+        '值日助手 / 我要请假 / 查询我的下一次值日 / 绑定 X / 是 / 否 / 生成排班表 → duty-bot（:3006；带 / 前缀等效）',
       ],
       windows: [
         { m: 'GET', p: '/api/hub/policy', d: '定制项全景（审批群/值日策略源/回答表范围/播报群）' },
@@ -156,7 +156,8 @@ module.exports = {
         '生成排班表（名册 admin 专用）',
       ],
       windows: [
-        { m: 'GET', p: '/api/duty/policy', d: '值日域管辖策略' },
+        { m: 'GET', p: '/api/duty/policy', d: '值日域管辖策略（可在线改写管辖群）' },
+        { m: 'POST', p: '/api/duty/policy', d: '管辖范畴在线改写（groupChatIds）', kind: 'policy-edit' },
         { m: 'GET', p: '/api/duty/roster', d: '名册全景（通讯录同步，63 人）' },
         { m: 'POST', p: '/api/duty/roster/refresh', d: '手动刷新通讯录名册', kind: 'action' },
         { m: 'GET', p: '/api/duty/whitelist', d: '白名单（值日排除名单，可增删）', kind: 'whitelist' },

@@ -46,6 +46,8 @@
   .win-list { max-height:260px; overflow:auto; border:1px solid var(--line); border-radius:6px; padding:6px 10px; margin:6px 0; font-size:12px; }
   .win-list div { margin:3px 0; }
   .badge.method { background:#2b3750; color:var(--acc); }
+  .win-panel { margin-top:10px; border-top:1px dashed var(--line); padding-top:8px; }
+  .win-toggle { padding:2px 8px; font-size:12px; }
 </style>
 </head>
 <body>
@@ -56,9 +58,6 @@
   <span class="nas" id="updatedAt"></span>
 </header>
 <div class="grid" id="grid"></div>
-
-<h1 style="font-size:17px; margin:22px 0 10px;">🧰 定制中心 <span class="nas" id="winNote">各机器人后端定制窗口（顶层 AGENTS「机器人后端定制窗口」规则）；读写经 SSH 代理直达 NAS 本机接口，改动即时生效</span></h1>
-<div class="grid" id="winGrid"></div>
 
 <div class="mask" id="mask" onclick="closeDrawer()"></div>
 <div id="drawer">
@@ -125,8 +124,13 @@ function render() {
     if (p.actionRunning) btns.push(`<button onclick="openActionLog('${p.id}')">动作输出中…</button>`);
     else if (p.hasActionLog) btns.push(`<button onclick="openActionLog('${p.id}')">上次动作输出</button>`);
 
+    const winToggle = (p.windows || []).length
+      ? `<span style="flex:1"></span><button class="win-toggle" onclick="toggleWinPanel('${p.id}', event)">🧰 定制</button>` : '';
+    const winPanel = (p.windows || []).length
+      ? `<div class="win-panel" id="win-${p.id}" style="display:none">${renderWinPanel(p)}</div>` : '';
+
     return `<div class="card">
-      <h2><span class="port">:${p.port}</span> ${p.name} <span class="label">${p.label}</span> ${nasBadge} ${localBadge}</h2>
+      <h2><span class="port">:${p.port}</span> ${p.name} <span class="label">${p.label}</span> ${nasBadge} ${localBadge} ${winToggle}</h2>
       <div class="role">${p.role}</div>
       <div class="status-row">
         <span class="badge">部署：${p.deploy}</span>
@@ -140,6 +144,7 @@ function render() {
       ${p.notes ? `<div class="git">📌 ${p.notes}</div>` : ''}
       ${git}
       <div class="btns">${btns.join('')}</div>
+      ${winPanel}
     </div>`;
   }).join('');
 }
@@ -244,7 +249,7 @@ async function pullLog() {
   } catch (err) { /* 忽略轮询错误 */ }
 }
 
-// ===== 定制中心 =====
+// ===== 定制窗口（集成在各项目卡片内，🧰 按钮展开；读写经 SSH 代理直达 NAS 本机接口） =====
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 async function nasApi(port, method, p, body) {
@@ -258,73 +263,100 @@ async function nasApi(port, method, p, body) {
 async function winView(port, p, label) {
   const data = await nasApi(port, 'GET', p);
   openDrawer(`🧰 ${label}`);
-  drawerCtx = null; // 查看窗口不走日志轮询
+  drawerCtx = null; // 窗口查看不走日志轮询
   document.getElementById('drawerLog').textContent = JSON.stringify(data, null, 2);
 }
 
-async function loadWindows() {
-  try {
-    const res = await fetch('/api/windows');
-    renderWindows(await res.json());
-  } catch (err) { console.error(err); }
+function toggleWinPanel(id, ev) {
+  if (ev) ev.stopPropagation();
+  const el = document.getElementById('win-' + id);
+  if (!el) return;
+  const show = el.style.display === 'none';
+  el.style.display = show ? 'block' : 'none';
+  if (show && id === 'duty') { loadWhitelistNames(3006, 'duty'); loadDutyGroups(3006); }
 }
 
-function renderWindows(projects) {
-  document.getElementById('winGrid').innerHTML = projects.map((proj) => {
-    const rows = proj.windows.map((w) => {
-      if (w.kind === 'whitelist') {
-        return `<div class="win-row">☰ ${w.d}：<span id="wlNames">加载中…</span></div>
-          <div class="win-row">
-            <input id="wlAdd" placeholder="加入人名" size="12">
-            <input id="wlRemove" placeholder="移除人名" size="12">
-            <button class="primary" onclick="whitelistSave(${proj.port})">执行增删</button>
-            <button onclick="winView(${proj.port}, '/api/duty/whitelist', '白名单（值日排除名单）')">原始 JSON</button>
-          </div>`;
-      }
-      if (w.kind === 'rules') {
-        return `<div class="win-row">✏️ ${w.d}
-          <button class="primary" onclick="openRulesEditor('${w.table}')">打开编辑器</button>
-          <button onclick="winView(${proj.port}, '${w.p}', '${w.d}')">查看</button></div>`;
-      }
-      if (w.kind === 'action') {
-        return `<div class="win-row">· ${w.d} <span class="badge method">${w.m}</span>
-          <button onclick="nasApi(${proj.port}, 'POST', '${w.p}').then((r) => { toast(r.success || r.ok ? '已触发 ✓' : (r.error || '失败')); renderWindows(getWindowsCache()); })">立即执行</button></div>`;
-      }
+function renderWinPanel(p) {
+  const rows = p.windows.map((w) => {
+    if (w.kind === 'whitelist') {
+      return `<div class="win-row">☰ ${w.d}：<span id="wlNames-${p.id}">加载中…</span></div>
+        <div class="win-row">
+          <input id="wlAdd-${p.id}" placeholder="加入人名" size="12">
+          <input id="wlRemove-${p.id}" placeholder="移除人名" size="12">
+          <button class="primary" onclick="whitelistSave('${p.id}')">执行增删</button>
+          <button onclick="winView(${p.port}, '/api/duty/whitelist', '白名单原始 JSON')">原始 JSON</button>
+        </div>`;
+    }
+    if (w.kind === 'rules') {
+      return `<div class="win-row">✏️ ${w.d}
+        <button class="primary" onclick="openRulesEditor('${w.table}')">打开编辑器</button>
+        <button onclick="winView(${p.port}, '${w.p}', '${w.d}')">查看</button></div>`;
+    }
+    if (w.p === '/api/duty/policy') {
+      return `<div class="win-row">✏️ ${w.d} <span class="badge method">${w.m}</span>
+          <button onclick="winView(${p.port}, '${w.p}', '${w.d}')">查看</button></div>
+        <div class="win-row">
+          <input id="dutyGroups" placeholder="管辖群 chat_id，逗号分隔（清空保存 = 不限制）" style="flex:1; min-width:260px;">
+          <button class="primary" onclick="saveDutyGroups(${p.port})">保存管辖</button>
+        </div>
+        <div class="win-row" id="dutyGroupsNow"></div>`;
+    }
+    if (w.kind === 'action') {
       return `<div class="win-row">· ${w.d} <span class="badge method">${w.m}</span>
-        <button onclick="winView(${proj.port}, '${w.p}', '${w.d}')">查看</button></div>`;
-    }).join('');
-    return `<div class="card"><h2><span class="port">:${proj.port}</span> ${proj.name} <span class="label">${proj.label} · 定制窗口</span></h2>${rows}</div>`;
+        <button onclick="rosterRefresh(${p.port})">立即执行</button></div>`;
+    }
+    return `<div class="win-row">· ${w.d} <span class="badge method">${w.m}</span>
+      <button onclick="winView(${p.port}, '${w.p}', '${w.d}')">查看</button>
+      ${/policy/.test(w.p) ? '<span class="nas">（env 配置：改 .env 后 push 生效）</span>' : ''}</div>`;
   }).join('');
-  loadWhitelistNames(3006);
+  // hub：规则编辑器容器（openRulesEditor 往这里渲染；修复此前容器缺失导致按钮无响应的问题）
+  return rows + (p.id === 'hub' ? '<div id="rulesEditor"></div>' : '');
 }
 
-let windowsCache = null;
-function getWindowsCache() { return windowsCache || []; }
-
-async function loadWhitelistNames(port) {
+async function loadWhitelistNames(port, pid) {
   const data = await nasApi(port, 'GET', '/api/duty/whitelist');
-  const el = document.getElementById('wlNames');
+  const el = document.getElementById(`wlNames-${pid}`);
   if (el) el.innerHTML = data.names && data.names.length
     ? data.names.map((n) => `<span class="badge">${esc(n)}</span>`).join(' ')
     : '<span class="nas">（空——所有人都在值日队列）</span>';
 }
 
-async function whitelistSave(port) {
-  const add = (document.getElementById('wlAdd').value || '').trim();
-  const remove = (document.getElementById('wlRemove').value || '').trim();
+async function whitelistSave(pid) {
+  const add = (document.getElementById(`wlAdd-${pid}`).value || '').trim();
+  const remove = (document.getElementById(`wlRemove-${pid}`).value || '').trim();
   if (!add && !remove) return toast('先填要加入或移除的人名');
   const body = {};
   if (add) body.add = [add];
   if (remove) body.remove = [remove];
-  const data = await nasApi(port, 'POST', '/api/duty/whitelist', body);
+  const data = await nasApi(3006, 'POST', '/api/duty/whitelist', body);
   if (data.names) {
     toast(`白名单已更新：${data.names.length} 人 ✓`);
-    document.getElementById('wlAdd').value = '';
-    document.getElementById('wlRemove').value = '';
-    loadWhitelistNames(port);
+    document.getElementById(`wlAdd-${pid}`).value = '';
+    document.getElementById(`wlRemove-${pid}`).value = '';
+    loadWhitelistNames(3006, pid);
   } else {
     toast(data.error || '失败');
   }
+}
+
+async function rosterRefresh(port) {
+  const r = await nasApi(port, 'POST', '/api/duty/roster/refresh');
+  toast(r.success ? `通讯录同步完成：${r.total} 人 ✓` : (r.error || '失败'));
+}
+
+async function loadDutyGroups(port) {
+  const data = await nasApi(port, 'GET', '/api/duty/policy');
+  const input = document.getElementById('dutyGroups');
+  const now = document.getElementById('dutyGroupsNow');
+  if (input) input.value = (data.groupChatIds || []).join(',');
+  if (now) now.textContent = `当前：${(data.groupChatIds || []).length} 个管辖群${data.overrideActive ? '（在线改写生效中）' : '（env 默认）'}`;
+}
+
+async function saveDutyGroups(port) {
+  const raw = (document.getElementById('dutyGroups').value || '').split(/[,，]/).map((s) => s.trim()).filter(Boolean);
+  const data = await nasApi(port, 'POST', '/api/duty/policy', { groupChatIds: raw });
+  if (data.ok) { toast(`管辖策略已保存（${raw.length} 群，即时生效）✓`); loadDutyGroups(port); }
+  else toast(data.error || '失败');
 }
 
 // —— hub 关键词回答表编辑器 ——
@@ -333,7 +365,7 @@ let ruleTableSel = 'group';
 async function openRulesEditor(table) {
   ruleTableSel = table || ruleTableSel;
   const el = document.getElementById('rulesEditor');
-  if (!el) return;
+  if (!el) return toast('编辑器容器未就绪，请收起后重新展开面板');
   el.innerHTML = '加载中…';
   const data = await nasApi(3000, 'GET', `/api/autoreplies/rules?table=${ruleTableSel}`);
   const rules = (data.replies || []).map((r) => {
@@ -346,7 +378,7 @@ async function openRulesEditor(table) {
     <div>当前生效文件：<code>${esc(data.file)}</code> · ${data.enabled ? '<span class="badge ok">已启用</span>' : '<span class="badge err">已停用</span>'}
       <button onclick="toggleRules('${ruleTableSel}', ${!data.enabled})">${data.enabled ? '停用整表' : '启用整表'}</button>
       <button onclick="openRulesEditor('${ruleTableSel === 'group' ? 'mention' : 'group'}')">切到${ruleTableSel === 'group' ? '@触发表' : '群消息表'}</button>
-      <span class="nas">改动写入 NAS 的 .local.json，即时生效；npm push 会用本地 xlsx 版覆盖</span></div>
+      <span class="nas">改动写 NAS .local.json 即时生效；npm push 会用本地 xlsx 版覆盖</span></div>
     <div class="win-list">${rules || '（空表）'}</div>
     <div class="win-row">
       <input id="ruleKw" placeholder="关键词（逗号分隔同义词）" size="30">
@@ -378,18 +410,8 @@ async function toggleRules(table, enabled) {
   else toast(data.error || '失败');
 }
 
-async function loadWindowsSafe() {
-  try {
-    const res = await fetch('/api/windows');
-    const projects = await res.json();
-    windowsCache = projects;
-    renderWindows(projects);
-  } catch (err) { console.error(err); }
-}
-
 setInterval(() => { refresh(); if (drawerCtx) pullLog(); }, 4000);
 refresh();
-loadWindowsSafe();
 </script>
 </body>
 </html>
