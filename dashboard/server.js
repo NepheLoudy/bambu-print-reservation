@@ -239,6 +239,35 @@ app.post('/api/nas/restart/:name', async (req, res) => {
   }
 });
 
+// ---------- 定制中心：窗口清单 + NAS 本机服务 HTTP 代理（SSH curl，仅本机可用） ----------
+
+// 各项目已登记的定制窗口（registry.js 的 windows 字段）
+app.get('/api/windows', (req, res) => {
+  res.json(registry.projects
+    .filter((p) => (p.windows || []).length)
+    .map((p) => ({ id: p.id, name: p.name, label: p.label, port: p.port, windows: p.windows })));
+});
+
+// 代理到 NAS 本机端口的窗口接口：{ port, method:'GET'|'POST', path, body? }
+app.post('/api/nas/api', async (req, res) => {
+  const port = Number(req.body?.port);
+  const method = String(req.body?.method || 'GET').toUpperCase();
+  const apiPath = String(req.body?.path || '/');
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return res.status(400).json({ error: '端口非法' });
+  if (!['GET', 'POST'].includes(method)) return res.status(400).json({ error: '仅支持 GET/POST' });
+  if (!apiPath.startsWith('/') || /[\s'"`\\]/.test(apiPath)) return res.status(400).json({ error: '路径非法' });
+  const shQuote = (s) => `'` + String(s).replace(/'/g, `'\\''`) + `'`;
+  let cmd = `curl -s -m 12 -X ${method} -H 'Content-Type: application/json'`;
+  if (method === 'POST') cmd += ` -d ${shQuote(JSON.stringify(req.body?.body ?? {}))}`;
+  cmd += ` http://localhost:${port}${apiPath}`;
+  try {
+    const out = await sshExec(cmd, 20000);
+    try { res.json(JSON.parse(out)); } catch { res.json({ raw: out.slice(0, 2000) }); }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(PORT, '127.0.0.1', () => {
   console.log(`🖥️  qianli 运维台: http://127.0.0.1:${PORT}（仅本机可访问）`);
   console.log(`📁 工作区根: ${ROOT}`);

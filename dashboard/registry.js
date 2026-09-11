@@ -54,6 +54,15 @@ module.exports = {
         '/print-* → bambu（:3001）',
         '值日助手 / 我要请假 / 查询我的下一次值日 / 绑定 X / 是 / 否 / 生成排班表 → duty-bot（:3006）',
       ],
+      windows: [
+        { m: 'GET', p: '/api/hub/policy', d: '定制项全景（审批群/值日策略源/回答表范围/播报群）' },
+        { m: 'GET', p: '/api/autoreplies/rules?table=group', d: '关键词回答表（未@群消息，可编辑）', kind: 'rules', table: 'group' },
+        { m: 'GET', p: '/api/autoreplies/rules?table=mention', d: '@触发回答表（可编辑）', kind: 'rules', table: 'mention' },
+        { m: 'POST', p: '/api/autoreplies/rules', d: '新增/更新关键词规则', kind: 'rule-edit' },
+        { m: 'POST', p: '/api/autoreplies/rules/delete', d: '删除关键词规则', kind: 'rule-delete' },
+        { m: 'POST', p: '/api/autoreplies/enabled', d: '启停回答表', kind: 'toggle' },
+        { m: 'GET', p: '/api/keywords/config', d: '关键词监听配置（千里论坛发言记录）' },
+      ],
       permissions: [
         '审批群（APPROVAL_CHAT_ID）：整体切换为仅 /approval-*',
         '值日管辖群（duty-bot /api/duty/policy 下发，当前=快递申领群）：hub 基础指令关闭，放行「值日助手」看板与关键词自动回答（@与未@均生效）',
@@ -99,6 +108,9 @@ module.exports = {
       role: '财务审批域：审批群 /approval-*、每周财务催办周报（催发票/报销单/转账）、每日待审批提醒、催发票私聊。',
       listening: ['不消费消息事件（hub 转发 /api/chat/command）', 'p2p 回复轮询（催发票延期/无法提交识别）', 'GET /api/approval/policy（定制窗口：流程/审批人白名单/催办参数全景只读）'],
       commands: ['/approval-help /approval-list /approval-pending /approval-status /approval-urge'],
+      windows: [
+        { m: 'GET', p: '/api/approval/policy', d: '审批流程/审批人白名单/催办参数全景' },
+      ],
       permissions: ['仅服务审批群（BOT_CHAT_ID）', '定时任务：周报 / 每日提醒 / 催发票私聊（均过静默闸门）'],
       localRun: { script: 'src/index.js', cwd: '', env: {} },
       quickActions: [
@@ -142,6 +154,14 @@ module.exports = {
         '值日助手（p2p 用法 / group 看板 1h 限流）',
         '我要请假 / 查询我的下一次值日 / 绑定 姓名 / 是 / 否',
         '生成排班表（名册 admin 专用）',
+      ],
+      windows: [
+        { m: 'GET', p: '/api/duty/policy', d: '值日域管辖策略' },
+        { m: 'GET', p: '/api/duty/roster', d: '名册全景（通讯录同步，63 人）' },
+        { m: 'POST', p: '/api/duty/roster/refresh', d: '手动刷新通讯录名册', kind: 'action' },
+        { m: 'GET', p: '/api/duty/whitelist', d: '白名单（值日排除名单，可增删）', kind: 'whitelist' },
+        { m: 'POST', p: '/api/duty/whitelist', d: '白名单增删', kind: 'whitelist-edit' },
+        { m: 'GET', p: '/api/duty/brief', d: '昨日/今日值日简报' },
       ],
       permissions: [
         '排班生成权限：名册 admin:true（或 DUTY_ADMIN_OPEN_IDS）',

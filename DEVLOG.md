@@ -235,3 +235,12 @@
 - hub v70（2c33716）+ approval-bot v32（0728e21）：`GET /api/hub/policy`、`GET /api/approval/policy` 只读定制窗口。
 - 规则成文：顶层 AGENTS「机器人后端定制窗口（附属窗口）规则」——读窗口 policy 全景、写窗口热改、口径权威在各自后端、名册优先通讯录、先加窗口再登记 registry。ticket-bot/bambu 有在途批，policy 窗口随批补上（registry 已标注）。
 - 测试：duty-bot 新增 test:roster（10 项）+ flow contacts stub，schedule/policy/roster 全过。
+
+### v41 · 2026-09-11 · 随本提交落地 · feat
+
+**顶层联动：hub v71 关键词回答表定制窗口 + 运维台「🧰 定制中心」界面**
+
+- hub v71（a45d87b，回填 5a580e7）：`GET/POST /api/autoreplies/rules(/delete)`、`/api/autoreplies/enabled`——关键词回答表/@触发表增删改与启停，写 NAS `.local.json` 即时生效（push 以本地 xlsx 版覆盖，已在窗口响应与 README 注明）；NAS 实测 CRUD 全闭环。
+- 运维台「🧰 定制中心」：registry 各项目新增 `windows` 清单；`/api/windows` + `/api/nas/api`（SSH curl 代理直达 NAS 本机接口）；界面支持 duty-bot 白名单增删（人名徽标即时回显）、名册全景/通讯录刷新、管辖与定制全景查看、hub 关键词表可视化编辑器（规则列表/删除/保存/整表启停/group↔mention 切换）。
+- AGENTS「机器人后端定制窗口」规则补界面条目；ticket-bot/bambu 窗口仍随在途批。
+- 运维台已重启生效（127.0.0.1:3100）。
