@@ -2,6 +2,7 @@ const express = require('express');
 const lark = require('@larksuiteoapi/node-sdk');
 const config = require('./config');
 const { dispatchFrame } = require('./dispatch');
+const usage = require('./usage');
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
@@ -18,6 +19,11 @@ app.get('/api/health', (req, res) => {
     consumers: config.consumers,
     routes: config.messageRoutes,
   });
+});
+
+// 使用统计（运维台活跃看板数据源）：?days=N 聚合最近 N 天（默认 1，最大 30）
+app.get('/api/usage', (req, res) => {
+  res.json(usage.aggregate(req.query.days));
 });
 
 // 手动投递测试：POST {type, event} 或 {header:{event_type}, event}，走与长连接相同的分发管线

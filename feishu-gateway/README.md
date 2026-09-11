@@ -81,6 +81,13 @@ qianli 项目群的所有机器人共用同一个飞书自建应用（`cli_aac7e
 | `APPROVAL_TARGETS` | 审批事件转发目标，留空=bambu+ticket |
 | `DOC_SUBSCRIBES` | 启动时需订阅记录变更的云文档 appToken（逗号分隔） |
 | `FEISHU_VERIFICATION_TOKEN` | 透传给下游机器人的校验 token（可选） |
+| `GATEWAY_DATA_DIR` | 使用统计落盘目录，默认 `/home/qianli/feishu-gateway-data`（必须在项目外：部署 tar 会清空项目目录） |
+
+## 使用统计（运维台活跃看板数据源）
+
+- 消息事件命中路由目标后顺带计数（只观察不改路由）：**谁**（open_id，经共用应用查通讯录解析成姓名并永久缓存）在用**什么功能**（`/` 开头取首个 token 精确到指令；工单接单监听说的是「接单」这两个字，单独成桶；其余按私聊对话/@群对话计）；
+- 按天分桶保留 30 天，落盘 `<数据目录>/usage-stats.json`（60s 兜底刷新 + SIGINT 落盘，重启不丢）；
+- 查询：`GET /api/usage?days=N`（默认 1，最大 30），返回 `users`（含姓名）/`features`/`daily` 聚合；运维台「使用活跃」看板即消费此接口。
 
 ## 部署与切换步骤
 

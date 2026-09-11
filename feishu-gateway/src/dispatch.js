@@ -1,5 +1,6 @@
 const lark = require('@larksuiteoapi/node-sdk');
 const config = require('./config');
+const usage = require('./usage');
 
 // 已处理事件去重（飞书可能对同一事件重复投递；机器人侧也有 message_id 去重兜底）
 const seenEvents = new Set();
@@ -155,6 +156,30 @@ async function deliverTo(consumer, mode, frame, text) {
   return result;
 }
 
+/**
+ * 使用统计（只观察不改路由）：记录「谁用了什么功能」。
+ * 功能口径：/ 开头取首个 token（/print-status、/approval-list…可精确到指令）；
+ * 工单接单监听（@/私聊+接单，非 / 文本）记为「工单接单」；其余按私聊/群 @对话计。
+ */
+function recordUsage(frame, text, consumer) {
+  try {
+    const event = frame.event || {};
+    const message = event.message || {};
+    const senderId =
+      (event.sender && event.sender.sender_id && (event.sender.sender_id.open_id || event.sender.sender_id.user_id)) ||
+      (message.sender_id && (message.sender_id.open_id || message.sender_id.user_id)) ||
+      '';
+    const feature = text.startsWith('/')
+      ? text.split(/\s+/)[0].toLowerCase()
+      : consumer && consumer.name === 'ticket' && text.includes('接单')
+        ? '工单接单'
+        : message.chat_type === 'p2p' ? '私聊对话' : '@群对话';
+    usage.recordMessage({ senderId, feature });
+  } catch (err) {
+    console.warn('[使用统计] 异常（忽略）:', err.message);
+  }
+}
+
 async function routeMessage(frame) {
   const event = frame.event || {};
   const message = event.message || {};
@@ -179,6 +204,7 @@ async function routeMessage(frame) {
     const consumer = findConsumer(rule.target);
     if (consumer) {
       console.log(`[路由] 消息命中规则 ${JSON.stringify(m)} → ${consumer.name} (${rule.mode || 'event'}) chat=${message.chat_id || '?'} text="${text.slice(0, 50)}"`);
+      recordUsage(frame, text, consumer);
       return deliverTo(consumer, rule.mode || 'event', frame, text);
     }
     console.warn(`[路由] 规则目标 ${rule.target} 未在 CONSUMERS 中定义，继续匹配下一条规则`);
@@ -190,6 +216,7 @@ async function routeMessage(frame) {
     return { ok: false, dropped: true };
   }
   console.log(`[路由] 消息走默认目标 → ${fallback.name} text="${text.slice(0, 50)}"`);
+  recordUsage(frame, text, fallback);
   return deliverTo(fallback, 'event', frame, text);
 }
 
