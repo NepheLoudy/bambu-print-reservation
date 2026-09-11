@@ -48,6 +48,8 @@
   .badge.method { background:#2b3750; color:var(--acc); }
   .win-panel { margin-top:10px; border-top:1px dashed var(--line); padding-top:8px; }
   .win-toggle { padding:2px 8px; font-size:12px; }
+  #winFloat { position:absolute; z-index:7; background:var(--card); border:1px solid var(--acc); border-radius:10px; box-shadow:0 10px 34px rgba(0,0,0,.55); display:none; padding:10px 12px; overflow:auto; }
+  #winFloat .bar { display:flex; align-items:center; gap:8px; margin-bottom:6px; font-size:13px; }
 </style>
 </head>
 <body>
@@ -58,6 +60,7 @@
   <span class="nas" id="updatedAt"></span>
 </header>
 <div class="grid" id="grid"></div>
+<div id="winFloat"></div>
 
 <div class="mask" id="mask" onclick="closeDrawer()"></div>
 <div id="drawer">
@@ -126,10 +129,8 @@ function render() {
 
     const winToggle = (p.windows || []).length
       ? `<span style="flex:1"></span><button class="win-toggle" onclick="toggleWinPanel('${p.id}', event)">🧰 定制</button>` : '';
-    const winPanel = (p.windows || []).length
-      ? `<div class="win-panel" id="win-${p.id}" style="display:none">${renderWinPanel(p)}</div>` : '';
 
-    return `<div class="card">
+    return `<div class="card" id="card-${p.id}">
       <h2><span class="port">:${p.port}</span> ${p.name} <span class="label">${p.label}</span> ${nasBadge} ${localBadge} ${winToggle}</h2>
       <div class="role">${p.role}</div>
       <div class="status-row">
@@ -144,7 +145,6 @@ function render() {
       ${p.notes ? `<div class="git">📌 ${p.notes}</div>` : ''}
       ${git}
       <div class="btns">${btns.join('')}</div>
-      ${winPanel}
     </div>`;
   }).join('');
 }
@@ -267,13 +267,33 @@ async function winView(port, p, label) {
   document.getElementById('drawerLog').textContent = JSON.stringify(data, null, 2);
 }
 
+let winFloatFor = null; // 当前悬浮窗对应的项目 id（悬浮窗独立于 grid，4s 刷新不会重建/关闭它）
+
 function toggleWinPanel(id, ev) {
   if (ev) ev.stopPropagation();
-  const el = document.getElementById('win-' + id);
-  if (!el) return;
-  const show = el.style.display === 'none';
-  el.style.display = show ? 'block' : 'none';
-  if (show && id === 'duty') { loadWhitelistNames(3006, 'duty'); loadDutyGroups(3006); }
+  if (winFloatFor === id) return closeWinFloat();
+  const proj = ((DATA && DATA.projects) || []).find((x) => x.id === id);
+  const card = document.getElementById('card-' + id);
+  const float = document.getElementById('winFloat');
+  if (!proj || !card || !float) return;
+  winFloatFor = id;
+  float.innerHTML = `<div class="bar"><b>🧰 ${esc(proj.name)} · 定制窗口</b><span style="flex:1"></span>
+    <button onclick="closeWinFloat()">收起 ✕</button></div>
+    <div>${renderWinPanel(proj)}</div>`;
+  // 浮现在该卡片上方（略小于卡片，随页面滚动）
+  const r = card.getBoundingClientRect();
+  float.style.left = Math.max(8, r.left + window.scrollX + 10) + 'px';
+  float.style.top = (r.top + window.scrollY + 46) + 'px';
+  float.style.width = Math.max(320, r.width - 20) + 'px';
+  float.style.maxHeight = Math.max(260, r.height - 58) + 'px';
+  float.style.display = 'block';
+  if (id === 'duty') { loadWhitelistNames(3006, 'duty'); loadDutyGroups(3006); }
+}
+
+function closeWinFloat() {
+  winFloatFor = null;
+  const float = document.getElementById('winFloat');
+  if (float) { float.style.display = 'none'; float.innerHTML = ''; }
 }
 
 function renderWinPanel(p) {
