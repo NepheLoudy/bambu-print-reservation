@@ -257,11 +257,12 @@ app.post('/api/nas/api', async (req, res) => {
   if (!['GET', 'POST'].includes(method)) return res.status(400).json({ error: '仅支持 GET/POST' });
   if (!apiPath.startsWith('/') || /[\s'"`\\]/.test(apiPath)) return res.status(400).json({ error: '路径非法' });
   const shQuote = (s) => `'` + String(s).replace(/'/g, `'\\''`) + `'`;
-  let cmd = `curl -s -m 12 -X ${method} -H 'Content-Type: application/json'`;
+  // 名册通讯录同步等慢窗口需要较长超时（实测 ~6s，放宽到 30s）
+  let cmd = `curl -s -m 30 -X ${method} -H 'Content-Type: application/json'`;
   if (method === 'POST') cmd += ` -d ${shQuote(JSON.stringify(req.body?.body ?? {}))}`;
   cmd += ` http://localhost:${port}${apiPath}`;
   try {
-    const out = await sshExec(cmd, 20000);
+    const out = await sshExec(cmd, 45000);
     try { res.json(JSON.parse(out)); } catch { res.json({ raw: out.slice(0, 2000) }); }
   } catch (err) {
     res.status(500).json({ error: err.message });

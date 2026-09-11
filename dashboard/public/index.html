@@ -323,7 +323,7 @@ function renderWinPanel(p) {
     }
     if (w.kind === 'action') {
       return `<div class="win-row">· ${w.d} <span class="badge method">${w.m}</span>
-        <button onclick="rosterRefresh(${p.port})">立即执行</button></div>`;
+        <button onclick="rosterRefresh(${p.port}, this)">立即执行</button></div>`;
     }
     return `<div class="win-row">· ${w.d} <span class="badge method">${w.m}</span>
       <button onclick="winView(${p.port}, '${w.p}', '${w.d}')">查看</button>
@@ -359,9 +359,20 @@ async function whitelistSave(pid) {
   }
 }
 
-async function rosterRefresh(port) {
-  const r = await nasApi(port, 'POST', '/api/duty/roster/refresh');
-  toast(r.success ? `通讯录同步完成：${r.total} 人 ✓` : (r.error || '失败'));
+async function rosterRefresh(port, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '同步中…（约 5 秒）'; }
+  try {
+    const r = await nasApi(port, 'POST', '/api/duty/roster/refresh');
+    if (r.success) {
+      toast(`通讯录同步完成：${r.total} 人 ✓`);
+      await winView(port, '/api/duty/roster', `名册全景（刚同步：${r.total} 人）`);
+      if (winFloatFor === 'duty') loadWhitelistNames(3006, 'duty');
+    } else {
+      toast((r.error || '失败') + '——瞬时网络抖动会自动重试一次，可稍后再点');
+    }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '立即执行'; }
+  }
 }
 
 async function loadDutyGroups(port) {
