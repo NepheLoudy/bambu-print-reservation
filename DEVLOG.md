@@ -217,3 +217,11 @@
 
 - duty-bot 仓 DEVLOG 回填 v4（316756b 管辖策略下发 → 9bd691b）；pm-robot 仓 DEVLOG 回填 v68/v69（3501bb5 关键词放行、5f0add5 策略驱动 → 372c18b）。
 - 本笔更新 duty-bot / ticket-pm/project-management-robot 两个 gitlink 至含 DEVLOG 的最新 HEAD，顶层与嵌套仓状态对齐；此后值日域改权限口径只动 duty-bot 一侧。
+
+### v39 · 2026-09-11 · 随本提交落地 · feat
+
+**顶层联动：duty-bot v5 表格接线——值日看板表接入（M0 表格项完成）**
+
+- 用户建好「值日看板」表（机器人项目看板库 tblhws89lrituaks，人员列已自行改为人员类型）；duty-bot 探测后完成匹配：应用身份补建文本「姓名」列、预置负责区域/完成状态单选选项，`.env` 写全 token/表 id/DUTY_FIELD_* 映射（列名不改动用户命名，全走 env）。
+- duty-bot v5（d57aa0f，回填 931094f）：table:check 总状态列类型断言放宽为文本/单选皆收；校验 9 字段全过；NAS 实测 brief 读表 / generate dryRun / health 200。
+- registry 销项：M0"表格 token 回填"完成；**名册待补全（当前仅 1 人）**——排班生成前必须补 members.json 并让队员发「绑定 姓名」，否则全排一人。

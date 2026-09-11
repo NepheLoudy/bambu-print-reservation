@@ -151,10 +151,10 @@ module.exports = {
       localRun: { script: 'src/index.js', cwd: '', env: {} },
       quickActions: [
         { id: 'install', label: 'npm install', cmd: 'npm install', cwd: '' },
-        { id: 'test', label: '排班+闭环 stub 测试', cmd: 'npm run test:schedule && npm run test:flow', cwd: '' },
+        { id: 'test', label: '排班+闭环+策略 stub 测试', cmd: 'npm run test:schedule && npm run test:flow && npm run test:policy', cwd: '' },
         { id: 'table-check', label: '表格字段校验', cmd: 'npm run table:check', cwd: '' },
       ],
-      notes: 'M0 待办：表格 token 回填 + 名册补全；接口 GET /api/duty/brief、POST /api/chat/command、/api/bot/test-*',
+      notes: '表格已接线（机器人项目看板库·值日看板表，字段经 DUTY_FIELD_* 映射，2026-09-11）；名册待补全（当前仅 1 人，排班生成前须补 members.json 并绑定）；接口 GET /api/duty/brief、GET /api/duty/policy、POST /api/chat/command、/api/bot/test-*',
     },
     {
       id: 'dashboard',
