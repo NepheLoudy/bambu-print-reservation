@@ -201,3 +201,12 @@
 - 用户反馈值日机器人"群监听占得太死"（实际闸门在 hub 值日分支，duty-bot 无消息监听）：v65/v66 的"仅放行值日助手"把关键词彩蛋一并拦死（日志实录 @「大狗大狗请叫叫」被 🧹 顶掉）。
 - hub v68（pm-robot 仓 3501bb5）：@消息「值日助手」看板不变、关键词命中照常回答（未命中回新值日群引导语）、未@关键词照常回答；基础指令继续关闭。
 - 文档同步：根 AGENTS.md 值日专用群裁定行、qianli-chat-architecture SKILL.md 架构图、dashboard/registry.js hub 权限、ticket-pm/LOGIC-MAP §2.4 值日分支条目。LOGIC-MAP 同文件随带上批已上线行为的在途文档补记（关键词回答管道③、多人接单 v57~v60 接单链路），在途代码（ticket-bot/bambu quietHours 等）仍未提交、随各自下一批。
+
+### v37 · 2026-09-11 · 随本提交落地 · feat
+
+**顶层联动：值日域权限管辖归位——duty-bot v4 管辖策略下发 + hub v69 策略驱动消费**
+
+- 用户要求：值日群的权限管辖范畴（管哪些群）与生效范畴（放行什么）应实现在开发中的机器人（duty-bot）后端，而非 hub 硬编码。
+- duty-bot v4（316756b）：`GET /api/duty/policy` 单一事实来源下发管辖群（`DUTY_GROUP_CHAT_IDS`）+ 生效范畴（看板触发词/关键词放行/基础指令关闭/引导语/p2p 指令清单）；群看板加管辖校验。仍不消费消息事件，铁律不变。
+- hub v69（5f0add5）：`dutyPolicyService` 短缓存消费策略，值日分支与未@关键词闸门全部策略化，duty-bot 失联按本仓 `DUTY_CHAT_ID` 兜底；改群/改规则今后只动 duty-bot 一侧。
+- 文档同步：根 AGENTS.md 值日群裁定行、架构 SKILL.md、dashboard/registry.js（duty/hub 条目）、两仓 README/AGENTS、ticket-pm/LOGIC-MAP §2.4。测试：duty-bot 10 项新断言 + flow/schedule 回归；hub 27 项断言。NAS 实测策略接口下发正确、双服务 health 200。

@@ -55,7 +55,7 @@
 - 工单×项目管理联动：DDL 分栏取数是 pm-robot 调 ticket-bot 的 HTTP API（`unclosed-by-group`），改出入参两边同批；两项目同住 `ticket-pm/`，联动契约见 `ticket-pm/AGENTS.md`；
 - approval_instance / approval_task 审批事件"收不到/重复" → 先查 feishu-gateway 的 EVENT_TYPES 订阅与消费者登记（同"指令时灵时不灵"规则）；
 - 值日域需求（排班/轮岗/值日请假/值日照片/值日看板）→ duty-bot；「昨日值日播报」卡片与播报 cron 规划在 pm-robot（M4 待实施；数据将取 duty-bot `GET /api/duty/brief`，该接口已上线）；
-- 值日专用群（快递申领群，pm-robot `.env` 的 `DUTY_CHAT_ID`）：hub 基础指令关闭，放行「值日助手」看板与关键词自动回答（@与未@均生效，未命中@回值日群引导语）；群变更只改 `DUTY_CHAT_ID`；
+- 值日专用群（快递申领群）：hub 基础指令关闭，放行「值日助手」看板与关键词自动回答（@与未@均生效，未命中@回引导语）。**管辖范畴/生效范畴以 duty-bot `GET /api/duty/policy` 下发为准，群变更只改 duty-bot `.env` 的 `DUTY_GROUP_CHAT_IDS`**（hub 的 `DUTY_CHAT_ID` 仅失联兜底）；
 - 各机器人权能/指令/监听/权限全景与端口：看 `dashboard/registry.js`（单一事实来源，改权能须同步）与本地运维台；
 - 部署一律 `npm run push`（见 `.agents/skills/qianli-deploy/SKILL.md`），部署失败排查放顶层会话。
 

@@ -55,7 +55,7 @@ module.exports = {
       ],
       permissions: [
         '审批群（APPROVAL_CHAT_ID）：整体切换为仅 /approval-*',
-        '值日群（DUTY_CHAT_ID，快递申领群）：hub 基础指令关闭，放行「值日助手」看板与关键词自动回答（@与未@均生效）',
+        '值日管辖群（duty-bot /api/duty/policy 下发，当前=快递申领群）：hub 基础指令关闭，放行「值日助手」看板与关键词自动回答（@与未@均生效）',
         '私聊基础指令白名单 P2P_COMMAND_OPEN_IDS / P2P_COMMAND_CHAT_IDS（值日指令不限）',
       ],
       localRun: { script: 'src/index.js', cwd: '', env: {} },
@@ -135,8 +135,8 @@ module.exports = {
       pm2Name: 'duty-bot',
       nasDir: '/opt/duty-bot',
       deploy: 'npm run push',
-      role: '值日域：排班生成与轮转/缺勤补偿、私信提醒与收口、照片凭证写表、值日助手（私信说明/群看板）、/api/duty/brief 数据接口。',
-      listening: ['不消费消息事件（hub 转发 /api/chat/command）'],
+      role: '值日域：排班生成与轮转/缺勤补偿、私信提醒与收口、照片凭证写表、值日助手（私信说明/群看板）、/api/duty/brief 数据接口、管辖策略下发（/api/duty/policy）。',
+      listening: ['不消费消息事件（hub 转发 /api/chat/command）', 'GET /api/duty/policy → hub 消费（值日域管辖范畴/生效范畴单一事实来源）'],
       commands: [
         '值日助手（p2p 用法 / group 看板 1h 限流）',
         '我要请假 / 查询我的下一次值日 / 绑定 姓名 / 是 / 否',
@@ -145,6 +145,7 @@ module.exports = {
       permissions: [
         '排班生成权限：名册 admin:true（或 DUTY_ADMIN_OPEN_IDS）',
         '定时任务：D-1 20:00 / 当日 18:30 / 22:00 收口（写表不延迟）/ 00:30 对账（均过静默闸门）',
+        '值日域管辖：DUTY_GROUP_CHAT_IDS 管辖群经 /api/duty/policy 下发，hub 群内闸门照此执行',
         '真实名册 config/members.json、whitelist.json 不进 git（push.js 显式 SFTP 上 NAS）',
       ],
       localRun: { script: 'src/index.js', cwd: '', env: {} },

@@ -22,7 +22,7 @@ feishu-gateway（NAS, :3010）── 持有共用应用的唯一长连接，统�
    │                      ├─ /approval-* → 转发 approval-bot（:3002, /api/chat/command）
    │                      ├─ /print-*    → 转发 bambu（:3001, /api/chat/command）
    │                      ├─ 值日指令/图片 → 转发 duty-bot（:3006，另带 openId/chatType/chatId/imageKey）
-   │                      │    值日专用群（DUTY_CHAT_ID，快递申领群）：放行「值日助手」看板与关键词回答（@与未@），基础指令关闭
+   │                      │    值日管辖群（duty-bot /api/duty/policy 下发，当前=快递申领群）：放行「值日助手」看板与关键词回答（@与未@），基础指令关闭
    │                      └─ 普通对话 / 关键词 / DDL / /help → 对话型自行处理
    │
    ├─ 审批域事件（approval_instance / approval_task）→ 转发 bambu（打印审批联动）/ ticket-bot（接单→审批任务自动通过）
@@ -57,7 +57,8 @@ feishu-gateway（NAS, :3010）── 持有共用应用的唯一长连接，统�
 ## 相关代码位置
 
 - 值日转发分支：`ticket-pm/project-management-robot/server/src/services/chatService.js`
-  （handleDutyBranch：p2p 图片最小转发 / 值日群限制 / p2p 值日指令白名单外放行；handleDutyForward）
+  （handleDutyBranch：p2p 图片最小转发 / 值日管辖群限制 / p2p 值日指令白名单外放行；handleDutyForward）；
+  管辖策略消费端 `dutyPolicyService.js`（值日域管辖范畴/生效范畴以 duty-bot `GET /api/duty/policy` 为单一事实来源）
 - 网关路由表：`feishu-gateway/src/config.js`（DEFAULT_MESSAGE_ROUTES、DEFAULT_CONSUMERS）
 - 对话型分发逻辑：`ticket-pm/project-management-robot/server/src/services/chatService.js`
   （isApprovalGroup / handleApprovalCommand / handlePrintCommand）
