@@ -189,3 +189,7 @@
 - hub v66：/test-ddl 参数错位（P1，v53 回归）、值日群关键词回答关闭、DDL 确认 p2p 图片静默、.env.example 补 DUTY 键
 - approval-bot v31：飞书客户端 15s 超时（催发票互斥锁卡死隐患）、积压文件外迁
 - ticket-bot/bambu：client 超时与 quietHours 能力已改在工作区，随各自下一批推送（ticket-bot 在途功能批未动）
+
+### v35 · 2026-09-11 · 随本提交落地 · feat
+
+**顶层锚点：duty-bot v3——缺勤补偿规则确认（已请假/未做完全路径进下周队列，含 admin 手工标记补登记）；快递申领群=值日播报群已确认**
