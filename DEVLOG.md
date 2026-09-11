@@ -210,3 +210,10 @@
 - duty-bot v4（316756b）：`GET /api/duty/policy` 单一事实来源下发管辖群（`DUTY_GROUP_CHAT_IDS`）+ 生效范畴（看板触发词/关键词放行/基础指令关闭/引导语/p2p 指令清单）；群看板加管辖校验。仍不消费消息事件，铁律不变。
 - hub v69（5f0add5）：`dutyPolicyService` 短缓存消费策略，值日分支与未@关键词闸门全部策略化，duty-bot 失联按本仓 `DUTY_CHAT_ID` 兜底；改群/改规则今后只动 duty-bot 一侧。
 - 文档同步：根 AGENTS.md 值日群裁定行、架构 SKILL.md、dashboard/registry.js（duty/hub 条目）、两仓 README/AGENTS、ticket-pm/LOGIC-MAP §2.4。测试：duty-bot 10 项新断言 + flow/schedule 回归；hub 27 项断言。NAS 实测策略接口下发正确、双服务 health 200。
+
+### v38 · 2026-09-11 · 随本提交落地 · chore
+
+**顶层锚点 v37 补记：值日域权限管辖工作全部收口到顶层**
+
+- duty-bot 仓 DEVLOG 回填 v4（316756b 管辖策略下发 → 9bd691b）；pm-robot 仓 DEVLOG 回填 v68/v69（3501bb5 关键词放行、5f0add5 策略驱动 → 372c18b）。
+- 本笔更新 duty-bot / ticket-pm/project-management-robot 两个 gitlink 至含 DEVLOG 的最新 HEAD，顶层与嵌套仓状态对齐；此后值日域改权限口径只动 duty-bot 一侧。
