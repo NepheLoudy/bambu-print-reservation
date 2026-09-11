@@ -1,5 +1,5 @@
 const express = require('express');
-const { spawn } = require('child_process');
+const { spawn, execFileSync } = require('child_process');
 const { Client } = require('ssh2');
 const fs = require('fs');
 const path = require('path');
@@ -8,6 +8,7 @@ const registry = require('./registry');
 // ============================================================
 // qianli 本地运维台（仅 127.0.0.1，不部署 NAS）
 // - 可视化：各机器人端口职能/权限/指令/监听 + 本地 git 更新状态 + NAS pm2 状态
+// - 总览仪表台：服务状态矩阵 / 1h 状态时间线 / 24h 可用率 / 掉线事件 / 近 7 天提交活跃（/api/stats）
 // - 本地测试进程：start/stop/log（自动 QUIET_HOURS_DISABLED=1，手动触发不受静默限制）
 // - 快捷指令：npm push / install / stub 测试（注册表 quickActions）
 // - NAS：pm2 状态 / 日志 tail / 重启（走 SSH，凭据直读 approval-bot/.env）
@@ -106,6 +107,8 @@ function runAction(id, cmd, cwdRel, args = []) {
   const child = spawn(useShell ? `${cmd} ${args.map((a) => `"${a}"`).join(' ')}` : cmd, args.length && !useShell ? args : [], {
     cwd, shell: useShell, env: { ...process.env },
   });
+  actionStats.total += 1;
+  actionStats.last = { id, cmd: entry.cmd, at: entry.startedAt };
   child.stdout.on('data', (d) => { entry.log.push(...d.toString().split(/\r?\n/).filter(Boolean)); if (entry.log.length > LOG_CAP * 4) entry.log.splice(0, entry.log.length - LOG_CAP * 4); });
   child.stderr.on('data', (d) => { entry.log.push(...d.toString().split(/\r?\n/).filter(Boolean).map((l) => `[err] ${l}`)); if (entry.log.length > LOG_CAP * 4) entry.log.splice(0, entry.log.length - LOG_CAP * 4); });
   child.on('error', (err) => { entry.running = false; entry.exitCode = -1; entry.log.push(`[spawn错误] ${err.message}（cwd: ${cwd}）`); });
@@ -116,20 +119,25 @@ function runAction(id, cmd, cwdRel, args = []) {
 // ---------- 概览 ----------
 const gitCache = new Map(); // dir -> { t, data }
 
+// git 命令统一走 execFileSync 数组传参：cmd.exe 会把 %h|%s|%ci 的 | 当管道、撕碎带空格的引号参数
+function gitRun(cwd, args) {
+  try { return execFileSync('git', args, { cwd, encoding: 'utf-8', timeout: 8000, windowsHide: true }).trim(); }
+  catch (err) { return ''; }
+}
+
 function gitInfo(dir) {
   const abs = path.join(ROOT, dir);
   const cached = gitCache.get(abs);
   if (cached && Date.now() - cached.t < 30 * 1000) return cached.data;
-  const run = (args) => {
-    try {
-      return require('child_process').execSync(`git ${args}`, { cwd: abs, encoding: 'utf-8', timeout: 8000 }).trim();
-    } catch (err) { return ''; }
-  };
   const data = {
-    inRepo: !!run('rev-parse --is-inside-work-tree'),
-    branch: run('rev-parse --abbrev-ref HEAD') || '-',
-    lastCommit: (() => { const l = run('log -1 --format=%h|%s|%ci'); const [h, s, d] = l.split('|'); return { hash: h || '-', subject: s || '-', date: d || '' }; })(),
-    dirty: run('status --porcelain').split('\n').filter(Boolean).length,
+    inRepo: !!gitRun(abs, ['rev-parse', '--is-inside-work-tree']),
+    branch: gitRun(abs, ['rev-parse', '--abbrev-ref', 'HEAD']) || '-',
+    lastCommit: (() => {
+      const l = gitRun(abs, ['log', '-1', '--format=%h|%s|%ci']);
+      const [h, s, d] = l.split('|');
+      return { hash: h || '-', subject: s || '-', date: d || '' };
+    })(),
+    dirty: gitRun(abs, ['status', '--porcelain']).split('\n').filter(Boolean).length,
   };
   gitCache.set(abs, { t: Date.now(), data });
   return data;
@@ -164,6 +172,162 @@ async function localHealth(port) {
   } catch (err) { return false; }
 }
 
+// ---------- 总览仪表台：状态采样史（随 /api/overview 轮询采样，同态并段省空间，落盘可续） ----------
+const HISTORY_FILE = path.join(__dirname, '.status-history.json');
+const SAMPLE_MIN_GAP = 25 * 1000;          // 采样最小间隔（前端 4s 轮询，实际约 25~30s 一针）
+const SAME_STATE_MERGE_MS = 10 * 60 * 1000; // 状态未变化时原地推进时间点，超过该时长才落新针（兜底）
+const HISTORY_KEEP_MS = 3 * 24 * 3600 * 1000;
+// s：2=NAS 在线 1=仅本地测试进程在跑 0=离线 3=未知（NAS 不可达，不计入可用率分母）
+// 段结构 {t0 段起点, t 末次确认}：同态并段只推进 t，t0 保留状态起始时刻（持续时长/时间线/事件都靠它）
+const history = { samples: {}, dirty: false };
+try {
+  const raw = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf-8'));
+  for (const [id, arr] of Object.entries(raw.samples || {})) {
+    history.samples[id] = (arr || [])
+      .filter((s) => s && Date.now() - s.t < HISTORY_KEEP_MS)
+      .map((s) => ({ t0: s.t0 ?? s.t, t: s.t, s: s.s }));
+  }
+} catch (err) { /* 首次运行空表起步 */ }
+
+setInterval(() => {
+  if (!history.dirty) return;
+  history.dirty = false;
+  fs.writeFile(HISTORY_FILE, JSON.stringify({ v: 1, samples: history.samples }), () => {});
+}, 60 * 1000);
+
+function recordSamples(projects, nas) {
+  const now = Date.now();
+  for (const p of projects) {
+    const arr = history.samples[p.id] || (history.samples[p.id] = []);
+    const last = arr[arr.length - 1];
+    if (last && now - last.t < SAMPLE_MIN_GAP) continue;
+    const s = p.id === 'dashboard' ? 2
+      : !nas.online ? 3
+      : p.pm2Name ? (p.nas && p.nas.status === 'online' ? 2 : (p.localRunning ? 1 : 0))
+      : (p.localRunning ? 1 : 3);
+    if (last && last.s === s && now - last.t < SAME_STATE_MERGE_MS) last.t = now;
+    else arr.push({ t0: now, t: now, s });
+    while (arr.length && now - arr[0].t0 > HISTORY_KEEP_MS) arr.shift();
+    history.dirty = true;
+  }
+}
+
+function stateSpans(id) {
+  const arr = history.samples[id] || [];
+  const spans = [];
+  for (let i = 0; i < arr.length; i++) {
+    spans.push({ s: arr[i].s, from: arr[i].t0, to: i + 1 < arr.length ? arr[i + 1].t0 : Infinity });
+  }
+  return spans;
+}
+
+function availability(id, winMs) {
+  const now = Date.now(); const cutoff = now - winMs;
+  let total = 0, ok = 0;
+  for (const sp of stateSpans(id)) {
+    const from = Math.max(sp.from, cutoff), to = Math.min(sp.to, now);
+    if (to <= from || sp.s === 3) continue;
+    total += to - from;
+    if (sp.s > 0) ok += to - from;
+  }
+  return total > 0 ? Math.round((ok / total) * 1000) / 10 : null;
+}
+
+function currentState(id) {
+  const arr = history.samples[id] || [];
+  if (!arr.length) return null;
+  const s = arr[arr.length - 1].s;
+  let i = arr.length - 1;
+  while (i > 0 && arr[i - 1].s === s) i--;
+  return { s, sinceMs: Date.now() - arr[i].t0 };
+}
+
+function offlineEpisodes(id, winMs) {
+  const cutoff = Date.now() - winMs;
+  const eps = []; let cur = null;
+  for (const sp of stateSpans(id)) {
+    if (sp.to <= cutoff) continue;
+    if (sp.s === 0) { if (!cur) cur = { id, start: Math.max(sp.from, cutoff), end: null }; }
+    else if (cur) { cur.end = sp.from; eps.push(cur); cur = null; }
+  }
+  if (cur) eps.push(cur);
+  return eps;
+}
+
+function timeline(id, winMs = 60 * 60 * 1000, n = 30) {
+  const now = Date.now(); const step = winMs / n;
+  // 仍在确认中的段（t 新）即使 t0 在窗口外也要参与：ongoing 状态覆盖窗口尾部
+  const arr = (history.samples[id] || []).filter((s) => s.t > now - winMs - step);
+  if (!arr.length) return null;
+  const cells = [];
+  for (let i = 0; i < n; i++) {
+    const mid = now - winMs + i * step + step / 2;
+    let s = -1;
+    for (const sample of arr) { if (sample.t0 <= mid) s = sample.s; else break; }
+    cells.push(s);
+  }
+  return cells;
+}
+
+// ---------- 总览仪表台：NAS 批量 HTTP 深度健康（一次 SSH 探全部 /api/health，pm2 online 但接口僵死可现形） ----------
+async function nasHttpHealth() {
+  if (nasHttpHealth.cache && Date.now() - nasHttpHealth.cache.t < 60 * 1000) return nasHttpHealth.cache.map;
+  const targets = registry.projects.filter((p) => p.pm2Name && p.port);
+  const cmd = targets.map((p) => `printf '${p.port} '; curl -s -o /dev/null -w '%{http_code}' -m 4 http://127.0.0.1:${p.port}/api/health; echo`).join('\n');
+  try {
+    const out = await sshExec(cmd, 35000);
+    const map = {};
+    out.split('\n').forEach((line) => { const m = line.match(/^(\d+)\s+(\d+)$/); if (m) map[m[1]] = m[2] === '200'; });
+    if (targets.some((p) => map[p.port] !== undefined)) nasHttpHealth.cache = { t: Date.now(), map };
+    return map;
+  } catch (err) {
+    return nasHttpHealth.cache ? nasHttpHealth.cache.map : {};
+  }
+}
+
+// ---------- 活跃看板：一次 SSH 批量拉网关使用统计 + 各域 policy/回答表/名册（60s 缓存） ----------
+let activityCache = null;
+
+async function fetchActivity() {
+  if (activityCache && Date.now() - activityCache.t < 60 * 1000) return activityCache.data;
+  const probes = [
+    ['usage1', `curl -s -m 6 'http://127.0.0.1:3010/api/usage?days=1'`],
+    ['usage7', `curl -s -m 6 'http://127.0.0.1:3010/api/usage?days=7'`],
+    ['gwHealth', `curl -s -m 6 http://127.0.0.1:3010/api/health`],
+    ['hubPolicy', `curl -s -m 6 http://127.0.0.1:3000/api/hub/policy`],
+    ['dutyPolicy', `curl -s -m 6 http://127.0.0.1:3006/api/duty/policy`],
+    ['dutyRoster', `curl -s -m 10 http://127.0.0.1:3006/api/duty/roster`],
+    ['dutyWl', `curl -s -m 6 http://127.0.0.1:3006/api/duty/whitelist`],
+    ['appPolicy', `curl -s -m 6 http://127.0.0.1:3002/api/approval/policy`],
+    ['rulesGroup', `curl -s -m 6 'http://127.0.0.1:3000/api/autoreplies/rules?table=group'`],
+    ['rulesMention', `curl -s -m 6 'http://127.0.0.1:3000/api/autoreplies/rules?table=mention'`],
+  ];
+  const cmd = probes.map(([k, c]) => `printf '@@${k}@@'; ${c}; echo`).join('\n');
+  try {
+    const out = await sshExec(cmd, 40000);
+    const data = {};
+    const re = /@@(\w+)@@/g;
+    const marks = [];
+    let m;
+    while ((m = re.exec(out))) marks.push({ key: m[1], jsonStart: re.lastIndex, markAt: m.index });
+    for (let i = 0; i < marks.length; i++) {
+      const chunk = out.slice(marks[i].jsonStart, i + 1 < marks.length ? marks[i + 1].markAt : undefined).trim();
+      try { data[marks[i].key] = JSON.parse(chunk); } catch (err) { data[marks[i].key] = null; }
+    }
+    activityCache = { t: Date.now(), data };
+    return data;
+  } catch (err) {
+    return activityCache ? activityCache.data : {};
+  }
+}
+
+app.get('/api/activity', async (req, res) => {
+  const data = await fetchActivity();
+  res.json({ time: new Date().toISOString(), data });
+});
+
+const actionStats = { total: 0, last: null }; // 本次运维台开机以来的一次性动作执行计数
+
 app.get('/api/overview', async (req, res) => {
   const nas = await nasStatus();
   const projects = [];
@@ -180,7 +344,70 @@ app.get('/api/overview', async (req, res) => {
       hasActionLog: Boolean(action),
     });
   }
+  recordSamples(projects, nas);
   res.json({ time: new Date().toISOString(), nas, projects });
+});
+
+// 总览仪表台数据：状态矩阵 / 可用率 / 掉线事件 / 提交活跃 / 汇总指标
+app.get('/api/stats', async (req, res) => {
+  const nas = await nasStatus();
+  const httpMap = await nasHttpHealth();
+  const now = Date.now();
+  const DAY = 24 * 3600 * 1000;
+
+  const services = registry.projects.map((p) => {
+    const nasProc = p.pm2Name ? nas.procs.find((x) => x.name === p.pm2Name) || null : null;
+    const local = localProcs.get(p.id);
+    const cur = currentState(p.id);
+    return {
+      id: p.id, name: p.name, label: p.label, port: p.port,
+      hasPm2: Boolean(p.pm2Name),
+      nasStatus: nasProc ? nasProc.status : null,
+      localRunning: Boolean(local && local.child.exitCode === null),
+      httpOk: p.pm2Name && nas.online ? (httpMap[p.port] ?? null) : null,
+      memMb: nasProc ? nasProc.memMb : null,
+      uptimeMs: nasProc ? nasProc.uptimeMs : 0,
+      restarts: nasProc ? nasProc.restarts : null,
+      avail24h: availability(p.id, DAY),
+      current: cur,
+      timeline: timeline(p.id),
+    };
+  });
+
+  const nameOf = (id) => (registry.projects.find((p) => p.id === id) || {}).name || id;
+  const events = registry.projects
+    .flatMap((p) => offlineEpisodes(p.id, DAY))
+    .map((e) => ({ ...e, name: nameOf(e.id) }))
+    .sort((a, b) => b.start - a.start)
+    .slice(0, 10);
+
+  const avails = services.map((s) => s.avail24h).filter((v) => v != null);
+  // 未提交改动按仓库去重：gateway/bambu/dashboard 同属顶层仓，逐项目累加会把同一仓的改动数三遍
+  const seenRepos = new Set();
+  let dirtyTotal = 0;
+  for (const p of registry.projects) {
+    if (!p.repo) continue;
+    const cwdAbs = p.repo === 'own' ? path.join(ROOT, p.dir) : ROOT;
+    if (seenRepos.has(cwdAbs)) continue;
+    seenRepos.add(cwdAbs);
+    const gi = gitInfo(p.repo === 'own' ? p.dir : '.');
+    if (gi.inRepo) dirtyTotal += gi.dirty;
+  }
+  const summary = {
+    nasOnline: nas.online,
+    pm2Total: services.filter((s) => s.hasPm2).length,
+    pm2Online: services.filter((s) => s.hasPm2 && s.nasStatus === 'online').length,
+    httpProbed: services.filter((s) => s.httpOk != null).length,
+    httpOkCount: services.filter((s) => s.httpOk === true).length,
+    localRunning: services.filter((s) => s.localRunning).length,
+    localRunnable: services.filter((s) => registry.projects.find((p) => p.id === s.id)?.localRun).length,
+    avail24h: avails.length ? Math.round((avails.reduce((a, b) => a + b, 0) / avails.length) * 10) / 10 : null,
+    dirtyTotal,
+    actions: actionStats,
+    samplingNote: '状态采样随运维台页面打开进行（约 25~30s 一针），历史落盘 .status-history.json 保留 3 天',
+  };
+
+  res.json({ time: new Date().toISOString(), summary, services, events });
 });
 
 app.get('/api/local/:id/log', (req, res) => {
@@ -269,8 +496,13 @@ app.post('/api/nas/api', async (req, res) => {
   }
 });
 
+// 运维台是常驻本机工具：未捕获异常只记日志不退出（避免静默挂掉）
+process.on('uncaughtException', (err) => console.error('[未捕获异常]', err));
+process.on('unhandledRejection', (err) => console.error('[未处理Promise拒绝]', err));
+
 app.listen(PORT, '127.0.0.1', () => {
   console.log(`🖥️  qianli 运维台: http://127.0.0.1:${PORT}（仅本机可访问）`);
   console.log(`📁 工作区根: ${ROOT}`);
   console.log(`📡 注册项目: ${registry.projects.map((p) => `${p.name}:${p.port}`).join(', ')}`);
+  console.log(`📊 总览仪表台: /api/stats（状态采样史落盘 ${path.basename(HISTORY_FILE)}，保留 3 天）`);
 });

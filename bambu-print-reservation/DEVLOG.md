@@ -118,3 +118,11 @@
 - 顺带（文档）：README 部署命令去掉被 push.js 忽略的「提交说明」参数（纯 SFTP 无 git 步骤）；PRINTER-LAN-API.md dispatcher 全部行号按 v19 后代码回填（v19 接线 quietHours 后 +10~20 行系统性偏移）。
 - 已知限制（意图不明，未动）：approval_task 自动审批路径拉详情失败不登记重拉（与 instance 路径 v18 前失败模式同构，是否自愈待裁定）；对账对「APPROVED 无附件 / PENDING」实例不做已见登记，窗口内每轮重复拉详情（噪音非正确性）；数值型 env 无 NaN 防护。
 - 单测：test/approval-test.js、test/dispatcher-test.js 全部通过；README「审批单测 10 项」计数核对无误。
+
+### v21 · 2026-09-12 · 顶层归档（随顶层 v46 收尾提交，哈希待回填） · fix
+
+**静默积压文件可挪项目外 + 配置补齐（清空部署不再丢积压）**
+
+- `src/utils/quietHours.js`：积压文件路径支持 `QUIET_BACKLOG_FILE` 环境变量——本仓纯 SFTP 部署每次 `rm -rf` 清空 /opt/bambu-print-server，默认项目根的 `.quiet-backlog.json` 每次部署必丢，静默积压的「重启不丢」承诺在部署场景从未成立；加载时对目标目录 `mkdirSync(recursive)`（项目外数据目录无人预建）。
+- `.env` 补配 `QUIET_BACKLOG_FILE=/home/qianli/bambu-data/quiet-backlog.json`（push.js 随部署上传 NAS 生效）；`.env.example` 补注释键（补齐「新增配置同步改 example」约定欠账）。
+- 顶层 AGENTS「晚间静默」口径不变：积压文件位置变化不影响冲刷语义（任务类重跑/一次性通知原样补发）。

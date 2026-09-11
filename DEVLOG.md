@@ -282,3 +282,14 @@
 - 记录在案不动：gateway `contains:'接单'` 全局抢占（值日群含「接单」的 @ 消息进 ticket-bot，ticket-bot 群门禁兜底，后续单独批次按工单管辖群收窄路由）；`isMentionedBot` 把 @任何 app/bot 都算 @本机器人（共用应用妥协）；群看板限流命中静默（设计如此）。
 - 验证：hub stub 测试 34 项 + duty-bot 五套件（policy/flow/board/schedule/roster）全过；NAS 两进程 online、health 200；真实群内 @（看板双形态/变体打卡/12:00 播报）待白天自然触发观察。
 - 注：dashboard/registry.js 同文件携带 gateway v14 批次的在途文案改动一并归档（该批功能已随 b4aa03e 部署）；其余在途改动（dashboard 运维台、ticket-bot 多人接单批次等）不在本批收录范围。
+
+### v46 · 2026-09-12 · 随本提交落地 · fix
+
+**顶层联动：全仓复查纠偏 + 剩余未推批次清理（ticket-bot v61 `f6f73e2` + bambu v21 + duty-bot v10）**
+
+- 全量复查（TRAE-code-review，双校验代理 2/2 确认 7 项发现）：v45 批次（duty-bot v9 / hub v74）自检无阻断缺陷；ticket-bot 多人接单收尾批次审后随 v61 推送（出站 fetch 全量 15s 超时、审批人解析失败不缓存自愈、接单队列复用全量记录免二次拉表、历史文档隐私清洗）；dashboard 活跃看板批次（/api/stats /api/activity + 总览仪表台）审后随本提交归档。
+- 复查发现 ①②③（静默积压挪址收尾，major+minor×2）：bambu/ticket-bot `.env` 补 `QUIET_BACKLOG_FILE`——bambu 纯 SFTP 部署每次清空项目目录、积压必丢（新代码此前对该仓形同虚设），ticket-bot SFTP 兜底部署路径同险；两仓 quietHours 加载时自动建项目外数据目录。NAS 实测：`/home/qianli/bambu-data`、`/home/qianli/ticket-bot-data` 随重启自动创建，ticket-bot/bambu health 200。
+- 复查发现 ④：三仓 `.env.example` 补 `QUIET_BACKLOG_FILE` 键（「新增配置同步改 example」约定欠账）；duty-bot 随 v10 docs 推送，顺带回填 v9 锚点 `f2220af`。
+- 复查发现 ⑤⑥（文档纠偏）：gateway DEVLOG 头部「当前最新」v13→v14（v13 条目刚修过同型漂移、属复发）；registry ticket 条目注记改写——多人接单批次已推 v61，**`/api/tickets/policy` 定制窗口仍未落地（待后续批次）**。
+- 复查发现 ⑦（整理）：keep-awake.ps1 防休眠工具归档 `tools/`。
+- gateway v14 DEVLOG 补交随本提交归档（v14 代码已随 b4aa03e 部署，本批不重部署、避免长连接无谓重启）；至此工作区无未收尾改动。

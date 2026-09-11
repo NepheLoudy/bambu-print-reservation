@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次 git 提交 + 一次部署）。本项目无独立远端，push.js 只暂存 `feishu-gateway/` 路径提交进顶层 monorepo——版本即顶层仓库中触碰本路径的提交。v1~v8 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v13**（2026-09-06 顶层归档 `b64bf8b`）。
+当前最新：**v14**（2026-09-12 顶层归档 `b4aa03e`）。
 
 ## 阶段五 · 开发历史建档（2026-09-04）
 
@@ -79,3 +79,13 @@
 - DEVLOG「当前最新」指针 v10 → v12（76e9daa 专项锚点回填时只补了 v12 哈希、漏改头部指针）。
 - v11 条目锚点回填 `cebb767`（当时记「随本提交落地」，回填批次遗漏）。
 - 代码侧结论：src/ 无可确认缺陷（EVENT_TYPES 订阅表 / 消费者登记 / .env 三方一致，v12 修复批次在位，事件去重与 deliverTo 降级路径完好）；`.env` 残留无消费者的 `FEISHU_ENCRYPT_KEY`、package.json 未用依赖 `cors` 均无害，仅记录不清（.env 是部署源头，是否清理属运维决策）。
+
+## 阶段十 · 使用统计（2026-09-12）
+
+### v14 · 2026-09-12 · 顶层归档 `b4aa03e` · feat
+**使用统计 /api/usage——运维台「活跃看板」数据源（谁在用什么功能）**
+- 新增 src/usage.js：消息事件命中路由目标后顺带计数（dispatch.js 的 routeMessage 在命中规则/走默认目标处各调一次 recordUsage，只观察不改路由，统计异常静默自愈不影响转发）。功能口径：`/` 开头取首个 token（精确到 /print-status 等指令）；工单接单监听（@/私聊+「接单」非指令文本）单独记「工单接单」；其余按私聊对话/@群对话计。
+- 按天分桶保留 30 天（{total, users:{open_id:{c,last}}, feats}），落盘 usage-stats.json（60s 兜底刷新 + SIGINT 落盘）；**落盘目录必须在项目外**（部署 tar 会清空 /opt/feishu-gateway）：默认 /home/qianli/feishu-gateway-data，可 GATEWAY_DATA_DIR 覆盖，写不进时退回项目内（不入 git）。
+- 成员名解析：新 open_id 首次出现时用共用应用凭证查通讯录（contact/v3/users），姓名永久缓存进统计文件；失败 24h 内不重试，展示回退 open_id。
+- HTTP 端点 GET /api/usage?days=N（默认 1，最大 30）：返回 users/features/daily 聚合，运维台「使用活跃」看板消费。
+- 验证：本地以空 APP_ID 起 HTTP（不连长连接）POST /api/dispatch 合成事件，计数/分桶/落盘/聚合全通过（注意 Git Bash curl -d 直写中文会 GBK 乱码，测中文路由要 --data-binary @utf8文件）；线上部署后 ws running，/api/usage 空表起步。

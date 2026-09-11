@@ -137,7 +137,7 @@ module.exports = {
       quickActions: [
         { id: 'install', label: 'npm install', cmd: 'npm install', cwd: '' },
       ],
-      notes: '有另一批多人接单改动在途（勿与其他批次混推）；定制窗口 GET /api/tickets/policy 随该批补上（顶层 AGENTS「机器人后端定制窗口」）',
+      notes: '多人接单批次已随 v61（f6f73e2）推送：出站 fetch 15s 超时、审批人解析失败不缓存自愈、接单队列复用全量记录、静默积压挪址 QUIET_BACKLOG_FILE；定制窗口 GET /api/tickets/policy 仍未落地（待后续批次，顶层 AGENTS「机器人后端定制窗口」）',
     },
     {
       id: 'duty',

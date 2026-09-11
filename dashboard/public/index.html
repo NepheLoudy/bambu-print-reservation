@@ -50,6 +50,53 @@
   .win-toggle { padding:2px 8px; font-size:12px; }
   #winFloat { position:absolute; z-index:7; background:var(--card); border:1px solid var(--acc); border-radius:10px; box-shadow:0 10px 34px rgba(0,0,0,.55); display:none; padding:10px 12px; overflow:auto; }
   #winFloat .bar { display:flex; align-items:center; gap:8px; margin-bottom:6px; font-size:13px; }
+  /* ===== 总览仪表台 ===== */
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:10px; margin-bottom:14px; }
+  .kpi { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 14px; }
+  .kpi .v { font-size:20px; font-weight:600; }
+  .kpi .k { color:var(--dim); font-size:12px; }
+  .kpi.ok .v { color:var(--ok); } .kpi.err .v { color:var(--err); } .kpi.warn .v { color:var(--warn); }
+  .kpi .sub { color:var(--dim); font-size:11px; }
+  .board { margin-bottom:14px; }
+  .board-card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 16px; margin-bottom:14px; }
+  .board-card h2 { font-size:15px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .board-card h2 .label { color:var(--dim); font-size:12px; font-weight:400; }
+  .board-cols { display:grid; grid-template-columns:repeat(auto-fit, minmax(360px, 1fr)); gap:14px; }
+  .board-cols .board-card { margin-bottom:0; }
+  .kpi-line { display:flex; gap:6px; flex-wrap:wrap; margin:2px 0 10px; }
+  .chip { background:var(--bg); border:1px solid var(--line); border-radius:10px; padding:1px 9px; font-size:11.5px; color:var(--txt); }
+  .chip b { color:var(--acc); }
+  .act-row { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:4px 0; border-top:1px dashed var(--line); font-size:12.5px; }
+  .act-row .dim { color:var(--dim); }
+  .act-head { margin-top:10px; font-size:12px; color:var(--acc); font-weight:600; }
+  .board-cols .act-row:first-of-type, .board-cols .act-head:first-of-type { border-top:none; }
+  #activityBoard .gbar { margin:6px 0; }
+  #activityBoard .gbar .gname { width:76px; }
+  #activityBoard .gbar .cnt { width:104px; }
+  .matrix-wrap { overflow-x:auto; margin-top:8px; }
+  .mrow { display:grid; grid-template-columns:190px 128px 46px 130px 118px 74px 1fr; gap:10px; align-items:center; padding:6px 0; border-top:1px dashed var(--line); font-size:12.5px; min-width:760px; }
+  .mrow.head { border-top:none; color:var(--dim); font-size:11.5px; }
+  .mrow .svc { cursor:pointer; }
+  .mrow .svc:hover { color:var(--acc); }
+  .mrow .svc .dirty { color:var(--warn); margin-left:4px; }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--dim); }
+  .dot.ok { background:var(--ok); } .dot.err { background:var(--err); } .dot.warn { background:var(--warn); }
+  .membar { display:flex; align-items:center; gap:6px; }
+  .membar .track { flex:1; height:8px; background:var(--bg); border-radius:4px; overflow:hidden; min-width:40px; }
+  .membar .fill { height:100%; background:linear-gradient(90deg, #3fa97f, #7fd7a8); }
+  .membar .fill.hot { background:linear-gradient(90deg, #d99a3a, #e8bd6d); }
+  .spark { display:flex; gap:1px; align-items:flex-end; height:16px; }
+  .spark i { flex:1; max-width:8px; height:100%; border-radius:1px; background:#1c2438; }
+  .spark i.s2 { background:var(--ok); } .spark i.s1 { background:var(--warn); }
+  .spark i.s0 { background:var(--err); } .spark i.s3 { background:#3a4661; }
+  .gbar { display:flex; align-items:center; gap:8px; margin:5px 0; font-size:12.5px; }
+  .gbar .gname { width:180px; text-align:right; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .gbar .track { flex:1; height:13px; background:var(--bg); border-radius:4px; overflow:hidden; }
+  .gbar .fill { height:100%; background:linear-gradient(90deg, var(--acc), #7fa7ff); border-radius:4px; }
+  .gbar .cnt { width:120px; color:var(--txt); font-size:12px; }
+  .evt-row { display:flex; align-items:center; gap:8px; margin:5px 0; font-size:12.5px; flex-wrap:wrap; }
+  .evt-row.live { color:var(--err); }
+  .empty { color:var(--dim); font-size:12.5px; margin-top:6px; }
 </style>
 </head>
 <body>
@@ -59,6 +106,23 @@
   <span style="flex:1"></span>
   <span class="nas" id="updatedAt"></span>
 </header>
+
+<section class="board" id="board">
+  <div class="kpis" id="kpis"><div class="kpi"><div class="k">总览仪表台</div><div class="sub">加载中…</div></div></div>
+  <div class="board-card">
+    <h2>📡 服务状态矩阵 <span class="label" id="matrixMeta"></span></h2>
+    <div class="matrix-wrap">
+      <div class="mrow head"><span>服务</span><span>当前状态</span><span>HTTP</span><span>内存</span><span>运行 / 重启</span><span>24h 可用</span><span>近 1 小时时间线</span></div>
+      <div id="matrix"><div class="empty">加载中…</div></div>
+    </div>
+  </div>
+  <div class="board-cols">
+    <div class="board-card"><h2>👥 队员活跃 <span class="label">网关消息事件 · 近 7 天</span></h2><div id="activityBoard"><div class="empty">加载中…</div></div></div>
+    <div class="board-card"><h2>🧩 功能激活 <span class="label">各域 policy 窗口聚合</span></h2><div id="activationBoard"><div class="empty">加载中…</div></div></div>
+    <div class="board-card"><h2>⚠️ 近 24h 掉线事件 <span class="label">NAS 与本地皆无进程视为掉线</span></h2><div id="evtBoard"><div class="empty">加载中…</div></div></div>
+  </div>
+</section>
+
 <div class="grid" id="grid"></div>
 <div id="winFloat"></div>
 
@@ -147,6 +211,186 @@ function render() {
       <div class="btns">${btns.join('')}</div>
     </div>`;
   }).join('');
+  renderBoard();
+}
+
+// ===== 总览仪表台（数据源 /api/stats：采样史 → 可用率/掉线事件/时间线/提交活跃） =====
+let STATS = null;
+const STATE_TXT = { 2: '在线', 1: '仅本地', 0: '离线', 3: '未知' };
+const STATE_CLS = { 2: 'ok', 1: 'warn', 0: 'err', 3: '' };
+
+function fmtAgo(ms) {
+  if (ms == null || isNaN(ms)) return '-';
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return '刚刚';
+  if (m < 60) return m + ' 分钟前';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + ' 小时前';
+  return Math.floor(h / 24) + ' 天前';
+}
+
+function fmtClock(t) {
+  const d = new Date(t);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+async function refreshStats() {
+  try {
+    STATS = await (await fetch('/api/stats')).json();
+    renderBoard();
+  } catch (err) { /* 轮询错误忽略，下次再取 */ }
+}
+
+function kpiTile(k, v, cls, sub) {
+  return `<div class="kpi ${cls || ''}"><div class="k">${k}</div><div class="v">${v}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>`;
+}
+
+function renderBoard() {
+  if (!STATS) return;
+  const sm = STATS.summary;
+  const tiles = [
+    kpiTile('NAS 进程', sm.nasOnline ? `${sm.pm2Online}/${sm.pm2Total}` : '不可达', sm.nasOnline ? (sm.pm2Online === sm.pm2Total ? 'ok' : 'warn') : 'err', sm.nasOnline ? 'pm2 online / 应在线' : ''),
+    kpiTile('HTTP 健康', sm.httpProbed ? `${sm.httpOkCount}/${sm.httpProbed}` : '-', sm.httpProbed && sm.httpOkCount === sm.httpProbed ? 'ok' : (sm.httpProbed ? 'err' : ''), '探测各服务 /api/health'),
+    kpiTile('本地测试进程', `${sm.localRunning}/${sm.localRunnable}`, sm.localRunning ? 'ok' : '', '本台拉起的进程'),
+    kpiTile('24h 平均可用率', sm.avail24h != null ? sm.avail24h + '%' : '-', sm.avail24h == null ? '' : (sm.avail24h >= 99 ? 'ok' : sm.avail24h >= 95 ? 'warn' : 'err'), 'NAS 或本地任一在跑即可用'),
+    kpiTile('近24h活跃', ACT && ACT.usage1 ? `${ACT.usage1.activeUsers} 人` : '-', ACT && ACT.usage1 && ACT.usage1.activeUsers ? 'ok' : '', ACT && ACT.usage1 ? `${ACT.usage1.total} 条消息事件` : '网关使用统计'),
+    kpiTile('未提交改动', sm.dirtyTotal, sm.dirtyTotal ? 'warn' : 'ok', '按仓库去重合计'),
+    kpiTile('动作执行', sm.actions.total, '', sm.actions.last ? `最近：${esc(sm.actions.last.cmd.slice(0, 20))}` : '自运维台启动以来'),
+  ];
+  document.getElementById('kpis').innerHTML = tiles.join('');
+
+  // 服务状态矩阵
+  const dirtyById = {};
+  ((DATA && DATA.projects) || []).forEach((p) => { dirtyById[p.id] = p.git && p.git.inRepo ? p.git.dirty : 0; });
+  document.getElementById('matrix').innerHTML = STATS.services.map((s) => {
+    const cur = s.current || {};
+    const stBadge = badge(STATE_TXT[cur.s] ?? '无数据', STATE_CLS[cur.s] ?? '');
+    const since = cur.sinceMs ? ` <span class="nas">${cur.sinceMs < 60000 ? '刚刚' : fmtDur(cur.sinceMs)}</span>` : '';
+    const http = s.httpOk == null ? '<span class="dot" title="未探测（NAS 离线或非 pm2 项目）"></span>'
+      : `<span class="dot ${s.httpOk ? 'ok' : 'err'}" title="${s.httpOk ? 'HTTP 200' : 'HTTP 探测异常（pm2 在线但接口可能僵死）'}"></span>`;
+    const mem = s.memMb != null
+      ? `<div class="membar"><div class="track"><div class="fill ${s.memMb > 250 ? 'hot' : ''}" style="width:${Math.min(100, Math.round(s.memMb / 4))}%"></div></div><span>${s.memMb}MB</span></div>`
+      : '<span class="nas">—</span>';
+    const run = (s.hasPm2 && s.uptimeMs ? fmtDur(s.uptimeMs) : '—') + (s.restarts != null ? ` <span class="nas">↻${s.restarts}</span>` : '');
+    const spark = s.timeline ? `<div class="spark" title="绿=在线 橙=仅本地 红=离线 灰=未知">${s.timeline.map((c) => `<i class="${c >= 0 ? 's' + c : ''}"></i>`).join('')}</div>` : '<span class="nas">无采样</span>';
+    const dirty = dirtyById[s.id] ? `<span class="dirty">●${dirtyById[s.id]}</span>` : '';
+    return `<div class="mrow">
+      <span class="svc" onclick="jumpCard('${s.id}')" title="跳到详情卡片">:${s.port} ${esc(s.name)}${dirty}</span>
+      <span>${stBadge}${since}</span>
+      <span>${http}</span>
+      <span>${mem}</span>
+      <span>${run}</span>
+      <span>${s.avail24h != null ? s.avail24h + '%' : '—'}</span>
+      <span>${spark}</span>
+    </div>`;
+  }).join('');
+  document.getElementById('matrixMeta').textContent = '· 点服务名跳详情卡片；时间线绿=在线 橙=仅本地 红=离线 灰=未知';
+
+  // 近 24h 掉线事件
+  document.getElementById('evtBoard').innerHTML = STATS.events.length
+    ? STATS.events.map((e) => {
+        const live = !e.end;
+        const dur = fmtDur((e.end || Date.now()) - e.start);
+        return `<div class="evt-row ${live ? 'live' : ''}"><span class="dot ${live ? 'err' : ''}"></span>
+          <b>${esc(e.name)}</b> ${fmtClock(e.start)} – ${live ? '仍在离线' : fmtClock(e.end)} <span class="nas">（${dur}）</span></div>`;
+      }).join('')
+    : '<div class="empty">近 24h 无掉线 🎉</div>';
+
+  renderActivityCard();
+  renderActivationCard();
+}
+
+// ===== 队员活跃 / 功能激活（数据源 /api/activity：网关 /api/usage + 各域 policy 窗口） =====
+let ACT = null;
+
+async function refreshActivity() {
+  try {
+    ACT = (await (await fetch('/api/activity')).json()).data;
+    renderActivityCard();
+    renderActivationCard();
+  } catch (err) { /* 轮询错误忽略，下次再取 */ }
+}
+
+function cronDescribe(s) {
+  // 6 段 cron（秒 分 时 日 月 周）→「每日 HH:MM / 每周X HH:MM」，解析不了原样返回
+  const p = String(s || '').trim().split(/\s+/);
+  if (p.length === 6 && /^\d+$/.test(p[2]) && /^\d+$/.test(p[1])) {
+    const t = `${p[2].padStart(2, '0')}:${p[1].padStart(2, '0')}`;
+    return (p[5] === '*' ? '每日 ' : `每周${'日一二三四五六'[Number(p[5]) % 7]} `) + t;
+  }
+  return s || '—';
+}
+
+function renderActivityCard() {
+  const el = document.getElementById('activityBoard');
+  if (!el) return;
+  if (!ACT || !ACT.usage7) { el.innerHTML = `<div class="empty">${ACT ? '网关使用统计不可达' : '加载中…'}</div>`; return; }
+  const u1 = ACT.usage1, u7 = ACT.usage7;
+  const kpi = (k, v) => `<span class="chip"><b>${v}</b> ${k}</span>`;
+  const line = `<div class="kpi-line">
+    ${kpi('近24h活跃', (u1 ? u1.activeUsers : 0) + ' 人')}
+    ${kpi('近24h消息', u1 ? u1.total : 0)}
+    ${kpi('近7天活跃', u7.activeUsers + ' 人')}
+    ${kpi('近7天消息', u7.total)}
+  </div>`;
+  if (!u7.users.length) {
+    el.innerHTML = line + '<div class="empty">近 7 天暂无消息事件（统计自网关 v14 上线起累积，队员发消息/@机器人后此处见活跃）</div>';
+    return;
+  }
+  const top = u7.users.slice(0, 10);
+  const maxC = Math.max(1, ...top.map((u) => u.count));
+  const members = top.map((u) => `<div class="gbar">
+    <span class="gname" title="${esc(u.id)}">${esc(u.name || '…' + u.id.slice(-6))}</span>
+    <div class="track"><div class="fill" style="width:${Math.round((u.count / maxC) * 100)}%"></div></div>
+    <span class="cnt">${u.count} 条 · ${fmtAgo(Date.now() - u.last)}</span>
+  </div>`).join('');
+  const feats = u7.features.length
+    ? `<div class="act-head">功能使用分布</div><div class="chips">${u7.features.slice(0, 12).map((f) => `<span class="chip">${esc(f.feat)} × ${f.count}</span>`).join('')}</div>`
+    : '';
+  el.innerHTML = line + members + feats;
+}
+
+function actRow(k, v) {
+  return `<div class="act-row"><span class="dim">${k}</span><span>${v}</span></div>`;
+}
+
+function ruleTableBadge(t) {
+  if (!t) return '<span class="nas">不可达</span>';
+  return t.enabled ? `<span class="badge ok">启用 · ${(t.replies || []).length} 条</span>` : '<span class="badge err">已停用</span>';
+}
+
+function renderActivationCard() {
+  const el = document.getElementById('activationBoard');
+  if (!el) return;
+  if (!ACT) { el.innerHTML = '<div class="empty">加载中…</div>'; return; }
+  const ws = ACT.gwHealth ? ACT.gwHealth.ws : null;
+  const hp = ACT.hubPolicy, dp = ACT.dutyPolicy, ap = ACT.appPolicy;
+  const rg = ACT.rulesGroup, rm = ACT.rulesMention;
+  const rows = [];
+  rows.push(actRow('📡 网关长连接', ws === 'running' ? '<span class="badge ok">running</span>' : `<span class="badge err">${esc(ws || '未知')}</span>`));
+  rows.push('<div class="act-head">hub · 对话枢纽</div>');
+  rows.push(actRow('群关键词回答表', ruleTableBadge(rg)));
+  rows.push(actRow('@触发回答表', ruleTableBadge(rm)));
+  rows.push(actRow('会议提醒群', hp ? `${(hp.meetingChatIds || []).length} 个` : '<span class="nas">不可达</span>'));
+  rows.push(actRow('关键词监听', hp && hp.keywordListening && hp.keywordListening.chatId ? '✓ 1 群' : '—'));
+  rows.push('<div class="act-head">duty · 值日域</div>');
+  rows.push(actRow('管辖群', dp ? `${(dp.groupChatIds || []).length} 个${dp.overrideActive ? '（在线改写生效中）' : '（env 默认）'}` : '<span class="nas">不可达</span>'));
+  rows.push(actRow('值日助手看板', dp && dp.hubEnforcement ? `「${esc(dp.hubEnforcement.groupBoardCommand || '值日助手')}」 · ${dp.hubEnforcement.closeBasicCommands ? '基础指令已关' : '基础指令开放'}` : '<span class="nas">不可达</span>'));
+  rows.push(actRow('名册 / 白名单', `${ACT.dutyRoster ? ACT.dutyRoster.total + ' 人' : '?' } / ${ACT.dutyWl ? (ACT.dutyWl.names || []).length + ' 人' : '?'}`));
+  rows.push('<div class="act-head">approval · 财务审批</div>');
+  rows.push(actRow('审批流程', ap ? `${(ap.approvalProcesses || []).length} 个` : '<span class="nas">不可达</span>'));
+  rows.push(actRow('催发票私聊', ap && ap.invoiceUrge ? `${cronDescribe(ap.invoiceUrge.schedule)} · 宽限${ap.invoiceUrge.graceDays}天` : ap ? '未配置' : '<span class="nas">不可达</span>'));
+  rows.push(actRow('每日待审批提醒', ap ? cronDescribe(ap.reminder && ap.reminder.schedule) : '<span class="nas">不可达</span>'));
+  rows.push(actRow('财务催办周报', ap ? cronDescribe(ap.cron && ap.cron.schedule) : '<span class="nas">不可达</span>'));
+  rows.push('<div class="act-head">bambu · 打印 / ticket · 工单</div>');
+  rows.push(actRow('policy 窗口', '<span class="nas">未上线（随各自在途批补上）</span>'));
+  el.innerHTML = rows.join('');
+}
+
+function jumpCard(id) {
+  const el = document.getElementById('card-' + id);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function fmtDur(ms) {
@@ -442,7 +686,11 @@ async function toggleRules(table, enabled) {
 }
 
 setInterval(() => { refresh(); if (drawerCtx) pullLog(); }, 4000);
+setInterval(refreshStats, 30000);
+setInterval(refreshActivity, 60000);
 refresh();
+refreshStats();
+refreshActivity();
 </script>
 </body>
 </html>
