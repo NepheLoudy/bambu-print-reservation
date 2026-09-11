@@ -55,7 +55,7 @@ module.exports = {
       ],
       permissions: [
         '审批群（APPROVAL_CHAT_ID）：整体切换为仅 /approval-*',
-        '值日群（DUTY_CHAT_ID，快递申领群）：hub 基础指令与对话全部关闭，仅放行「值日助手」',
+        '值日群（DUTY_CHAT_ID，快递申领群）：hub 基础指令关闭，放行「值日助手」看板与关键词自动回答（@与未@均生效）',
         '私聊基础指令白名单 P2P_COMMAND_OPEN_IDS / P2P_COMMAND_CHAT_IDS（值日指令不限）',
       ],
       localRun: { script: 'src/index.js', cwd: '', env: {} },
