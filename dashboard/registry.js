@@ -46,6 +46,7 @@ module.exports = {
         '全部消息事件（gateway 转发）；群聊需 @机器人，私聊直接对话',
         'p2p：DDL 逾期确认回复 → 值日分支（指令/图片）→ 基础指令（白名单）→ 对话',
         '群：@对话 → 值日群分支 → 审批群分支 → 基础指令 → 关键词自动回答',
+        'GET /api/hub/policy（定制窗口：审批群/值日策略源/回答表范围/播报群全景只读）',
       ],
       commands: [
         '/help /status /test-ddl /keywords /autoreply /history',
@@ -96,7 +97,7 @@ module.exports = {
       nasDir: '/opt/approval-bot',
       deploy: 'npm run push',
       role: '财务审批域：审批群 /approval-*、每周财务催办周报（催发票/报销单/转账）、每日待审批提醒、催发票私聊。',
-      listening: ['不消费消息事件（hub 转发 /api/chat/command）', 'p2p 回复轮询（催发票延期/无法提交识别）'],
+      listening: ['不消费消息事件（hub 转发 /api/chat/command）', 'p2p 回复轮询（催发票延期/无法提交识别）', 'GET /api/approval/policy（定制窗口：流程/审批人白名单/催办参数全景只读）'],
       commands: ['/approval-help /approval-list /approval-pending /approval-status /approval-urge'],
       permissions: ['仅服务审批群（BOT_CHAT_ID）', '定时任务：周报 / 每日提醒 / 催发票私聊（均过静默闸门）'],
       localRun: { script: 'src/index.js', cwd: '', env: {} },
@@ -123,7 +124,7 @@ module.exports = {
       quickActions: [
         { id: 'install', label: 'npm install', cmd: 'npm install', cwd: '' },
       ],
-      notes: '有另一批多人接单改动在途（勿与其他批次混推）',
+      notes: '有另一批多人接单改动在途（勿与其他批次混推）；定制窗口 GET /api/tickets/policy 随该批补上（顶层 AGENTS「机器人后端定制窗口」）',
     },
     {
       id: 'duty',
@@ -135,8 +136,8 @@ module.exports = {
       pm2Name: 'duty-bot',
       nasDir: '/opt/duty-bot',
       deploy: 'npm run push',
-      role: '值日域：排班生成与轮转/缺勤补偿、私信提醒与收口、照片凭证写表、值日助手（私信说明/群看板）、/api/duty/brief 数据接口、管辖策略下发（/api/duty/policy）。',
-      listening: ['不消费消息事件（hub 转发 /api/chat/command）', 'GET /api/duty/policy → hub 消费（值日域管辖范畴/生效范畴单一事实来源）'],
+      role: '值日域：排班生成与轮转/缺勤补偿、私信提醒与收口、照片凭证写表、值日助手（私信说明/群看板）、/api/duty/brief 数据接口、管辖策略下发（/api/duty/policy）、名册自动读通讯录。',
+      listening: ['不消费消息事件（hub 转发 /api/chat/command）', 'GET /api/duty/policy → hub 消费（值日域管辖范畴/生效范畴单一事实来源）', 'GET /api/duty/roster、POST /api/duty/roster/refresh、GET|POST /api/duty/whitelist（名册/白名单定制窗口）'],
       commands: [
         '值日助手（p2p 用法 / group 看板 1h 限流）',
         '我要请假 / 查询我的下一次值日 / 绑定 姓名 / 是 / 否',
@@ -146,15 +147,16 @@ module.exports = {
         '排班生成权限：名册 admin:true（或 DUTY_ADMIN_OPEN_IDS）',
         '定时任务：D-1 20:00 / 当日 18:30 / 22:00 收口（写表不延迟）/ 00:30 对账（均过静默闸门）',
         '值日域管辖：DUTY_GROUP_CHAT_IDS 管辖群经 /api/duty/policy 下发，hub 群内闸门照此执行',
+        '名册自动同步：启动/生成排班前/手动 refresh 读通讯录全员（open_id 直取），whitelist.json 为排除名单',
         '真实名册 config/members.json、whitelist.json 不进 git（push.js 显式 SFTP 上 NAS）',
       ],
       localRun: { script: 'src/index.js', cwd: '', env: {} },
       quickActions: [
         { id: 'install', label: 'npm install', cmd: 'npm install', cwd: '' },
-        { id: 'test', label: '排班+闭环+策略 stub 测试', cmd: 'npm run test:schedule && npm run test:flow && npm run test:policy', cwd: '' },
+        { id: 'test', label: '排班+闭环+策略 stub 测试', cmd: 'npm run test:schedule && npm run test:flow && npm run test:policy && npm run test:roster', cwd: '' },
         { id: 'table-check', label: '表格字段校验', cmd: 'npm run table:check', cwd: '' },
       ],
-      notes: '表格已接线（机器人项目看板库·值日看板表，字段经 DUTY_FIELD_* 映射，2026-09-11）；名册待补全（当前仅 1 人，排班生成前须补 members.json 并绑定）；接口 GET /api/duty/brief、GET /api/duty/policy、POST /api/chat/command、/api/bot/test-*',
+      notes: '表格已接线（机器人项目看板库·值日看板表，字段经 DUTY_FIELD_* 映射）；名册自动读通讯录（63 人全员入册，open_id 直取，whitelist.json 为排除名单）；接口 GET /api/duty/brief、GET /api/duty/policy、GET /api/duty/roster、GET|POST /api/duty/whitelist、POST /api/chat/command、/api/bot/test-*',
     },
     {
       id: 'dashboard',

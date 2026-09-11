@@ -225,3 +225,13 @@
 - 用户建好「值日看板」表（机器人项目看板库 tblhws89lrituaks，人员列已自行改为人员类型）；duty-bot 探测后完成匹配：应用身份补建文本「姓名」列、预置负责区域/完成状态单选选项，`.env` 写全 token/表 id/DUTY_FIELD_* 映射（列名不改动用户命名，全走 env）。
 - duty-bot v5（d57aa0f，回填 931094f）：table:check 总状态列类型断言放宽为文本/单选皆收；校验 9 字段全过；NAS 实测 brief 读表 / generate dryRun / health 200。
 - registry 销项：M0"表格 token 回填"完成；**名册待补全（当前仅 1 人）**——排班生成前必须补 members.json 并让队员发「绑定 姓名」，否则全排一人。
+
+### v40 · 2026-09-11 · 随本提交落地 · feat
+
+**顶层联动：名册自动读通讯录 + 机器人后端定制窗口规则（首批三仓落地）**
+
+- 需求：排班名册不手工维护——duty-bot 自动读飞书通讯录纳入所有队员；白名单类定制能力做成各机器人后端的"附属窗口"；规则写给所有机器人后端。
+- duty-bot v6（d94c48f/9bbea91，回填 55d7847）：`contacts.js` 全租户部门×成员同步（停用不入册、多部门合并、open_id 直取），启动/生成排班前/手动 refresh 三时机；admin 标记按姓名保留，绑定降级兜底；定制窗口 roster 全景 + whitelist 增删。踩坑：find_by_department page_size 上限 50。NAS 实测 **63 人全员入册**（12 部门全绑 open_id）。
+- hub v70（2c33716）+ approval-bot v32（0728e21）：`GET /api/hub/policy`、`GET /api/approval/policy` 只读定制窗口。
+- 规则成文：顶层 AGENTS「机器人后端定制窗口（附属窗口）规则」——读窗口 policy 全景、写窗口热改、口径权威在各自后端、名册优先通讯录、先加窗口再登记 registry。ticket-bot/bambu 有在途批，policy 窗口随批补上（registry 已标注）。
+- 测试：duty-bot 新增 test:roster（10 项）+ flow contacts stub，schedule/policy/roster 全过。

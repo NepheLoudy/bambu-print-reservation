@@ -20,6 +20,17 @@
 - **不受限**：对话/指令回复（接单确认等交互回路）与人工当下主动触发（/test-*、手动补播单条等）；
 - 改动播报时机、新增播报点时必须过该闸门（新增定时播报接 `gateTask`，事件通知接 `gatePayload`），并把窗口行为写进对应 LOGIC-MAP/README。
 
+# 机器人后端定制窗口（附属窗口）规则
+
+每个机器人后端必须把**定制类配置**（白名单/管辖范畴/权限人/群范围/回答表等）以 HTTP 窗口暴露，禁止只藏在代码或 `.env` 里：
+
+- **读窗口**：`GET /api/<域>/policy` 输出定制项全景只读；细分资源另有独立窗口；
+- **写窗口**：可安全热改的项提供 POST（增删即时生效、不重启）；
+- **管辖/权限口径的权威在各自机器人后端**，消费方短缓存 + 断联兜底（范例：hub 消费 duty-bot `GET /api/duty/policy`）；
+- **名册类**优先自动读飞书通讯录（open_id 直取组织架构），手工名册/绑定只作兜底（范例：duty-bot `syncFromContacts`）；
+- 新增定制项：先加窗口，再同步 `dashboard/registry.js` 登记与本文档；
+- 现状：duty-bot（`/api/duty/policy`、`/api/duty/roster`、`/api/duty/whitelist`）、hub（`/api/hub/policy` + autoreplies 两表窗口）、approval-bot（`/api/approval/policy`）；ticket-bot（`/api/tickets/policy`）与 bambu（`/api/print/policy`）随各自在途批补上。
+
 # 开发日志（DEVLOG）——每次 push 记一版
 
 每个项目（含 qianli 顶层工作区）根目录维护 `DEVLOG.md` 开发历史，**版本隔离单位 = 一次 `npm run push`（即一次 git 提交 + 一次部署）**。
