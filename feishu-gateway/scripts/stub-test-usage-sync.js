@@ -32,17 +32,16 @@ let nextRecordId = 100;
 require.cache[require.resolve('../src/bitable')] = {
   id: 'bitable-stub', filename: 'bitable-stub', loaded: true,
   exports: {
-    async searchRecords(app, table, conditions) {
-      calls.push(['search', table, conditions]);
-      // 用全局已写入行模拟命中
-      const rows = (global.__ROWS = global.__ROWS || {})[table] || [];
-      return rows.filter((r) => conditions.every((c) => String(r.fields[c.field_name]) === String(c.value)));
+    async listAllRecords(app, table) {
+      calls.push(['list', table]);
+      return (global.__ROWS = global.__ROWS || {})[table] || [];
     },
     async createRecord(app, table, fields) {
       calls.push(['create', table, fields]);
       const rows = (global.__ROWS = global.__ROWS || {})[table] || (global.__ROWS[table] = []);
-      rows.push({ record_id: `rec${nextRecordId++}`, fields });
-      return { record_id: `rec${nextRecordId - 1}` };
+      const row = { record_id: `rec${nextRecordId++}`, fields };
+      rows.push(row);
+      return { record_id: row.record_id };
     },
     async updateRecord(app, table, recordId, fields) {
       calls.push(['update', table, recordId, fields]);

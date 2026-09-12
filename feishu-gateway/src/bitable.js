@@ -20,12 +20,19 @@ async function api(method, p, body) {
   return data.data;
 }
 
-/** 按条件查记录（conditions: [{field_name, value}]，operator=is），返回 [{record_id, fields}] */
-async function searchRecords(appToken, tableId, conditions) {
-  const data = await api('POST', `/bitable/v1/apps/${appToken}/tables/${tableId}/records/search?page_size=500`, {
-    filter: { conjunction: 'and', conditions: conditions.map((c) => ({ field_name: c.field_name, operator: 'is', value: [String(c.value)] })) },
-  });
-  return data.items || [];
+/** 整表拉取（自动翻页），返回 [{record_id, fields}]——upsert 的内存比对数据源
+ *  （records/search 的过滤条件对 Date 字段不可用，实测全部 InvalidFilter，故不做服务端过滤） */
+async function listAllRecords(appToken, tableId) {
+  const records = [];
+  let pageToken = '';
+  do {
+    const qs = new URLSearchParams({ page_size: '500' });
+    if (pageToken) qs.set('page_token', pageToken);
+    const data = await api('GET', `/bitable/v1/apps/${appToken}/tables/${tableId}/records?${qs.toString()}`);
+    for (const item of data.items || []) records.push({ record_id: item.record_id, fields: item.fields });
+    pageToken = data.has_more ? data.page_token || '' : '';
+  } while (pageToken);
+  return records;
 }
 
 async function createRecord(appToken, tableId, fields) {
@@ -37,4 +44,4 @@ async function updateRecord(appToken, tableId, recordId, fields) {
   await api('PUT', `/bitable/v1/apps/${appToken}/tables/${tableId}/records/${recordId}`, { fields });
 }
 
-module.exports = { searchRecords, createRecord, updateRecord };
+module.exports = { listAllRecords, createRecord, updateRecord };

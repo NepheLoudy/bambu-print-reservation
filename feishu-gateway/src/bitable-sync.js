@@ -8,7 +8,11 @@ const bitable = require('./bitable');
 // 网关活跃 → 「机器人项目看板」多维表格同步（动态广场看板数据源）
 // - 每 30 分钟把有变化的日桶 upsert 到 网关日活跃/网关功能使用/网关队员活跃 三表
 //   （日期签名去重：桶数据没变不写；签名状态落 GATEWAY_DATA_DIR，重启不重写）
-// - 成员 open_id 优先用 usage 姓名缓存，未命中时查通讯录（单次运行内缓存失败回退尾号）
+// - upsert 匹配为内存全量比对：records/search 的过滤对 Date 字段不可用
+//   （实测所有 operator 均 InvalidFilter），故整表拉回后按字段值匹配，
+//   行数很小（30 天 × ~35 行/天）无压力
+// - 成员 open_id 优先 usage 姓名缓存，未命中查通讯录（失败回退尾号）；
+//   队员表带 open_id 列做稳定身份（姓名解析升级不会产生重复行）
 // - 只观察不影响转发：任何失败 console.warn 后保留签名待下轮重试
 // ============================================================
 
@@ -42,29 +46,33 @@ function toMs(dateStr) {
   return new Date(`${dateStr}T00:00:00+08:00`).getTime();
 }
 
-/** 单行 upsert：按条件找记录，命中 update，否则 create */
-async function upsertRow(tableId, conditions, fields) {
-  const hits = await bitable.searchRecords(APP_TOKEN, tableId, conditions);
-  if (hits.length > 0) {
-    await bitable.updateRecord(APP_TOKEN, tableId, hits[0].record_id, fields);
+/** 内存 upsert：rows 为整表现有记录（{record_id, fields}），命中更新并原位合并，未命中创建并追加 */
+async function upsertIn(rows, tableId, matchFn, fields) {
+  const hit = rows.find((r) => matchFn(r.fields));
+  if (hit) {
+    await bitable.updateRecord(APP_TOKEN, tableId, hit.record_id, fields);
+    Object.assign(hit.fields, fields);
     return 'update';
   }
-  await bitable.createRecord(APP_TOKEN, tableId, fields);
+  const rec = await bitable.createRecord(APP_TOKEN, tableId, fields);
+  rows.push({ record_id: rec.record_id, fields });
   return 'create';
 }
 
-async function syncDay(date, day, nameCache) {
+async function syncDay(date, day, nameCache, tables) {
   const feats = day.feats || {};
   const memberCount = Object.keys(day.users || {}).length;
   const dateMs = toMs(date);
-  await upsertRow(TABLES.daily, [{ field_name: '日期', value: dateMs }], {
+  const byDate = (f) => Number(f['日期']) === dateMs;
+
+  await upsertIn(tables.daily.rows, TABLES.daily, byDate, {
     '日期': dateMs,
     '总消息数': day.total || 0,
     '活跃人数': memberCount,
     '功能数': Object.keys(feats).length,
   });
   for (const [feat, count] of Object.entries(feats)) {
-    await upsertRow(TABLES.feature, [{ field_name: '日期', value: dateMs }, { field_name: '功能', value: feat }], {
+    await upsertIn(tables.feature.rows, TABLES.feature, (f) => byDate(f) && String(f['功能']) === feat, {
       '日期': dateMs, '功能': feat, '次数': count,
     });
   }
@@ -76,8 +84,9 @@ async function syncDay(date, day, nameCache) {
       }
       name = nameCache.get(openId);
     }
-    await upsertRow(TABLES.member, [{ field_name: '日期', value: dateMs }, { field_name: '成员', value: name || `…${openId.slice(-8)}` }], {
+    await upsertIn(tables.member.rows, TABLES.member, (f) => byDate(f) && String(f['open_id'] || '') === openId, {
       '日期': dateMs,
+      'open_id': openId,
       '成员': name || `…${openId.slice(-8)}`,
       '消息数': u.c || 0,
     });
@@ -96,12 +105,19 @@ async function runSync({ force = false } = {}) {
   const result = { synced: [], skipped: 0, errors: [] };
   try {
     const days = usage.getAllDays();
-    for (const date of Object.keys(days).sort()) {
-      const sig = signature(days[date]);
-      if (!force && state.sigs[date] === sig) { result.skipped += 1; continue; }
+    const pending = Object.keys(days).filter((d) => force || state.sigs[d] !== signature(days[d]));
+    result.skipped = Object.keys(days).length - pending.length;
+    if (pending.length === 0) return result;
+
+    // 整表拉回一次（表小：30 天 × ~35 行/天，500 条/页 1~2 页），本轮所有 upsert 走内存比对
+    const tables = {};
+    for (const key of ['daily', 'feature', 'member']) {
+      tables[key] = { rows: await bitable.listAllRecords(APP_TOKEN, TABLES[key]) };
+    }
+    for (const date of pending.sort()) {
       try {
-        await syncDay(date, days[date], nameCache);
-        state.sigs[date] = sig;
+        await syncDay(date, days[date], nameCache, tables);
+        state.sigs[date] = signature(days[date]);
         stateDirty = true;
         result.synced.push(date);
       } catch (err) {
