@@ -6,21 +6,19 @@ const bitable = require('./bitable');
 
 // ============================================================
 // 网关活跃 → 「机器人项目看板」多维表格同步（动态广场看板数据源）
-// - 每 30 分钟把有变化的日桶 upsert 到 网关日活跃/网关功能使用/网关队员活跃 三表
+// - 口径=机器人交互（显式路由命中/私聊/@机器人，见 dispatch.recordUsage）；
+//   每 30 分钟把有变化的日桶 upsert 到「网关日活跃」单表
 //   （日期签名去重：桶数据没变不写；签名状态落 GATEWAY_DATA_DIR，重启不重写）
+// - 「网关功能使用/网关队员活跃」两表已下线（2026-09-13 用户拍板：监听只留
+//   机器人交互强相关，分功能/分队员明细不再落表；建表脚本同步移除）
 // - upsert 匹配为内存全量比对：records/search 的过滤对 Date 字段不可用
-//   （实测所有 operator 均 InvalidFilter），故整表拉回后按字段值匹配，
-//   行数很小（30 天 × ~35 行/天）无压力
-// - 成员 open_id 优先 usage 姓名缓存，未命中查通讯录（失败回退尾号）；
-//   队员表带 open_id 列做稳定身份（姓名解析升级不会产生重复行）
+//   （实测所有 operator 均 InvalidFilter），故整表拉回后按字段值匹配
 // - 只观察不影响转发：任何失败 console.warn 后保留签名待下轮重试
 // ============================================================
 
 const APP_TOKEN = process.env.PLAZA_BITABLE_APP_TOKEN || '';
 const TABLES = {
   daily: process.env.PLAZA_BITABLE_DAILY_TABLE || '',
-  feature: process.env.PLAZA_BITABLE_FEATURE_TABLE || '',
-  member: process.env.PLAZA_BITABLE_MEMBER_TABLE || '',
 };
 const SYNC_INTERVAL_MS = 30 * 60 * 1000;
 
@@ -59,49 +57,27 @@ async function upsertIn(rows, tableId, matchFn, fields) {
   return 'create';
 }
 
-async function syncDay(date, day, nameCache, tables) {
-  const feats = day.feats || {};
-  const memberCount = Object.keys(day.users || {}).length;
+async function syncDay(date, day, tables) {
   const dateMs = toMs(date);
   const byDate = (f) => Number(f['日期']) === dateMs;
 
+  // 列名沿用历史（总消息数=机器人交互次数），仪表盘图表无需重建
   await upsertIn(tables.daily.rows, TABLES.daily, byDate, {
     '日期': dateMs,
     '总消息数': day.total || 0,
-    '活跃人数': memberCount,
-    '功能数': Object.keys(feats).length,
+    '活跃人数': Object.keys(day.users || {}).length,
+    '功能数': Object.keys(day.feats || {}).length,
   });
-  for (const [feat, count] of Object.entries(feats)) {
-    await upsertIn(tables.feature.rows, TABLES.feature, (f) => byDate(f) && String(f['功能']) === feat, {
-      '日期': dateMs, '功能': feat, '次数': count,
-    });
-  }
-  for (const [openId, u] of Object.entries(day.users || {})) {
-    let name = usage.getNames()[openId];
-    if (!name) {
-      if (!nameCache.has(openId)) {
-        try { nameCache.set(openId, (await usage.resolveName(openId)) || ''); } catch { nameCache.set(openId, ''); }
-      }
-      name = nameCache.get(openId);
-    }
-    await upsertIn(tables.member.rows, TABLES.member, (f) => byDate(f) && String(f['open_id'] || '') === openId, {
-      '日期': dateMs,
-      'open_id': openId,
-      '成员': name || `…${openId.slice(-8)}`,
-      '消息数': u.c || 0,
-    });
-  }
 }
 
 let running = false;
 /** 全量同步：跳过签名未变化的日期；返回 {synced, skipped, errors} */
 async function runSync({ force = false } = {}) {
-  if (!APP_TOKEN || !TABLES.daily || !TABLES.feature || !TABLES.member) {
-    return { skipped: true, reason: 'plaza tables not configured' };
+  if (!APP_TOKEN || !TABLES.daily) {
+    return { skipped: true, reason: 'plaza daily table not configured' };
   }
   if (running) return { skipped: true, reason: 'sync already running' };
   running = true;
-  const nameCache = new Map();
   const result = { synced: [], skipped: 0, errors: [] };
   try {
     const days = usage.getAllDays();
@@ -109,14 +85,11 @@ async function runSync({ force = false } = {}) {
     result.skipped = Object.keys(days).length - pending.length;
     if (pending.length === 0) return result;
 
-    // 整表拉回一次（表小：30 天 × ~35 行/天，500 条/页 1~2 页），本轮所有 upsert 走内存比对
-    const tables = {};
-    for (const key of ['daily', 'feature', 'member']) {
-      tables[key] = { rows: await bitable.listAllRecords(APP_TOKEN, TABLES[key]) };
-    }
+    // 整表拉回一次（30 天 × 1 行/天），本轮所有 upsert 走内存比对
+    const tables = { daily: { rows: await bitable.listAllRecords(APP_TOKEN, TABLES.daily) } };
     for (const date of pending.sort()) {
       try {
-        await syncDay(date, days[date], nameCache, tables);
+        await syncDay(date, days[date], tables);
         state.sigs[date] = signature(days[date]);
         stateDirty = true;
         result.synced.push(date);
@@ -140,11 +113,11 @@ let started = false;
 function start() {
   if (started) return;
   started = true;
-  if (!APP_TOKEN || !TABLES.daily || !TABLES.feature || !TABLES.member) {
-    console.log('[使用统计同步] 未配置 PLAZA_BITABLE_* 表，活跃数据不落多维表格');
+  if (!APP_TOKEN || !TABLES.daily) {
+    console.log('[使用统计同步] 未配置 PLAZA_BITABLE_APP_TOKEN/DAILY_TABLE，活跃数据不落多维表格');
     return;
   }
-  console.log(`[使用统计同步] 已启用：每 ${SYNC_INTERVAL_MS / 60000} 分钟 upsert 网关活跃到机器人项目看板`);
+  console.log(`[使用统计同步] 已启用：每 ${SYNC_INTERVAL_MS / 60000} 分钟 upsert 网关日活跃（机器人交互口径）到机器人项目看板`);
   setTimeout(() => runSync().catch((err) => console.warn('[使用统计同步] 首轮失败:', err.message)), 8000).unref();
   setInterval(() => runSync().catch((err) => console.warn('[使用统计同步] 同步失败:', err.message)), SYNC_INTERVAL_MS).unref();
 }

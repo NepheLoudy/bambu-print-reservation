@@ -1,5 +1,5 @@
 /**
- * 网关活跃 → 多维表格同步 stub 测试（mock usage/bitable 层，不触网）
+ * 网关日活跃 → 多维表格同步 stub 测试（mock usage/bitable 层，不触网）
  * 覆盖：首轮全量 create；签名未变跳过；数据变化后 update；未配置表时整体跳过。
  * 运行：node scripts/stub-test-usage-sync.js
  */
@@ -8,8 +8,6 @@ const assert = require('assert');
 // ---- 环境与 mock 注入（必须先于 require src 模块） ----
 process.env.PLAZA_BITABLE_APP_TOKEN = 'appTest';
 process.env.PLAZA_BITABLE_DAILY_TABLE = 'tblDaily';
-process.env.PLAZA_BITABLE_FEATURE_TABLE = 'tblFeat';
-process.env.PLAZA_BITABLE_MEMBER_TABLE = 'tblMember';
 process.env.GATEWAY_DATA_DIR = require('os').tmpdir() + '/gw-sync-test-' + Date.now();
 
 const DAYS = {
@@ -22,7 +20,7 @@ require.cache[require.resolve('../src/usage')] = {
   exports: {
     getAllDays: () => DAYS,
     getNames: () => ({ ou_a: '队员甲' }),
-    resolveName: async (id) => (id === 'ou_b' ? '队员乙' : null),
+    resolveName: async () => null,
     tenantToken: async () => 'token',
   },
 };
@@ -55,13 +53,14 @@ require.cache[require.resolve('../src/bitable')] = {
 const sync = require('../src/bitable-sync');
 
 (async () => {
-  // 首轮：两个日期全量 create（日活跃 2 + 功能 3 + 队员 3 = 8 行）
+  // 首轮：两个日期各 create 一行（单表，日桶 1 行/天）
   const r1 = await sync.runSync();
   assert.strictEqual(r1.synced.length, 2, `首轮应同步 2 天: ${JSON.stringify(r1)}`);
   const creates = calls.filter((c) => c[0] === 'create');
-  assert.strictEqual(creates.length, 9, `首轮应 create 9 行: ${creates.length}`);
-  assert.ok(creates.some((c) => c[1] === 'tblMember' && c[2]['成员'] === '队员乙'), 'ou_b 应解析出姓名');
-  assert.ok(creates.some((c) => c[1] === 'tblMember' && String(c[2]['成员']).startsWith('…')), '无姓名应回退尾号');
+  assert.strictEqual(creates.length, 2, `首轮应 create 2 行: ${creates.length}`);
+  assert.ok(creates.every((c) => c[1] === 'tblDaily'), '只应写网关日活跃单表');
+  assert.strictEqual(creates[0][2]['活跃人数'], 3, '活跃人数应为去重人数');
+  assert.strictEqual(creates[0][2]['功能数'], 2, '功能数应为去重功能数');
 
   // 第二轮：签名未变 → 全部跳过，零调用
   calls.length = 0;
@@ -76,7 +75,7 @@ const sync = require('../src/bitable-sync');
   assert.deepStrictEqual(r3.synced, ['2026-09-12'], `仅变化日期应重同步: ${JSON.stringify(r3)}`);
   assert.ok(calls.some((c) => c[0] === 'update' && c[1] === 'tblDaily'), '变化日期应走 update');
 
-  console.log('全部通过 ✅（网关活跃同步：全量 create / 签名跳过 / 变化 update / 回退尾号 / 未配置跳过）');
+  console.log('全部通过 ✅（网关日活跃单表同步：全量 create / 签名跳过 / 变化 update / 未配置跳过）');
 })().catch((err) => {
   console.error('测试失败:', err.message);
   process.exit(1);

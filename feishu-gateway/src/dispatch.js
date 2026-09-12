@@ -157,14 +157,17 @@ async function deliverTo(consumer, mode, frame, text) {
 }
 
 /**
- * 使用统计（只观察不改路由）：记录「谁用了什么功能」。
+ * 使用统计（只观察不改路由）：记录「谁用了什么功能」，口径=机器人交互——
+ * 显式路由命中（工单域等专用能力）、私聊、群内 @机器人 才计数；
+ * 群内未 @ 落默认目标的普通消息不计（hub 本就不会响应，属闲聊非交互）。
  * 功能口径：/ 开头取首个 token（/print-status、/approval-list…可精确到指令）；
  * 工单接单监听（@/私聊+接单，非 / 文本）记为「工单接单」；其余按私聊/群 @对话计。
  */
-function recordUsage(frame, text, consumer) {
+function recordUsage(frame, text, consumer, { explicit = false } = {}) {
   try {
     const event = frame.event || {};
     const message = event.message || {};
+    if (!explicit && message.chat_type !== 'p2p' && !isMentioned(message)) return;
     const senderId =
       (event.sender && event.sender.sender_id && (event.sender.sender_id.open_id || event.sender.sender_id.user_id)) ||
       (message.sender_id && (message.sender_id.open_id || message.sender_id.user_id)) ||
@@ -204,7 +207,7 @@ async function routeMessage(frame) {
     const consumer = findConsumer(rule.target);
     if (consumer) {
       console.log(`[路由] 消息命中规则 ${JSON.stringify(m)} → ${consumer.name} (${rule.mode || 'event'}) chat=${message.chat_id || '?'} text="${text.slice(0, 50)}"`);
-      recordUsage(frame, text, consumer);
+      recordUsage(frame, text, consumer, { explicit: true });
       return deliverTo(consumer, rule.mode || 'event', frame, text);
     }
     console.warn(`[路由] 规则目标 ${rule.target} 未在 CONSUMERS 中定义，继续匹配下一条规则`);

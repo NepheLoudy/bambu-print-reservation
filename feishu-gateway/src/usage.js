@@ -5,6 +5,8 @@ const config = require('./config');
 // ============================================================
 // 使用统计（运维台「功能使用 / 队员活跃」看板的数据源）
 // - 只计数不改路由：dispatch 在消息命中目标后顺带记录，故障时静默自愈
+// - 口径=机器人交互：显式路由命中/私聊/群内 @机器人；群内未 @ 的普通消息不计
+//   （按天分桶的明细 feats/users 仅服务运维台与日活跃汇总，不再落多维表格分表）
 // - 按天分桶：每日 { total, users: {open_id: {c, last}}, feats: {功能: 次数} }，保留 30 天
 // - 落盘目录必须在项目外：部署 tar 会清空 /opt/feishu-gateway，
 //   默认 /home/qianli/feishu-gateway-data（与 approval-bot-data 惯例一致），可 GATEWAY_DATA_DIR 覆盖
