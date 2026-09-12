@@ -89,7 +89,7 @@ qianli 项目群的所有机器人共用同一个飞书自建应用（`cli_aac7e
 - 消息事件命中路由目标后顺带计数（只观察不改路由）：**谁**（open_id，经共用应用查通讯录解析成姓名并永久缓存）在用**什么功能**（`/` 开头取首个 token 精确到指令；工单接单监听说的是「接单」这两个字，单独成桶；其余按私聊对话/@群对话计）；
 - 按天分桶保留 30 天，落盘 `<数据目录>/usage-stats.json`（60s 兜底刷新 + SIGINT 落盘，重启不丢）；
 - 查询：`GET /api/usage?days=N`（默认 1，最大 30），返回 `users`（含姓名）/`features`/`daily` 聚合；运维台「使用活跃」看板即消费此接口；
-- 落多维表格：`PLAZA_BITABLE_APP_TOKEN` + `PLAZA_BITABLE_DAILY_TABLE` 配置后每 30 分钟按日期签名 upsert 到「网关日活跃」单表（动态广场看板数据源；分功能/分队员的两张明细表已于 2026-09-13 下线），`POST /api/usage-sync/run?force=1` 手动补数。
+- 落多维表格：`PLAZA_BITABLE_APP_TOKEN` + `PLAZA_BITABLE_DAILY_TABLE` 配置后每 30 分钟按日期签名 upsert 到「网关日活跃」单表（动态广场看板数据源；分功能/分队员的两张明细表已于 2026-09-13 下线），`POST /api/usage-sync/run?force=1` 手动补数（**管理端点鉴权**：需带 `X-API-Token: $GATEWAY_API_TOKEN` 头，token 在本仓 `.env`；`/api/dispatch` 同样受控，未配置 token 时两端点锁定）。
 
 ## 部署与切换步骤
 
