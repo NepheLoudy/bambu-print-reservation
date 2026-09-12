@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v55**（2026-09-13，5311839；并发网关活跃批为 v54/30c8e02）。
+当前最新：**v56**（2026-09-13，随本提交落地）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -410,3 +410,14 @@
 - **冲突额外提示**：有未过期 DDL 确认的成员，18:30 询问追加「回『是』会确认项目，值日请回『打卡』」——hub 新增 `GET /api/ddl/pending` 供数，duty `ddlConflictClient` 短缓存消费、失联静默降级。
 - 测试：duty 五套 stub（flow 新增 4 断言 + policy 清单 20→24 词）+ hub duty-branch 回归全过。
 - 文档：registry（duty 指令/hub 监听链路）、ticket-pm/LOGIC-MAP §2.3 时效口径、维护者手册、桌面 HTML（时间线/指令表/FAQ 三处）、意图待定项销项原 #2 并记入已定口径。
+
+### v56 · 2026-09-13 · 随本提交落地 · feat
+
+**打印预约队列持久化：重启不丢排队（bambu v24，用户拍板：后续有算力，预约可持久化）**
+
+- 分发引擎队列/打印中映射/known/完成计数落盘 `DISPATCH_STATE_FILE`（生产 `/home/qianli/bambu-data/dispatch-state.json`，项目外数据目录与静默积压同址，部署清目录不再影响）；变更防抖 300ms 原子写入，`start()` 恢复，pm2 restart 的 SIGINT/SIGTERM 退出前强制冲刷。
+- known 截尾 2000 条防无限增长（恢复时队列/打印中的活动 recordId 回加）；文件损坏按空队列启动（审批事件与对账重新入队）、缺失静默跳过。
+- NAS 实测：pm2 restart 后状态文件生成、恢复闭环工作、health 200。
+- 测试：新增 `test/dispatcher-persist-test.js` 9 项；dispatcher/approval 既有单测回归全过。
+- 文档：bambu README「状态持久化」节 + 测试清单、`.env.example`/`.env` 键、registry bambu notes、桌面意图待定项销项（bambu 队列持久化条目）并记入已定口径。
+- 同批 gitlink：duty-bot（DEVLOG 建表脚本条目撞号订正 v17）。

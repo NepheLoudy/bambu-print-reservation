@@ -142,3 +142,13 @@
 - 打印机登记清单（id/名称/型号；accessCode/serial 不外泄）、审批主通道/自动审批/对账参数、分发匹配参数（颜色阈值/重试上限/冷却/AMS）、队列与打印中快照。
 - 运维台「功能激活」面板接通真实数据（dashboard fetchActivity 增 printPolicy/ticketPolicy 探针，与 ticket v64 同批）。
 - README 补「定制窗口」节；dispatch/approval 两套离线测试全过。
+
+### v24 · 2026-09-13 · 随顶层 v56 归档 · feat
+
+**分发引擎状态持久化：重启不丢打印队列（用户拍板：后续有算力，预约可持久化）**
+
+- 新增队列/打印中映射/已知记录（known）/完成计数的磁盘落盘：`DISPATCH_STATE_FILE`（默认项目外 `/home/qianli/bambu-data/dispatch-state.json`，与静默积压同目录，部署清目录不再影响）；变更防抖 300ms 合并写入 + 临时文件原子改名；`start()` 时恢复，进程 SIGINT/SIGTERM（pm2 restart）退出前强制冲刷。
+- known 截尾 2000 条防无限增长（保存时截尾、恢复时队列/打印中的活动 recordId 回加）；状态文件损坏按空队列启动（审批事件与对账可重新入队），文件缺失静默跳过。
+- 落盘点：trigger 匹配轮结束（覆盖入队/分发/完成/失败引发的变更）、dequeue、manualDispatch；exit hook 只挂一次。
+- 测试：新增 `test/dispatcher-persist-test.js`（落盘生成/重载恢复队列与打印中与完成计数/known 截尾/损坏文件按空启动/文件缺失静默 9 项）；dispatcher/approval 既有单测回归全过。
+- README 补「状态持久化」节与测试清单；`.env` 配置生产路径 `/home/qianli/bambu-data/dispatch-state.json`，`.env.example` 同步。

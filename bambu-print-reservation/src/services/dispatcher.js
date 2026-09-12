@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const config = require('../config');
 const bitableApi = require('../feishu/bitable');
 const { downloadFile, downloadApprovalAttachment } = require('../feishu/client');
@@ -6,6 +8,15 @@ const quietHours = require('../utils/quietHours');
 const printerManager = require('../printer/manager');
 const reservationService = require('./reservation');
 const plaza = require('./plaza');
+
+// ============================================================
+// 队列/打印中状态持久化（2026-09-13 口径：重启不丢队列）
+// 文件放项目外数据目录（DISPATCH_STATE_FILE，默认项目根 .dispatch-state.json），
+// 部署清目录不再丢状态；known 截尾保存防止无限增长。
+// ============================================================
+const STATE_FILE = process.env.DISPATCH_STATE_FILE || path.join(__dirname, '..', '..', '.dispatch-state.json');
+try { fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true }); } catch { /* 目录不可建时退化为不持久化，分发本身不受影响 */ }
+const KNOWN_CAP = 2000;
 
 // ============================================================
 // 打印分发引擎：任务队列 + 空闲触发匹配
@@ -64,10 +75,14 @@ class Dispatcher {
     this.lastMaterialRemind = 0;  // 缺料提醒节流
     this.matching = false;        // 匹配过程串行化
     this.timer = null;
+    this.saveTimer = null;        // 落盘防抖
+    this.exitHooked = false;      // 进程退出冲刷只挂一次
   }
 
   start() {
     if (this.timer) return;
+    this.restoreState();
+    this.hookExitFlush();
     if (config.approval.enabled) {
       // 审批直连主通道：事件秒级且可靠，镜像表对账只会造成重复入队，关闭
       console.log('[分发] 审批直连主通道，表格对账已关闭');
@@ -97,6 +112,63 @@ class Dispatcher {
         this.trigger('printer-idle');
       }
     });
+  }
+
+  /** 当前引擎状态快照（持久化载荷） */
+  statePayload() {
+    return {
+      savedAt: new Date().toISOString(),
+      queue: this.queue,
+      printing: [...this.printing.entries()],
+      completedCount: [...this.completedCount.entries()],
+      known: [...this.known].slice(-KNOWN_CAP),
+    };
+  }
+
+  /** 同步落盘（写临时文件后原子改名；损坏的旧文件按空处理由 restore 兜底） */
+  flushState() {
+    try {
+      const tmp = STATE_FILE + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify(this.statePayload(), null, 2));
+      fs.renameSync(tmp, STATE_FILE);
+    } catch (err) {
+      console.warn('[分发] 状态落盘失败（不影响分发）:', err.message);
+    }
+  }
+
+  /** 状态变更后防抖落盘（合并突发变更，300ms 内只写一次） */
+  persistState() {
+    if (this.saveTimer) return;
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = null;
+      this.flushState();
+    }, 300);
+  }
+
+  /** 启动恢复：队列/打印中/已知记录/完成计数（文件缺失或损坏按空启动） */
+  restoreState() {
+    try {
+      if (!fs.existsSync(STATE_FILE)) return;
+      const data = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'));
+      this.queue = Array.isArray(data.queue) ? data.queue : [];
+      this.printing = new Map(Array.isArray(data.printing) ? data.printing : []);
+      this.completedCount = new Map(Array.isArray(data.completedCount) ? data.completedCount : []);
+      this.known = new Set(Array.isArray(data.known) ? data.known : []);
+      for (const t of this.queue) this.known.add(t.recordId);
+      for (const [, t] of this.printing) this.known.add(t.recordId);
+      console.log(`[分发] 已恢复持久化状态: 队列 ${this.queue.length} / 打印中 ${this.printing.size} / 已知 ${this.known.size}（${STATE_FILE}）`);
+    } catch (err) {
+      console.warn('[分发] 恢复持久化状态失败（按空队列启动）:', err.message);
+    }
+  }
+
+  /** 进程退出前冲刷（pm2 restart 发 SIGINT/SIGTERM；只挂一次） */
+  hookExitFlush() {
+    if (this.exitHooked) return;
+    this.exitHooked = true;
+    const flush = () => this.flushState();
+    process.on('SIGINT', flush);
+    process.on('SIGTERM', flush);
   }
 
   /** 对账：拉「已通过」状态的记录，补入队列（幂等） */
@@ -159,6 +231,7 @@ class Dispatcher {
         this.printing.delete(printerId);
       }
     }
+    this.persistState();
   }
 
   /** 记录是否已在本引擎登记过（含排队/打印中/已完成；审批对账用于跳过已知实例） */
@@ -177,6 +250,7 @@ class Dispatcher {
       .catch((err) => console.error(`[分发] 匹配失败(${reason}):`, err.message))
       .finally(() => {
         this.matching = false;
+        this.persistState();
         // 匹配过程中可能有新任务/新空闲，再跑一轮。
         // 仅在本轮确有分发动作时才立即重跑：缺料等待若也 setImmediate 重跑，
         // 会形成无节流的忙等循环（条件恒真：队列就绪 + 打印机空闲，但谁也匹配不上谁）
@@ -499,6 +573,7 @@ class Dispatcher {
 
     this.queue = this.queue.filter((t) => t.recordId !== task.recordId);
     await this.dispatch(task, printer);
+    this.persistState();
     return { manualOnly: false, message: `已分发到 ${printer.name}` };
   }
 }

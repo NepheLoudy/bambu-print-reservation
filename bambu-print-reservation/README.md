@@ -72,9 +72,14 @@ npm run push
 
 详见顶层 `.agents/skills/qianli-deploy/SKILL.md`。NAS 路径 `/opt/bambu-print-server`，pm2 进程 `bambu-print-server`，端口 3001。
 
+## 状态持久化（2026-09-13 起）
+
+分发引擎的**队列 / 打印中映射 / 已知记录 / 完成计数**落盘到 `DISPATCH_STATE_FILE`（默认项目外数据目录 `/home/qianli/bambu-data/dispatch-state.json`）——进程重启（含部署 pm2 restart，SIGINT/SIGTERM 退出前强制冲刷）后自动恢复，**打印预约排队不再因重启丢失**。变更防抖 300ms 合并写入、临时文件原子改名；`known` 截尾 2000 条防无限增长；文件损坏按空队列启动（审批事件/对账可重新入队）。
+
 ## 测试
 
 ```
-node test/dispatcher-test.js   # 分发引擎匹配逻辑单测（18 项）
-node test/approval-test.js     # 审批事件解析/自动审批逻辑单测（10 项）
+node test/dispatcher-test.js          # 分发引擎匹配逻辑单测（18 项）
+node test/approval-test.js            # 审批事件解析/自动审批逻辑单测（10 项）
+node test/dispatcher-persist-test.js  # 分发引擎状态持久化往返测试（落盘/重启恢复/截尾/损坏兜底）
 ```
