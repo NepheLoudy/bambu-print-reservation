@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v56**（2026-09-13，随本提交落地）。
+当前最新：**v57**（2026-09-13，随本提交落地）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -421,3 +421,12 @@
 - 测试：新增 `test/dispatcher-persist-test.js` 9 项；dispatcher/approval 既有单测回归全过。
 - 文档：bambu README「状态持久化」节 + 测试清单、`.env.example`/`.env` 键、registry bambu notes、桌面意图待定项销项（bambu 队列持久化条目）并记入已定口径。
 - 同批 gitlink：duty-bot（DEVLOG 建表脚本条目撞号订正 v17）。
+
+### v57 · 2026-09-13 · 随本提交落地 · fix
+
+**人工指定与自动匹配分发互斥：bambu 分钟级 TOCTOU 竞态关闭（bambu v25，遗留待办销项）**
+
+- 方案：按打印机的分发闸门——`dispatching` 集合在 dispatch 入口同步 check+add（单线程事件循环内原子），finally 释放（失败/重试路径也保证）；自动匹配候选过滤分发中打印机；manualDispatch busy 校验追加分发中判定 + dispatch 入口兜底二次拒绝。闸门刻意不持久化（崩溃后清零重新评估）。
+- 病灶回顾：dispatch 的下载/上传/下发是分钟级 await 链、printing 占用登记在链尾，manualDispatch 绕过 matching 串行段且 busy 校验在链前——窗口期两路对同一台打印机双双下发（上传互覆/顶掉任务）。
+- 测试：新增 `test/dispatcher-manual-race-test.js` 8 项（受控 deferred 模拟分钟级链路）；persist/dispatcher/approval 回归全过；NAS 部署后 health 200。
+- 文档：bambu README「分发互斥」节、registry bambu notes、桌面意图待定项销项（原 bambu TOCTOU 条目）并记入已定口径。

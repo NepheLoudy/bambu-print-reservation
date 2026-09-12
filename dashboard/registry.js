@@ -97,7 +97,7 @@ module.exports = {
       windows: [
         { m: 'GET', p: '/api/print/policy', d: '打印机登记/审批通道/分发参数全景（只读）' },
       ],
-      notes: 'push 无 git 步骤；版本锚点取顶层归档提交；v24 起分发引擎状态持久化（DISPATCH_STATE_FILE=/home/qianli/bambu-data，重启不丢队列/打印中）；打印排队/开始/完成/失败事件写入动态广场（机器人项目看板）',
+      notes: 'push 无 git 步骤；版本锚点取顶层归档提交；v24 起分发引擎状态持久化（DISPATCH_STATE_FILE=/home/qianli/bambu-data，重启不丢队列/打印中）；v25 起人工指定与自动匹配按打印机分发闸门互斥（分钟级 TOCTOU 关闭）；打印排队/开始/完成/失败事件写入动态广场（机器人项目看板）',
     },
     {
       id: 'approval',

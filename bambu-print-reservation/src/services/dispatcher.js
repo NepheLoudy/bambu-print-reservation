@@ -74,6 +74,8 @@ class Dispatcher {
     this.completedCount = new Map(); // printerId → 累计完成数（预留：按负载选机未实现，只写不读）
     this.lastMaterialRemind = 0;  // 缺料提醒节流
     this.matching = false;        // 匹配过程串行化
+    this.dispatching = new Set(); // 正在分发中的 printerId（人工指定 vs 自动匹配互斥闸门；
+                                  // 刻意不持久化——崩溃后清零重新评估，残留锁才危险）
     this.timer = null;
     this.saveTimer = null;        // 落盘防抖
     this.exitHooked = false;      // 进程退出冲刷只挂一次
@@ -273,7 +275,8 @@ class Dispatcher {
   async match(reason) {
     let dispatched = false;
     while (this.queue.length > 0) {
-      const available = printerManager.getAvailablePrinters();
+      // 分发中的打印机对自动匹配不可见（分钟级 await 链里 printing 登记在链尾才发生）
+      const available = printerManager.getAvailablePrinters().filter((p) => !this.dispatching.has(p.id));
       if (available.length === 0) break;
 
       this.sortQueue();
@@ -377,8 +380,26 @@ class Dispatcher {
     console.log(`[分发] ${this.queue.length} 个任务缺料等待: ${needs}`);
   }
 
-  /** 执行分发：下载 → 上传 → 下发 → 写表 → 占用登记 */
+  /**
+   * 执行分发：下载 → 上传 → 下发 → 写表 → 占用登记
+   * 互斥闸门：dispatch 是分钟级 await 链，printing 占用登记在链尾才发生；
+   * 不设闸门时人工指定与自动匹配会在窗口期双双选中同一台打印机（上传互覆/顶掉任务）。
+   * check+add 同步完成（单线程事件循环无插入窗口）；finally 保证失败/重试路径也释放。
+   */
   async dispatch(task, printer) {
+    if (this.dispatching.has(printer.id)) {
+      throw new Error(`打印机 ${printer.name} 正在有任务分发中，请稍候再试`);
+    }
+    this.dispatching.add(printer.id);
+    try {
+      await this.dispatchLocked(task, printer);
+    } finally {
+      this.dispatching.delete(printer.id);
+      this.persistState();
+    }
+  }
+
+  async dispatchLocked(task, printer) {
     this.queue = this.queue.filter((t) => t.recordId !== task.recordId);
 
     try {
@@ -563,12 +584,15 @@ class Dispatcher {
     }
 
     // 防覆盖在打任务：人工分发不走 matching 串行段，直接 dispatch 会顶掉 printing 映射，
-    // 原任务永远无法写「已完成/失败」
+    // 原任务永远无法写「已完成/失败」；分发中（下载/上传 await 链）同样不可指定（2026-09-13 竞态修复）
     const busyTask = this.printing.get(printer.id);
     if (busyTask) {
       throw new Error(
         `${printer.name} 正在打印「${busyTask.applicationNo || busyTask.fileName || busyTask.recordId}」，请等其完成后再指定`
       );
+    }
+    if (this.dispatching.has(printer.id)) {
+      throw new Error(`${printer.name} 正在有任务分发中（文件下载/上传），请稍候再试`);
     }
 
     this.queue = this.queue.filter((t) => t.recordId !== task.recordId);

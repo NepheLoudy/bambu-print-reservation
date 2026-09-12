@@ -47,6 +47,10 @@
 4. 家族匹配（PLA-CF ↔ PLA）
 5. 加急优先出队，队首缺料不阻塞后续任务
 
+## 分发互斥（2026-09-13）
+
+人工指定打印机（`/print-dispatch`）与自动匹配共用**按打印机的分发闸门**：dispatch 的下载/上传/下发是分钟级 await 链（占用登记在链尾），闸门在入口同步判定——分发中的打印机对自动匹配不可见、对人工指定回「正在有任务分发中，请稍候再试」；失败/重试路径由 finally 释放，闸门刻意不持久化（崩溃后清零重新评估，残留锁才危险）。
+
 ## 多维表格与审批表单字段
 
 主通道下材料/颜色/指定打印机是**官方审批表单字段**，按标题关键词自适应解析（`APPROVAL_CODE` 留空时依赖「表单含附件」识别打印审批，建议配置 code 收窄）；`scripts/add-dispatch-fields.js` 仅对旧版表格直提交流程有意义。
@@ -82,4 +86,5 @@ npm run push
 node test/dispatcher-test.js          # 分发引擎匹配逻辑单测（18 项）
 node test/approval-test.js            # 审批事件解析/自动审批逻辑单测（10 项）
 node test/dispatcher-persist-test.js  # 分发引擎状态持久化往返测试（落盘/重启恢复/截尾/损坏兜底）
+node test/dispatcher-manual-race-test.js  # 分发互斥闸门测试（人工指定 vs 自动匹配竞态修复回归）
 ```

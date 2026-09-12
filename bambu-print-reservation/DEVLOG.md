@@ -152,3 +152,12 @@
 - 落盘点：trigger 匹配轮结束（覆盖入队/分发/完成/失败引发的变更）、dequeue、manualDispatch；exit hook 只挂一次。
 - 测试：新增 `test/dispatcher-persist-test.js`（落盘生成/重载恢复队列与打印中与完成计数/known 截尾/损坏文件按空启动/文件缺失静默 9 项）；dispatcher/approval 既有单测回归全过。
 - README 补「状态持久化」节与测试清单；`.env` 配置生产路径 `/home/qianli/bambu-data/dispatch-state.json`，`.env.example` 同步。
+
+### v25 · 2026-09-13 · 随顶层 v57 归档 · fix
+
+**人工指定与自动匹配分发互斥：分钟级 TOCTOU 竞态关闭（遗留待办销项）**
+
+- 病灶：dispatch 是分钟级 await 链（飞书下载 → SFTP 上传 → MQTT 下发），printing 占用登记在链尾才发生；manualDispatch 不走 matching 串行段且 busy 校验在链前——窗口期内两路对同一台打印机双双下发（上传互覆/顶掉任务，原任务永远无法写「已完成/失败」）。
+- 修复：按打印机的分发闸门——`dispatching` Set 在 dispatch 入口同步 check+add（单线程事件循环无插入窗口），finally 释放（失败/重试路径也保证）；自动匹配候选过滤掉分发中的打印机；manualDispatch busy 校验追加「正在有任务分发中」判定，且 dispatch 入口闸门兜底二次拒绝。**闸门刻意不持久化**（崩溃后清零重新评估，残留锁才危险）。
+- 测试：新增 `test/dispatcher-manual-race-test.js` 8 项（可控 deferred 模拟分钟级下载链：分发中自动匹配不可见/并发 dispatch 二路拒绝且任务留队/manualDispatch 判定/链路完成后闸门释放任务继续分发）；persist/dispatcher/approval 三套既有测试回归全过。
+- README 补「分发互斥」节与测试清单。
