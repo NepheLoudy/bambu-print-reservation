@@ -1,0 +1,130 @@
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const usage = require('./usage');
+const bitable = require('./bitable');
+
+// ============================================================
+// 网关活跃 → 「机器人项目看板」多维表格同步（动态广场看板数据源）
+// - 每 30 分钟把有变化的日桶 upsert 到 网关日活跃/网关功能使用/网关队员活跃 三表
+//   （日期签名去重：桶数据没变不写；签名状态落 GATEWAY_DATA_DIR，重启不重写）
+// - 成员 open_id 优先用 usage 姓名缓存，未命中时查通讯录（单次运行内缓存失败回退尾号）
+// - 只观察不影响转发：任何失败 console.warn 后保留签名待下轮重试
+// ============================================================
+
+const APP_TOKEN = process.env.PLAZA_BITABLE_APP_TOKEN || '';
+const TABLES = {
+  daily: process.env.PLAZA_BITABLE_DAILY_TABLE || '',
+  feature: process.env.PLAZA_BITABLE_FEATURE_TABLE || '',
+  member: process.env.PLAZA_BITABLE_MEMBER_TABLE || '',
+};
+const SYNC_INTERVAL_MS = 30 * 60 * 1000;
+
+const dataDir = process.env.GATEWAY_DATA_DIR || '/home/qianli/feishu-gateway-data';
+const STATE_FILE = path.join(dataDir, 'usage-sync-state.json');
+let state = { sigs: {} };
+try { state = Object.assign(state, JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'))); } catch (err) { /* 首次空表 */ }
+let stateDirty = false;
+setInterval(() => {
+  if (!stateDirty) return;
+  stateDirty = false;
+  fs.writeFile(STATE_FILE, JSON.stringify(state), () => {});
+}, 60 * 1000).unref();
+
+function signature(day) {
+  const userCount = Object.values(day.users || {}).reduce((s, u) => s + (u.c || 0), 0);
+  const raw = JSON.stringify({ t: day.total || 0, u: userCount, f: day.feats || {} });
+  return crypto.createHash('md5').update(raw).digest('hex').slice(0, 12);
+}
+
+/** 单行 upsert：按条件找记录，命中 update，否则 create */
+async function upsertRow(tableId, conditions, fields) {
+  const hits = await bitable.searchRecords(APP_TOKEN, tableId, conditions);
+  if (hits.length > 0) {
+    await bitable.updateRecord(APP_TOKEN, tableId, hits[0].record_id, fields);
+    return 'update';
+  }
+  await bitable.createRecord(APP_TOKEN, tableId, fields);
+  return 'create';
+}
+
+async function syncDay(date, day, nameCache) {
+  const feats = day.feats || {};
+  const memberCount = Object.keys(day.users || {}).length;
+  await upsertRow(TABLES.daily, [{ field_name: '日期', value: date }], {
+    '日期': date,
+    '总消息数': day.total || 0,
+    '活跃人数': memberCount,
+    '功能数': Object.keys(feats).length,
+  });
+  for (const [feat, count] of Object.entries(feats)) {
+    await upsertRow(TABLES.feature, [{ field_name: '日期', value: date }, { field_name: '功能', value: feat }], {
+      '日期': date, '功能': feat, '次数': count,
+    });
+  }
+  for (const [openId, u] of Object.entries(day.users || {})) {
+    let name = usage.getNames()[openId];
+    if (!name) {
+      if (!nameCache.has(openId)) {
+        try { nameCache.set(openId, (await usage.resolveName(openId)) || ''); } catch { nameCache.set(openId, ''); }
+      }
+      name = nameCache.get(openId);
+    }
+    await upsertRow(TABLES.member, [{ field_name: '日期', value: date }, { field_name: '成员', value: name || `…${openId.slice(-8)}` }], {
+      '日期': date,
+      '成员': name || `…${openId.slice(-8)}`,
+      '消息数': u.c || 0,
+    });
+  }
+}
+
+let running = false;
+/** 全量同步：跳过签名未变化的日期；返回 {synced, skipped, errors} */
+async function runSync({ force = false } = {}) {
+  if (!APP_TOKEN || !TABLES.daily || !TABLES.feature || !TABLES.member) {
+    return { skipped: true, reason: 'plaza tables not configured' };
+  }
+  if (running) return { skipped: true, reason: 'sync already running' };
+  running = true;
+  const nameCache = new Map();
+  const result = { synced: [], skipped: 0, errors: [] };
+  try {
+    const days = usage.getAllDays();
+    for (const date of Object.keys(days).sort()) {
+      const sig = signature(days[date]);
+      if (!force && state.sigs[date] === sig) { result.skipped += 1; continue; }
+      try {
+        await syncDay(date, days[date], nameCache);
+        state.sigs[date] = sig;
+        stateDirty = true;
+        result.synced.push(date);
+      } catch (err) {
+        result.errors.push(`${date}: ${err.message}`);
+        console.warn('[使用统计同步] 写表失败（下轮重试）:', date, err.message);
+      }
+    }
+    // 只保留最近 35 天的签名（usage 本身保留 30 天）
+    for (const d of Object.keys(state.sigs)) {
+      if (!days[d]) delete state.sigs[d];
+    }
+    stateDirty = true;
+  } finally {
+    running = false;
+  }
+  return result;
+}
+
+let started = false;
+function start() {
+  if (started) return;
+  started = true;
+  if (!APP_TOKEN || !TABLES.daily || !TABLES.feature || !TABLES.member) {
+    console.log('[使用统计同步] 未配置 PLAZA_BITABLE_* 表，活跃数据不落多维表格');
+    return;
+  }
+  console.log(`[使用统计同步] 已启用：每 ${SYNC_INTERVAL_MS / 60000} 分钟 upsert 网关活跃到机器人项目看板`);
+  setTimeout(() => runSync().catch((err) => console.warn('[使用统计同步] 首轮失败:', err.message)), 8000).unref();
+  setInterval(() => runSync().catch((err) => console.warn('[使用统计同步] 同步失败:', err.message)), SYNC_INTERVAL_MS).unref();
+}
+
+module.exports = { start, runSync };

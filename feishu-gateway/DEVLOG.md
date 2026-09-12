@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次 git 提交 + 一次部署）。本项目无独立远端，push.js 只暂存 `feishu-gateway/` 路径提交进顶层 monorepo——版本即顶层仓库中触碰本路径的提交。v1~v8 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v14**（2026-09-12 顶层归档 `b4aa03e`）。
+当前最新：**v15**（2026-09-12，顶层归档哈希随顶层 v47 回填）。
 
 ## 阶段五 · 开发历史建档（2026-09-04）
 
@@ -89,3 +89,15 @@
 - 成员名解析：新 open_id 首次出现时用共用应用凭证查通讯录（contact/v3/users），姓名永久缓存进统计文件；失败 24h 内不重试，展示回退 open_id。
 - HTTP 端点 GET /api/usage?days=N（默认 1，最大 30）：返回 users/features/daily 聚合，运维台「使用活跃」看板消费。
 - 验证：本地以空 APP_ID 起 HTTP（不连长连接）POST /api/dispatch 合成事件，计数/分桶/落盘/聚合全通过（注意 Git Bash curl -d 直写中文会 GBK 乱码，测中文路由要 --data-binary @utf8文件）；线上部署后 ws running，/api/usage 空表起步。
+
+## 阶段十一 · 动态广场看板（2026-09-12）
+
+### v15 · 2026-09-12 · 顶层归档（随顶层 v47，哈希待回填） · feat
+
+**网关活跃同步多维表格——动态广场看板数据源**
+
+- 新增 `src/bitable.js`（最小写表客户端，复用 usage 的 tenant token）与 `src/bitable-sync.js`：每 30 分钟把使用统计按**日期签名** upsert 到机器人项目看板「网关日活跃 / 网关功能使用 / 网关队员活跃」三表（日期桶无变化不写表；签名状态落 GATEWAY_DATA_DIR，重启不重写），启动即回填存量 30 天。
+- 成员 open_id 优先 usage 姓名缓存，未命中查通讯录（单轮缓存，失败回退 open_id 尾号）。
+- `POST /api/usage-sync/run`（`?force=1` 忽略签名重写全部）手动补数，运维台可用。
+- 配置：`.env` 补 `PLAZA_BITABLE_APP_TOKEN/DAILY_TABLE/FEATURE_TABLE/MEMBER_TABLE` 四键（.env.example 同步）；建表脚本在 duty-bot `scripts/create-plaza-tables.js`（幂等）。
+- 测试：`scripts/stub-test-usage-sync.js`（全量 create / 签名跳过 / 变化 update / 姓名回退尾号）全过；只观察不影响转发，任何写表失败 warn 后下轮重试。

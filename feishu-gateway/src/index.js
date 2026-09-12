@@ -3,6 +3,7 @@ const lark = require('@larksuiteoapi/node-sdk');
 const config = require('./config');
 const { dispatchFrame } = require('./dispatch');
 const usage = require('./usage');
+const bitableSync = require('./bitable-sync');
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
@@ -24,6 +25,15 @@ app.get('/api/health', (req, res) => {
 // 使用统计（运维台活跃看板数据源）：?days=N 聚合最近 N 天（默认 1，最大 30）
 app.get('/api/usage', (req, res) => {
   res.json(usage.aggregate(req.query.days));
+});
+
+// 手动触发网关活跃 → 多维表格同步（动态广场看板；?force=1 忽略签名重写全部）
+app.post('/api/usage-sync/run', async (req, res) => {
+  try {
+    res.json({ ok: true, result: await bitableSync.runSync({ force: req.query.force === '1' }) });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
 });
 
 // 手动投递测试：POST {type, event} 或 {header:{event_type}, event}，走与长连接相同的分发管线
@@ -125,4 +135,5 @@ app.listen(config.port, () => {
   console.log(`   消息路由规则: ${config.messageRoutes.length} 条`);
   subscribeDocs();
   startWs();
+  bitableSync.start();
 });

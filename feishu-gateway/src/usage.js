@@ -149,4 +149,13 @@ function aggregate(daysN = 1) {
   };
 }
 
-module.exports = { recordMessage, aggregate, statsFile: FILE };
+module.exports = {
+  recordMessage,
+  aggregate,
+  statsFile: FILE,
+  // 供 bitable-sync 消费：原始日桶 / 姓名缓存 / 飞书客户端
+  getAllDays: () => stats.days,
+  getNames: () => stats.names,
+  resolveName,
+  tenantToken,
+};
