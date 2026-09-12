@@ -84,7 +84,7 @@ feishu-gateway（事件接入 + 路由分工，不在本工作区）
 **入口 A：群内 @机器人 + 「接单」**（网关宽口径路由：含「接单」且 @机器人 → 本项目；本服务二次校验 `isSelfMention`）。
 **入口 B：负责人私聊回复「接单」**（网关 p2p+接单 路由）。
 
-两个入口都要求**去空白后整句等于「接单 / 确认接单」**（`chatService.isExactAcceptText`）；含「接单」但非整句（如"还没人接单吗""我不想接单"）只回一条提示，**不触发任何写操作**。消息级去重：`processedMessages`（message_id，TTL 5 分钟）。`IGNORE_CHAT_IDS` 内的群整条跳过。
+两个入口都要求**去空白后整句等于「接单 / 确认接单」**（`chatService.isExactAcceptText`）；含「接单」但非整句（如"还没人接单吗""我不想接单"）只回一条提示，**不触发任何写操作**。消息级去重：`processedMessages`（message_id，TTL 5 分钟）。`IGNORE_CHAT_IDS` 内的群整条跳过。**无单群静默（2026-09-13）**：群内接单类消息先查 `hasPendingAcceptInGroup(chatId)`——该群实时队列（`computeAcceptQueues`）为空即静默忽略（非工单群/当前无单的组别群都不再回「无待接单工单」与使用提示）；p2p 私聊确认入口不受此门禁影响。
 
 **群内链路 `handleAcceptOrder(chatId, userId, ...)`**（v64 起按 chatId **进程内串行化**：接单是「读全量记录 → 合并写补充负责人」链路，并发双读同底版会互相覆盖丢人；串行后后到者读到先到者的写入再合并）：
 1. 定位工单：按源表实时推导该群队列（`computeAcceptQueues`，v57 起无内存待接单映射）：**仅触发节点** + 补充负责人为空 / "指定即绑定未确认"（补充负责人==指定负责人）/ **多人单续接窗口内**（多人单补充负责人已有人也开放，截止已过则出队）+ 面向组别覆盖该群（或指定负责人的组别覆盖该群）；按创建时间倒序（**最新为「接单1」**），群内复数张时接单词带序号，裸「接单」被拒并提示序号范围。
@@ -217,7 +217,7 @@ p2p 消息：  ① DDL逾期确认(handleP2PReply) → handled? 终止
 3. **指令门禁同套**：指令仅群内 + 私聊白名单（`P2P_COMMAND_OPEN_IDS`/`P2P_COMMAND_CHAT_IDS`），两项目同款同值。
 4. **播报卡互不越界**：工单播报/接单回执/超时问询/结单提醒 → ticket-bot；DDL 卡/逾期确认/会议提醒/语录 → pm-robot。
 5. **事件全经网关**：两项目 `FEISHU_USE_LONG_CONNECTION=false`，收 `POST /api/feishu/event`；hub 转发指令走 `POST /api/chat/command`。
-6. **动态广场写表 / gateway 接单抢占**：动态广场写表约定（各仓 `src/services/plaza.js`、失败仅 warn、测试隔离 `PLAZA_BITABLE_TABLE_ID=''`）与 gateway `{contains:'接单', mention:true}` 全局抢占（非工单群 @含"接单"进 ticket-bot，群门禁只拦 IGNORE_CHAT_IDS，会回提示）见 `ticket-pm/AGENTS.md` 联动契约 6/7。
+6. **动态广场写表 / gateway 接单抢占**：动态广场写表约定（各仓 `src/services/plaza.js`、失败仅 warn、测试隔离 `PLAZA_BITABLE_TABLE_ID=''`）与 gateway `{contains:'接单', mention:true}` 全局转发（**无单群静默**：ticket-bot 按该群实时接单队列门禁，无可接单工单的群静默忽略，2026-09-13 起）见 `ticket-pm/AGENTS.md` 联动契约 6/7。
 
 审批节点值（两项目各自配置，需保持一致）：触发播报/联动 = 「群内有组员接单后通过」「有组员接单后通过」「负责人确认消息后通过」（指定负责人的公示即绑定只作用于最后一个）；结单相关 = 「回执单：是否结单」。无指定负责人分支的审批流按「面向组别」并行展开（每组一个「XX有组员接单后通过」节点，需全部通过流程才汇合），联动侧按任务集合批量通过。
 

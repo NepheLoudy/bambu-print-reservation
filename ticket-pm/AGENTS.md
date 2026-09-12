@@ -21,7 +21,7 @@
 4. **播报卡互不越界**：工单播报卡 → ticket-bot；DDL 卡 → pm-robot；"播报对象/@谁"跟着卡片走。
 5. **事件全经 feishu-gateway**：两项目一律 `FEISHU_USE_LONG_CONNECTION=false`，收 `POST /api/feishu/event` 转发；hub 转发业务指令走 `POST /api/chat/command` 契约。审批（approval-bot）、打印（bambu）不在本工作区，它们的指令只是被 hub 转发。
 6. **动态广场写表约定**：两项目的业务事件（ticket-bot 工单播报/接单/结单，hub DDL 播报）经各自 `src/services/plaza.js` 写「机器人项目看板」的动态广场表——失败仅 warn 绝不阻塞主流程，表 id 内置 `config.plaza` 可 env 覆盖；测试环境必须置 `PLAZA_BITABLE_TABLE_ID=''` 隔离（防测试污染生产表）。表结构/建表脚本在 duty-bot 仓（顶层 AGENTS「机器人项目看板数据联动」）。
-7. **已知路由撞车（记录在案）**：网关 `contains:'接单'` 是全局抢占——值日群等非工单群里含「接单」的 @ 消息会进 ticket-bot 而非 hub（ticket-bot 群门禁兜底丢弃）；若要收窄须网关+工单管辖群联动批次一起做。
+7. **接单路由收窄（2026-09-13 已落地）**：网关 `contains:'接单'` 仍是全局转发，但 ticket-bot 端按**该群实时接单队列**门禁——队列非空才响应（整句接单/接单N 走既有流程，含「接单」的非整句回使用提示）；**无可接单工单的群一律静默忽略**（不再回「无待接单工单」/使用提示）。指定负责人的 p2p 私聊确认链路不受影响。
 
 ## 全局规则指针（本会话不会自动加载，开工先读）
 
