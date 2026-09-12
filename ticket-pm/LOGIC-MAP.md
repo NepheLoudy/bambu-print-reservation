@@ -52,7 +52,7 @@ feishu-gateway（事件接入 + 路由分工，不在本工作区）
 
 **创建事件 `handleRecordCreate`**：
 1. 去重：`recentCreateEvents`（record_id，TTL 10 分钟）。
-2. category 有值 → 搬运到项目看板（`syncIfCategoryPresent` → `syncService.syncRecord`，upsert 幂等）。
+2. category 有值 → 搬运到项目看板（`syncIfCategoryPresent` → `syncService.syncRecord`，upsert 幂等）。**人员口径（2026-09-13）：看板人员一律来自「补充负责人」全员**（同组多人并集、跨组各归字段；指定负责人公示时即写入补充负责人，专项搬运废止——首次搬运到公示绑定之间存在秒级空窗，由绑定写表触发的更新事件与每分钟补搬运自然填上）。
 3. 审批节点（`approvalNode.field`，默认「审批节点」）命中触发值（`acceptValues` = 「群内有组员接单后通过 / 有组员接单后通过 / 负责人确认消息后通过」）→ `broadcastTicket(record, 'create')`；未命中则只搬运不播报。
 
 **更新事件 `handleRecordUpdate`**：搬运 + 节点命中触发值时 `broadcastTicket(record, 'publish')`（该记录从未播报过才会真播）。
@@ -227,7 +227,7 @@ p2p 消息：  ① DDL逾期确认(handleP2PReply) → handled? 终止
 
 | # | 事项 | 位置 | 说明 |
 | --- | --- | --- | --- |
-| 1 | 指定负责人工单只取第一个 assignee | `ticket-bot/src/services/ticketService.js` broadcastTicket | `f[assigneeField]?.[0]`；多负责人时仅第一人被公示/绑定/限权。未结单 API 已支持多负责人并集，两处口径不同 |
+| 1 | 指定负责人工单公示只取第一个 assignee | `ticket-bot/src/services/ticketService.js` broadcastTicket | `f[assigneeField]?.[0]`；多负责人时仅第一人被公示/绑定/限权（搬运链路 2026-09-13 起已改为补充负责人全员，不受此限；未结单 API 亦为多负责人并集） |
 | 2 | 超时分支依赖「当前处理人」字段取值 | `ticket-bot/src/cron/index.js` checkTimeoutTickets | 若审批流在未接单阶段把当前处理人留空或留为审批管理员，分支1/2.1 的对象判断会失真、2.2（群内重问询@组长）可能不可达。需结合实际审批流核实字段语义 |
 | 3 | 结单提醒只私聊一次，无后续自动升级 | `ticket-bot/src/cron/index.js` closingRemindState | 「先私聊后转群」兜底已按需求移除（2026-09-05，私聊链路已跑通）；处理人忽略私聊时的持续曝光依赖每日 DDL 卡「工单结单」分栏。状态仅内存，重启会重私聊一轮 |
 | 4 | 逾期确认"是"直接写 completed | `pm-robot ddlConfirmService` | 私聊一句整句"是"就会改项目表状态（现在已限定只能私聊回复 + 整句匹配）；如需二次确认可加待确认快照/撤销窗口 |
