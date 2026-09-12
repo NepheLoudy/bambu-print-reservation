@@ -315,3 +315,11 @@
 - qianli-deploy skill：项目表补 duty-bot 行；.env 规则补私有配置守卫说明；已知坑补「push 冲掉运维台名单/回答表」条目；多项目同批部署顺序 + 顶层远端说明（origin 即 bambu 名下归档仓，历史遗留设计）。
 - 配套修补推送：duty-bot v12 / hub v77——tar 打包排除私有配置，堵住「SFTP 兜底清目录绕过备份守卫」的漏洞（v76 恰走该路径暴露）；hub v76 的 .env.example 标注 M4 预留键。
 - 遗留待办清单（已汇总在案）：ticket-bot `/api/tickets/policy` 与 bambu `/api/print/policy` 窗口、approval-bot 广场钩子、M4 值日播报消费方、bambu 生产 APPROVAL_CODE/PRINTER_HOSTS 配置、动态广场仪表盘 UI 点选、wiki 权限开通、duty-bot 白名单重录（等用户名单）、gateway v15/bambu v21-22 DEVLOG 锚点回填。
+
+### v49 · 2026-09-12 · 随本提交落地 · fix
+
+**动态广场看板纠偏：网关活跃三表「日期」改日期类型（gateway v16/v17），仪表盘动态筛选可用**
+
+- 用户反馈指标卡无法按「今天」过滤：根因是三表「日期」建为文本字段（文本无动态日期；且实测 records/search 的过滤对 Date 字段所有 operator 均 InvalidFilter）。
+- 修复：三表「日期」Text→Date 迁移（存量自动转换零丢失）；gateway v16 写入/检索改当日 0 点时间戳 → v17 进一步改**整表拉回内存比对**根治（`bitable.listAllRecords` 替代 searchRecords），队员表新增 `open_id` 稳定身份列（姓名解析升级不产生重复行）。
+- NAS 实测：清理旧格式 24 行 + force 重同步后三表行数/日期值/唯一性全部正确；《搭建指南》对应筛选说明同步更新。
