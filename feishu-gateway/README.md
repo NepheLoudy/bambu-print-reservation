@@ -20,6 +20,8 @@ qianli 项目群的所有机器人共用同一个飞书自建应用（`cli_aac7e
 
 ## 统一方案：单连接 + 本地路由
 
+**长连接自动重试（2026-09-13）**：启动失败（凭证错误/网络故障）按指数退避自动重试（5s 起、翻倍封顶 5 分钟），每次尝试新建 WSClient（同一时刻至多一条连接），成功后计数清零；另有 120s 看门狗兜底「start 无响应」；`/api/health` 的 `ws` 字段新增 `connecting` 态。
+
 **只有本网关持有共用应用的唯一长连接**，收到事件后按规则通过本机 HTTP 转发给各机器人已有的 `/api/feishu/event` 端点（机器人全部设置 `FEISHU_USE_LONG_CONNECTION=false`）。事件从此确定性到达，不再被抢。
 
 ```
@@ -50,7 +52,7 @@ qianli 项目群的所有机器人共用同一个飞书自建应用（`cli_aac7e
 | 其他所有消息（默认） | hub | event（对话 / 关键词 / DDL 确认 / 会议提醒；`/approval-*`、`/print-*` 由 hub 转发给对应专项服务） |
 
 > `/approval-*`、`/print-*` 不在网关默认路由里：由 hub 收到后转发给 approval-bot / bambu 的 `POST /api/chat/command`。command 模式仅在 `MESSAGE_ROUTES` 显式配置时才由网关启用（当前生产未启用）。
-> 接单确认的完整语义是「在工单群内 @机器人（任意文本）」。网关默认规则只拦截「@ + 含接单」的消息直送 ticket-bot；其他 @ 消息走 hub。漏掉的接单由 ticket-bot 分钟级对账兜底（按工单审批节点状态补播报/补联动）。若想让某个工单群的所有 @ 消息都直送 ticket-bot，在 `MESSAGE_ROUTES` 里加一条 `{"match":{"chatId":"oc_xxx"},"target":"ticket","mode":"event"}` 即可。
+> 网关默认规则只把「@ + 含接单」的群消息直送 ticket-bot；**ticket-bot 端按该群实时接单队列门禁——无可接单工单的群静默忽略**（2026-09-13 起，非工单群不再收到提示）。指定负责人的私聊确认走 p2p+接单 规则，不受群门禁影响。若想让某个工单群的所有 @ 消息都直送 ticket-bot，在 `MESSAGE_ROUTES` 里加一条 `{"match":{"chatId":"oc_xxx"},"target":"ticket","mode":"event"}` 即可。
 
 规则可用环境变量 `MESSAGE_ROUTES`（JSON 数组）整体覆盖，支持 `chatId` / `chatType` / `mention` / `prefix` / `contains` 五种匹配条件（同一规则内 AND 关系），例如把审批群整体划给 approval-bot：
 
@@ -73,6 +75,8 @@ qianli 项目群的所有机器人共用同一个飞书自建应用（`cli_aac7e
 | --- | --- |
 | `PORT` | 网关监听端口，默认 3010 |
 | `APP_ID` / `APP_SECRET` | 共用应用凭证，缺任一则只起 HTTP 服务不连长连接 |
+| `GATEWAY_API_TOKEN` | 管理端点鉴权（2026-09-13）：`/api/dispatch`、`/api/usage-sync/run` 需带 `X-API-Token` 头；**未配置 = 两端点锁定（fail-closed）**。生成：`openssl rand -hex 24` |
+| `DDL_*` / `PLAZA_*` 等 | 见 `.env.example` 逐键注释 |
 | `EVENT_TYPES` | 长连接订阅的事件类型（逗号分隔）。**改动需同步 NAS 上的 .env**（v10 生产断链即代码默认值与线上 .env 不一致导致） |
 | `CONSUMERS` | 下游消费者登记，覆盖默认清单 |
 | `MESSAGE_ROUTES` | 消息路由规则（JSON 数组），覆盖默认规则 |
@@ -124,7 +128,7 @@ npm run dev
 未配凭证时网关只起 HTTP 服务，可用 `POST /api/dispatch` 手动投递模拟事件测试路由：
 
 ```
-curl -X POST http://localhost:3010/api/dispatch -H "Content-Type: application/json" ^
+curl -X POST http://localhost:3010/api/dispatch -H "Content-Type: application/json" -H "X-API-Token: %GATEWAY_API_TOKEN%" ^
   -d "{\"type\":\"im.message.receive_v1\",\"event\":{\"message\":{\"message_type\":\"text\",\"message_id\":\"test_1\",\"content\":\"{\\\"text\\\":\\\"/approval-list\\\"}\"}}}"
 ```
 

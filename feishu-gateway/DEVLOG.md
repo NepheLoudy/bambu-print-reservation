@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次 git 提交 + 一次部署）。本项目无独立远端，push.js 只暂存 `feishu-gateway/` 路径提交进顶层 monorepo——版本即顶层仓库中触碰本路径的提交。v1~v8 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v19**（2026-09-13，随本提交落地；v18 锚点 `800364e` 已回填——v18 条目建立时头部指针漏改，随本批订正）。
+当前最新：**v20**（2026-09-13，随本提交落地）。
 
 ## 阶段五 · 开发历史建档（2026-09-04）
 
@@ -133,3 +133,9 @@
 - **鉴权**：新增 `src/auth.js` 中间件，`POST /api/dispatch` 与 `POST /api/usage-sync/run` 需带 `X-API-Token` 头（`GATEWAY_API_TOKEN`，.env 存储随 push 下发；timingSafeEqual 防时序侧信道）；**fail-closed**——token 未配置时两端点整体锁定（503），健康检查与只读 `GET /api/usage` 不受限。`.env.example` 补键与调用示例。
 - **长连接自动重试**：`start()` 失败（凭证错误/网络故障）不再只留 error 状态——按指数退避自动重试（5s 起、翻倍封顶 5 分钟），每次尝试新建 WSClient（失败客户端状态不可信，且保证同一时刻至多一条连接），成功后计数清零并打恢复日志；另加 120s 看门狗兜底「start 无响应」场景。health 的 ws 字段新增 `connecting` 态。
 - 文档：README 鉴权/重试说明与手动补数 curl 示例（带 Token）；AGENTS/搭建指南/维护者手册的手动补数命令同步加头。
+
+### v20 · 2026-09-13 · 随本提交落地 · docs
+
+**文档重审订正：README 鉴权示例/环境变量表/重试说明/接单语义（全量文档重审批，无代码改动）**
+
+- /api/dispatch 手动投递 curl 示例补 `X-API-Token` 头（v19 fail-closed 后原示例必失败）；环境变量一览补 `GATEWAY_API_TOKEN` 行；补「长连接自动重试（5s→5min 指数退避 + 120s 看门狗 + connecting 态）」说明（兑现 v19 文档声明）；接单语义旧表述（「在工单群内 @机器人（任意文本）」）更新为现行口径（整句/变式 + ticket-bot 实时队列门禁，无单群静默）。
