@@ -48,7 +48,7 @@
 - **管辖/权限口径的权威在各自机器人后端**，消费方短缓存 + 断联兜底（范例：hub 消费 duty-bot `GET /api/duty/policy`）；
 - **名册类**优先自动读飞书通讯录（open_id 直取组织架构），手工名册/绑定只作兜底（范例：duty-bot `syncFromContacts`）；
 - 新增定制项：先加窗口，再同步 `dashboard/registry.js` 登记与本文档；
-- 现状：duty-bot（`/api/duty/policy`、`/api/duty/roster`、`/api/duty/whitelist`）、hub（`/api/hub/policy` + 关键词回答表 CRUD `/api/autoreplies/rules*`，写 `.local.json` 即时生效，push 会用本地 xlsx 版覆盖）、approval-bot（`/api/approval/policy`，只读）；**ticket-bot 的 `/api/tickets/policy` 与 bambu 的 `/api/print/policy` 仍未落地**（已登记 registry 注记与顶层 DEVLOG 待办，勿再写成"随在途批补上"）；
+- 现状（2026-09-12 全量 debug 批后）：**六仓窗口齐全**——duty-bot（`/api/duty/policy`、`/api/duty/roster`、`/api/duty/whitelist`）、hub（`/api/hub/policy` + 关键词回答表 CRUD `/api/autoreplies/rules*`，写 `.local.json` 即时生效，push 会用本地 xlsx 版覆盖）、approval-bot（`/api/approval/policy`，只读）、ticket-bot（`/api/tickets/policy`，只读）、bambu（`/api/print/policy`，只读）；
 - **界面**：本地运维台「🧰 定制中心」（registry `windows` 清单 + `/api/nas/api` SSH 代理直达 NAS 本机接口）——白名单增删、名册刷新、各域 policy 全景查看、关键词回答表可视化编辑（增删改/启停/切表）都在运维台点选完成。
 
 # 开发日志（DEVLOG）——每次 push 记一版
@@ -87,7 +87,7 @@
 - 工单审批联动：**接单→审批任务自动通过、审批人白名单、审批节点配置、24h 追问** → ticket-bot；**审批群指令、催办周报、催发票私聊、审批实例链接** → approval-bot；
 - 工单×项目管理联动：DDL 分栏取数是 pm-robot 调 ticket-bot 的 HTTP API（`unclosed-by-group`），改出入参两边同批；两项目同住 `ticket-pm/`，联动契约见 `ticket-pm/AGENTS.md`；
 - approval_instance / approval_task 审批事件"收不到/重复" → 先查 feishu-gateway 的 EVENT_TYPES 订阅与消费者登记（同"指令时灵时不灵"规则）；
-- 值日域需求（排班/轮岗/值日请假/值日照片/值日看板）→ duty-bot；「昨日值日播报」卡片与播报 cron 规划在 pm-robot（**M4 仍未实施**：duty-bot `GET /api/duty/brief` 数据接口已上线但暂无消费方，hub `.env` 的 `DUTY_WEBHOOK_URL`/`DUTY_BROADCAST_SCHEDULE` 为该功能预留键）；
+- 值日域需求（排班/轮岗/值日请假/值日照片/值日看板）→ duty-bot；「昨日值日播报」已落地为 duty-bot 自身看板卡的「昨日战报」段（12:00 与手动看板同卡，值日群播报；原 pm-robot 方案作废，hub 的 `DUTY_WEBHOOK_URL`/`DUTY_BROADCAST_SCHEDULE` 降级为预留未接线键）；**请假当日补位**（从较远排班抽调，duty-bot v15 起）同为 duty-bot 域；
 - 值日专用群（快递申领群）：hub 基础指令关闭，放行「值日助手」看板与关键词自动回答（@与未@均生效，未命中@回引导语）。**管辖范畴/生效范畴以 duty-bot `GET /api/duty/policy` 下发为准，群变更只改 duty-bot `.env` 的 `DUTY_GROUP_CHAT_IDS`**（hub 的 `DUTY_CHAT_ID` 仅失联兜底）；
 - 各机器人权能/指令/监听/权限全景与端口：看 `dashboard/registry.js`（单一事实来源，改权能须同步）与本地运维台；
 - 部署一律 `npm run push`（见 `.agents/skills/qianli-deploy/SKILL.md`），部署失败排查放顶层会话。

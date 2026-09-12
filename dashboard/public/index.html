@@ -383,8 +383,16 @@ function renderActivationCard() {
   rows.push(actRow('催发票私聊', ap && ap.invoiceUrge ? `${cronDescribe(ap.invoiceUrge.schedule)} · 宽限${ap.invoiceUrge.graceDays}天` : ap ? '未配置' : '<span class="nas">不可达</span>'));
   rows.push(actRow('每日待审批提醒', ap ? cronDescribe(ap.reminder && ap.reminder.schedule) : '<span class="nas">不可达</span>'));
   rows.push(actRow('财务催办周报', ap ? cronDescribe(ap.cron && ap.cron.schedule) : '<span class="nas">不可达</span>'));
-  rows.push('<div class="act-head">bambu · 打印 / ticket · 工单</div>');
-  rows.push(actRow('policy 窗口', '<span class="nas">未落地（已登记待办）</span>'));
+  rows.push('<div class="act-head">bambu · 打印</div>');
+  const pp = ACT.printPolicy;
+  rows.push(actRow('打印机登记', pp ? `${pp.printers?.configured ?? 0} 台（可用 ${pp.printers?.available ?? '?'}）` : '<span class="nas">不可达</span>'));
+  rows.push(actRow('审批主通道 / 自动审批', pp ? `${pp.approval?.primaryChannel ? '开' : '关'} / ${pp.approval?.autoApprove ? '已配' : '未配'}` : '<span class="nas">不可达</span>'));
+  rows.push(actRow('分发重试', pp ? `上限 ${pp.dispatch?.maxRetries} 次 · 冷却 ${Math.round((pp.dispatch?.retryCooldownMs || 0) / 1000)}s` : '<span class="nas">不可达</span>'));
+  rows.push('<div class="act-head">ticket · 工单</div>');
+  const tp = ACT.ticketPolicy;
+  rows.push(actRow('播报路由 / 组长', tp ? `${(tp.broadcast?.routes || []).length} 组 / ${(tp.groupLeaders || []).length} 组` : '<span class="nas">不可达</span>'));
+  rows.push(actRow('审批联动', tp ? (tp.approval?.linked ? '<span class="badge ok">已接</span>' : '未配置') : '<span class="nas">不可达</span>'));
+  rows.push(actRow('多人单窗口', tp ? `${tp.multiAccept?.windowHours ?? '?'} 小时` : '<span class="nas">不可达</span>'));
   el.innerHTML = rows.join('');
 }
 

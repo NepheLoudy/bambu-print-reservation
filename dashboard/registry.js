@@ -87,12 +87,15 @@ module.exports = {
       nasDir: '/opt/bambu-print-server',
       deploy: 'npm run push（纯 SFTP，无 git 步骤）',
       role: '打印预约域：/print-* 指令、预约审批、打印机控制；打印审批联动（审批事件）。',
-      listening: ['不消费消息事件（hub 转发 /api/chat/command）', '审批事件（gateway 转发）'],
+      listening: ['不消费消息事件（hub 转发 /api/chat/command）', '审批事件（gateway 转发）', 'GET /api/print/policy（定制窗口：打印机/审批/分发参数全景只读）'],
       commands: ['/print-help /print-status /print-list /print-pending 等'],
       permissions: ['被动指令服务：仅接受 hub 转发'],
       localRun: { script: 'src/index.js', cwd: '', env: {} },
       quickActions: [
         { id: 'install', label: 'npm install', cmd: 'npm install', cwd: '' },
+      ],
+      windows: [
+        { m: 'GET', p: '/api/print/policy', d: '打印机登记/审批通道/分发参数全景（只读）' },
       ],
       notes: 'push 无 git 步骤；版本锚点取顶层归档提交；打印排队/开始/完成/失败事件写入动态广场（机器人项目看板）',
     },
@@ -130,14 +133,17 @@ module.exports = {
       nasDir: '/opt/ticket-bot',
       deploy: 'npm run push',
       role: '工单域：播报到组别群、@接单确认、搬运看板、结单提醒、未结单按负责人组别分桶 API；接单→审批任务自动通过。',
-      listening: ['gateway 工单域例外直连：/ticket-* 指令、@机器人+「接单」', '审批事件（接单联动）'],
+      listening: ['gateway 工单域例外直连：/ticket-* 指令、@机器人+「接单」', '审批事件（接单联动）', 'GET /api/tickets/policy（定制窗口：路由/审批节点/多人单窗口/组长全景只读）'],
       commands: ['接单/接单N（群内 @机器人）', '工单指令（/ticket-*）'],
       permissions: ['架构铁律唯一例外：允许消费工单域消息事件'],
       localRun: { script: 'src/index.js', cwd: '', env: {} },
       quickActions: [
         { id: 'install', label: 'npm install', cmd: 'npm install', cwd: '' },
       ],
-      notes: '多人接单批次已随 v61（f6f73e2）推送：出站 fetch 15s 超时、审批人解析失败不缓存自愈、接单队列复用全量记录、静默积压挪址 QUIET_BACKLOG_FILE；工单播报/接单/结单/审批自动通过事件写入动态广场（机器人项目看板）；定制窗口 GET /api/tickets/policy 仍未落地（待后续批次，顶层 AGENTS「机器人后端定制窗口」）',
+      windows: [
+        { m: 'GET', p: '/api/tickets/policy', d: '播报路由/审批节点/多人单窗口/组长映射/门禁全景（只读）' },
+      ],
+      notes: '多人接单批次已随 v61（f6f73e2）推送：出站 fetch 15s 超时、审批人解析失败不缓存自愈、接单队列复用全量记录、静默积压挪址 QUIET_BACKLOG_FILE；v64 起同群并发接单串行化（补充负责人合并写不再互相覆盖）；工单播报/接单/结单/审批自动通过事件写入动态广场（机器人项目看板）',
     },
     {
       id: 'duty',
@@ -167,7 +173,7 @@ module.exports = {
       ],
       permissions: [
         '排班生成权限：名册 admin:true（或 DUTY_ADMIN_OPEN_IDS）',
-        '定时任务：D-1 20:00 / 当日 12:00 今日值日看板播报 / 18:30 询问 / 22:00 收口（写表不延迟）/ 00:30 对账（均过静默闸门）',
+        '定时任务：D-1 20:00 / 当日 12:00 值日看板播报（今日+昨日战报）/ 18:30 询问 / 22:00 收口（写表不延迟）/ 00:30 对账（均过静默闸门）',
         '值日域管辖：DUTY_GROUP_CHAT_IDS 管辖群经 /api/duty/policy 下发，hub 群内闸门照此执行',
         '名册自动同步：启动/生成排班前/手动 refresh 读通讯录全员（open_id 直取），whitelist.json 为排除名单',
         '真实名册 config/members.json、whitelist.json 不进 git（push.js 显式 SFTP 上 NAS）',

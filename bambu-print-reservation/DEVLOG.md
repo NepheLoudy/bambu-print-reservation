@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次部署）。本项目 push.js 为纯 SFTP 直传、无 git 步骤，**版本锚点取顶层 monorepo 中触碰本路径的归档提交**——两次归档之间的个别部署可能无版本记录。v1~v14 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v22**（2026-09-12 顶层归档 `64ce352`）。
+当前最新：**v23**（2026-09-13，随顶层 v52 归档）。
 
 ## 阶段五 · 审批事件字段对齐与分发健壮化（2026-09-05）
 
@@ -134,3 +134,11 @@
 - 新增 `src/services/plaza.js`：打印生命周期四态事件写机器人项目看板「动态广场」表（`config.plaza` 默认表已内置，`PLAZA_BITABLE_TABLE_ID` 可覆盖）；失败仅 warn 绝不影响打印主链路。
 - 插桩：`dispatcher` 的 enqueue（排队，silent 不计）/ dispatch 开始 / completeTask 完成 / failTask 失败。
 - 测试：`test/dispatcher-test.js` 补 `PLAZA_BITABLE_TABLE_ID=''` 隔离（防测试污染生产表），回归全过。
+
+### v23 · 2026-09-13 · 随顶层 v52 归档 · feat
+
+**定制窗口 `GET /api/print/policy` 上线（只读全景）**
+
+- 打印机登记清单（id/名称/型号；accessCode/serial 不外泄）、审批主通道/自动审批/对账参数、分发匹配参数（颜色阈值/重试上限/冷却/AMS）、队列与打印中快照。
+- 运维台「功能激活」面板接通真实数据（dashboard fetchActivity 增 printPolicy/ticketPolicy 探针，与 ticket v64 同批）。
+- README 补「定制窗口」节；dispatch/approval 两套离线测试全过。

@@ -299,6 +299,8 @@ async function fetchActivity() {
     ['dutyRoster', `curl -s -m 10 http://127.0.0.1:3006/api/duty/roster`],
     ['dutyWl', `curl -s -m 6 http://127.0.0.1:3006/api/duty/whitelist`],
     ['appPolicy', `curl -s -m 6 http://127.0.0.1:3002/api/approval/policy`],
+    ['ticketPolicy', `curl -s -m 6 http://127.0.0.1:3003/api/tickets/policy`],
+    ['printPolicy', `curl -s -m 6 http://127.0.0.1:3001/api/print/policy`],
     ['rulesGroup', `curl -s -m 6 'http://127.0.0.1:3000/api/autoreplies/rules?table=group'`],
     ['rulesMention', `curl -s -m 6 'http://127.0.0.1:3000/api/autoreplies/rules?table=mention'`],
   ];

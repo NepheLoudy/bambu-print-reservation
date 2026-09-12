@@ -32,6 +32,40 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// ---------- 定制窗口（规则见顶层 AGENTS「机器人后端定制窗口」）：定制项全景只读 ----------
+
+app.get('/api/print/policy', (req, res) => {
+  let queue = null;
+  try { queue = dispatcher.getQueueSnapshot(); } catch (err) { queue = null; }
+  let printing = null;
+  try { printing = dispatcher.getPrintingSnapshot(); } catch (err) { printing = null; }
+  res.json({
+    bot: { name: config.bot?.name || 'bambu-print-reservation', port: config.port },
+    printers: {
+      configured: config.printers.length,
+      list: config.printers.map((p) => ({ id: p.id, name: p.name, model: p.model })),
+      available: (() => { try { return printerManager.getAvailablePrinters().length; } catch { return null; } })(),
+    },
+    approval: {
+      primaryChannel: config.approval.enabled,
+      approvalCodeConfigured: Boolean(config.approval.approvalCode),
+      autoApprove: Boolean(config.approval.autoApproverId),
+      reconcileMinutes: config.approval.reconcileMinutes,
+      reconcileWindowMinutes: config.approval.reconcileWindowMinutes,
+    },
+    dispatch: {
+      colorDistanceThreshold: config.dispatch.colorDistanceThreshold,
+      reconcileMinutes: config.dispatch.reconcileMinutes,
+      materialRemindMinutes: config.dispatch.materialRemindMinutes,
+      useAms: config.dispatch.useAms,
+      maxRetries: config.dispatch.maxRetries,
+      retryCooldownMs: config.dispatch.retryCooldownMs,
+    },
+    queue: { waiting: Array.isArray(queue) ? queue.length : null, printingCount: printing ? (Array.isArray(printing) ? printing.length : Object.keys(printing).length) : null },
+    reviewResult: config.reviewResult,
+  });
+});
+
 app.get('/api/reservations', async (req, res) => {
   try {
     const reservations = await reservationService.getAllReservations();
