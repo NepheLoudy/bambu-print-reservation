@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次 git 提交 + 一次部署）。本项目无独立远端，push.js 只暂存 `feishu-gateway/` 路径提交进顶层 monorepo——版本即顶层仓库中触碰本路径的提交。v1~v8 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v15**（2026-09-12，顶层归档哈希随顶层 v47 回填）。
+当前最新：**v16**（2026-09-12，顶层归档哈希随顶层 v49 回填）。
 
 ## 阶段五 · 开发历史建档（2026-09-04）
 
@@ -101,3 +101,10 @@
 - `POST /api/usage-sync/run`（`?force=1` 忽略签名重写全部）手动补数，运维台可用。
 - 配置：`.env` 补 `PLAZA_BITABLE_APP_TOKEN/DAILY_TABLE/FEATURE_TABLE/MEMBER_TABLE` 四键（.env.example 同步）；建表脚本在 duty-bot `scripts/create-plaza-tables.js`（幂等）。
 - 测试：`scripts/stub-test-usage-sync.js`（全量 create / 签名跳过 / 变化 update / 姓名回退尾号）全过；只观察不影响转发，任何写表失败 warn 后下轮重试。
+
+### v16 · 2026-09-12 · 顶层归档（随顶层 v49，哈希待回填） · fix
+
+**网关活跃三表「日期」改日期类型——仪表盘动态过滤（今天/近7天）可用**
+
+- 修复用户反馈：日期建为文本导致多维表格指标卡无法用「今天」动态过滤（文本无动态日期）。三表「日期」字段已迁移为 Date 类型（存量值自动转换），`bitable-sync` 写入与 upsert 检索同步改为当日 0 点（UTC+8）毫秒时间戳。
+- 迁移与验证：字段 Text→Date API 迁移（存量 26 行值自动转换零丢失）；`POST /api/usage-sync/run?force=1` 强制重写验证 upsert 命中不产生重复行。

@@ -37,6 +37,11 @@ function signature(day) {
   return crypto.createHash('md5').update(raw).digest('hex').slice(0, 12);
 }
 
+/** 「日期」字段是日期类型：YYYY-MM-DD → 当日 0 点（东八区）毫秒时间戳 */
+function toMs(dateStr) {
+  return new Date(`${dateStr}T00:00:00+08:00`).getTime();
+}
+
 /** 单行 upsert：按条件找记录，命中 update，否则 create */
 async function upsertRow(tableId, conditions, fields) {
   const hits = await bitable.searchRecords(APP_TOKEN, tableId, conditions);
@@ -51,15 +56,16 @@ async function upsertRow(tableId, conditions, fields) {
 async function syncDay(date, day, nameCache) {
   const feats = day.feats || {};
   const memberCount = Object.keys(day.users || {}).length;
-  await upsertRow(TABLES.daily, [{ field_name: '日期', value: date }], {
-    '日期': date,
+  const dateMs = toMs(date);
+  await upsertRow(TABLES.daily, [{ field_name: '日期', value: dateMs }], {
+    '日期': dateMs,
     '总消息数': day.total || 0,
     '活跃人数': memberCount,
     '功能数': Object.keys(feats).length,
   });
   for (const [feat, count] of Object.entries(feats)) {
-    await upsertRow(TABLES.feature, [{ field_name: '日期', value: date }, { field_name: '功能', value: feat }], {
-      '日期': date, '功能': feat, '次数': count,
+    await upsertRow(TABLES.feature, [{ field_name: '日期', value: dateMs }, { field_name: '功能', value: feat }], {
+      '日期': dateMs, '功能': feat, '次数': count,
     });
   }
   for (const [openId, u] of Object.entries(day.users || {})) {
@@ -70,8 +76,8 @@ async function syncDay(date, day, nameCache) {
       }
       name = nameCache.get(openId);
     }
-    await upsertRow(TABLES.member, [{ field_name: '日期', value: date }, { field_name: '成员', value: name || `…${openId.slice(-8)}` }], {
-      '日期': date,
+    await upsertRow(TABLES.member, [{ field_name: '日期', value: dateMs }, { field_name: '成员', value: name || `…${openId.slice(-8)}` }], {
+      '日期': dateMs,
       '成员': name || `…${openId.slice(-8)}`,
       '消息数': u.c || 0,
     });
