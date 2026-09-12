@@ -448,3 +448,11 @@
 - 哪个群有单，哪个群才接单：群内接单类消息先查该群实时接单队列——**队列为空即静默忽略**，非工单群（如值日群）与当前无单的组别群不再收到「无待接单工单」/使用提示噪音；有单群行为不变；指定负责人 p2p 私聊确认不受影响。
 - 设计取舍：网关路由不改（全局转发保留），响应收窄放在 ticket-bot 端用实时数据判定——比网关侧静态群清单更准（组别群当前没单时同样安静），也避免了「网关+工单管辖群联动批次」的配置耦合。
 - 文档：ticket-pm/AGENTS 契约 7 改「已落地」、LOGIC-MAP §1.3/契约 6、registry、桌面 HTML FAQ、维护者手册、意图待定项销项并记入已定口径。
+
+### v60 · 2026-09-13 · 随本提交落地 · refactor
+
+**值日群未@关键词回答全群统一 + 值日助手仅 @/私聊（hub v82 + duty v18，用户拍板）**
+
+- 口径：值日群的关键词回答与所有群完全一致（未@/@ 都生效，不再有放行开关）；「值日助手」看板仅 @ 或私聊触发（事实收敛——看板本就在 @ 路径，未@从来不出看板），保留词撞车校验整体移除（回答表用词不再受限，撞车根源已消失）。
+- 实现：hub autoReplyService 删 `keywordAllowedInGroup` 门禁与 `assertNoDutyConflict` 校验；chatService ② 的 @关键词回答去 `keywordPassthrough` 条件；dutyPolicyService/duty policyService 双侧清死 flag；hub stub ⑩ 场景改「全群统一照常回答」、⑭ 改「含值日助手规则不再被拒」（upsert 后 deleteRule 清理不污染真实表）；duty policy 桩同步。
+- 文档：hub README 回答表校验说明、LOGIC-MAP §2.4、registry hub notes、维护者手册 hub 管道行、桌面 HTML 值日群特殊规则行。
