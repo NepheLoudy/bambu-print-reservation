@@ -30,7 +30,7 @@ module.exports = {
       quickActions: [
         { id: 'install', label: 'npm install', cmd: 'npm install', cwd: '' },
       ],
-      notes: '改路由/消费者登记先读 .agents/skills/qianli-chat-architecture/SKILL.md；不提供本地启动——本地实例会与 NAS 抢共用应用唯一长连接，生产事件会被随机分流；使用统计 /api/usage 每 30 分钟自动 upsert 到机器人项目看板「网关日活跃/网关功能使用/网关队员活跃」三表（动态广场看板数据源，POST /api/usage-sync/run?force=1 手动补数）',
+      notes: '改路由/消费者登记先读 .agents/skills/qianli-chat-architecture/SKILL.md；不提供本地启动——本地实例会与 NAS 抢共用应用唯一长连接，生产事件会被随机分流；使用统计（口径=机器人交互：显式路由/私聊/@机器人）每 30 分钟自动 upsert 到机器人项目看板「网关日活跃」单表（动态广场看板数据源，POST /api/usage-sync/run?force=1 手动补数；网关功能使用/网关队员活跃两表已下线）',
     },
     {
       id: 'hub',
@@ -45,7 +45,7 @@ module.exports = {
       role: '所有对话/指令的唯一入口：@对话、基础指令、关键词监听与自动回答、DDL 播报与逾期确认、会议提醒、项目表；专项指令转发各服务。',
       listening: [
         '全部消息事件（gateway 转发）；群聊需 @机器人，私聊直接对话',
-        'p2p：DDL 逾期确认回复 → 值日分支（指令/图片，duty-bot 未接管时落回常规流）→ 基础指令（白名单）→ 对话',
+        'p2p：DDL 逾期确认回复（12 小时时效，超时次日播报重问）→ 值日分支（指令/图片，duty-bot 未接管时落回常规流）→ 基础指令（白名单）→ 对话',
         '群：@对话 → 值日群分支（看板带不带 / 均可、@+纯图片静默、非管辖群值日指令回提示）→ 审批群分支 → 基础指令 → 关键词自动回答；会议提醒对值日管辖群跳过（群级功能全关）',
         'GET /api/hub/policy（定制窗口：审批群/值日策略源/回答表范围/播报群全景只读）',
       ],
@@ -53,7 +53,7 @@ module.exports = {
         '/help /status /test-ddl /keywords /autoreply /history',
         '/approval-* → approval-bot（:3002）',
         '/print-* → bambu（:3001）',
-        '值日助手 / 我要请假 / 查询我的下一次值日 / 绑定 X / 是 / 否（口语变体：是的/完成了 等）/ 生成排班表 → duty-bot（:3006；带 / 前缀等效）',
+        '值日助手 / 我要请假 / 查询我的下一次值日 / 绑定 X / 打卡（主词，2026-09-13 起；是/口语变体兼容保留）/ 否 / 生成排班表 → duty-bot（:3006；带 / 前缀等效）',
       ],
       windows: [
         { m: 'GET', p: '/api/hub/policy', d: '定制项全景（审批群/值日策略源/回答表范围/播报群）' },
