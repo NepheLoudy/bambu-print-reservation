@@ -456,3 +456,12 @@
 - 口径：值日群的关键词回答与所有群完全一致（未@/@ 都生效，不再有放行开关）；「值日助手」看板仅 @ 或私聊触发（事实收敛——看板本就在 @ 路径，未@从来不出看板），保留词撞车校验整体移除（回答表用词不再受限，撞车根源已消失）。
 - 实现：hub autoReplyService 删 `keywordAllowedInGroup` 门禁与 `assertNoDutyConflict` 校验；chatService ② 的 @关键词回答去 `keywordPassthrough` 条件；dutyPolicyService/duty policyService 双侧清死 flag；hub stub ⑩ 场景改「全群统一照常回答」、⑭ 改「含值日助手规则不再被拒」（upsert 后 deleteRule 清理不污染真实表）；duty policy 桩同步。
 - 文档：hub README 回答表校验说明、LOGIC-MAP §2.4、registry hub notes、维护者手册 hub 管道行、桌面 HTML 值日群特殊规则行。
+
+### v61 · 2026-09-13 · 随本提交落地 · docs
+
+**全项目文档重审 + 机器人体系建设推荐（运维台不自启拍板收项；四仓 README 文档批联动：duty v19 / hub v83 / ticket v67 / gateway v20）**
+
+- **文档重审**（两路并行审计：跨仓一致性 + 用户侧时效性）：共发现 20+ 处必修复——多数为 09-12/09-13 高频批次后的旧口径残留（打卡主词、DDL 12h、两表下线、M4 落地、搬运废止、policy 占位句），全部订正：顶层 AGENTS 三处（五仓静默清单/五仓窗口措辞/值日群裁定行新机制）、registry 四处（duty commands 打卡/值日群裁定行/bambu 状态路径/活跃看板描述）、duty/hub/ticket/gateway 四仓 README（各自带 DEVLOG 文档批推送上线）、维护者手册四处（单表化/policy 占位/hub 12h/bambu 可靠性）、搭建指南（approval-bot 改维持现状）、桌面 HTML 七处（12h/打卡/两表/M4/版本行等）。
+- **顶层 DEVLOG 头部指针漂移订正**（v57→v60，连续批量中漏改）。
+- **运维台拍板收项**：不自启维持、无口令维持——意图文档销项并记入已定口径；动态广场「四表」表述随 gateway v18 单表化订正为两表。
+- **机器人体系建设推荐**：意图文档新增第四节，产出 7 条待拍板推荐（共享工具层收敛/写端点鉴权模板推广/网关投递 at-least-once/部署前测试闸门/NAS 数据每日快照/全链路 traceId/前瞻 LLM 兜底与双应用预案），每条含痛点→方案→成本→优先级，等你勾选排期。

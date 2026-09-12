@@ -14,7 +14,7 @@
 
 # 晚间静默（播报时段限制）
 
-**02:00–09:00（Asia/Shanghai，`[START, END)` 可配 `QUIET_HOURS_START/END`，`QUIET_HOURS_DISABLED=1` 关闭）窗口内，所有机器人的定时/自动播报不直接发送，统一积压到 09:00 整点补发**。ticket-bot / project-management-robot / approval-bot / bambu-print-reservation 四仓各自实现，通用模块为各仓 `src/utils/quietHours.js`（积压持久化 `.quiet-backlog.json`，重启不丢，启动过点即补冲刷）。
+**02:00–09:00（Asia/Shanghai，`[START, END)` 可配 `QUIET_HOURS_START/END`，`QUIET_HOURS_DISABLED=1` 关闭）窗口内，所有机器人的定时/自动播报不直接发送，统一积压到 09:00 整点补发**。duty-bot / ticket-bot / project-management-robot / approval-bot / bambu-print-reservation 五仓各自实现，通用模块为各仓 `src/utils/quietHours.js`（积压持久化 `.quiet-backlog.json`，重启不丢，启动过点即补冲刷）。
 
 - **挤压要为挤压之后的事情负责**：可重扫任务（周报/DDL 播报/每日汇总等）冲刷时重跑整个任务函数，以补发时刻最新数据重查——夜里已了结的事不再播，标记/节流/轮次等时点逻辑以实际发送时刻为准；每小时整点重扫类（ticket-bot 超时/结单/追问）静默内整轮跳过，09:00 整点轮次天然就是冲刷；一次性事件通知（打印生命周期卡、多人单结束通告等）原样落盘载荷按序补发，业务动作（打印机控制/写表/审批通过）不延迟；
 - **不受限**：对话/指令回复（接单确认等交互回路）与人工当下主动触发（/test-*、手动补播单条等）；
@@ -48,7 +48,7 @@
 - **管辖/权限口径的权威在各自机器人后端**，消费方短缓存 + 断联兜底（范例：hub 消费 duty-bot `GET /api/duty/policy`）；
 - **名册类**优先自动读飞书通讯录（open_id 直取组织架构），手工名册/绑定只作兜底（范例：duty-bot `syncFromContacts`）；
 - 新增定制项：先加窗口，再同步 `dashboard/registry.js` 登记与本文档；
-- 现状（2026-09-12 全量 debug 批后）：**六仓窗口齐全**——duty-bot（`/api/duty/policy`、`/api/duty/roster`、`/api/duty/whitelist`）、hub（`/api/hub/policy` + 关键词回答表 CRUD `/api/autoreplies/rules*`，写 `.local.json` 即时生效，push 会用本地 xlsx 版覆盖）、approval-bot（`/api/approval/policy`，只读）、ticket-bot（`/api/tickets/policy`，只读）、bambu（`/api/print/policy`，只读）；
+- 现状（2026-09-12 全量 debug 批后）：**五仓业务机器人窗口齐全**（gateway 为纯路由层、无定制项，不设窗口）——duty-bot（`/api/duty/policy`、`/api/duty/roster`、`/api/duty/whitelist`）、hub（`/api/hub/policy` + 关键词回答表 CRUD `/api/autoreplies/rules*`，写 `.local.json` 即时生效，push 会用本地 xlsx 版覆盖）、approval-bot（`/api/approval/policy`，只读）、ticket-bot（`/api/tickets/policy`，只读）、bambu（`/api/print/policy`，只读）；
 - **界面**：本地运维台「🧰 定制中心」（registry `windows` 清单 + `/api/nas/api` SSH 代理直达 NAS 本机接口）——白名单增删、名册刷新、各域 policy 全景查看、关键词回答表可视化编辑（增删改/启停/切表）都在运维台点选完成。
 
 # 开发日志（DEVLOG）——每次 push 记一版
@@ -88,7 +88,7 @@
 - 工单×项目管理联动：DDL 分栏取数是 pm-robot 调 ticket-bot 的 HTTP API（`unclosed-by-group`），改出入参两边同批；两项目同住 `ticket-pm/`，联动契约见 `ticket-pm/AGENTS.md`；
 - approval_instance / approval_task 审批事件"收不到/重复" → 先查 feishu-gateway 的 EVENT_TYPES 订阅与消费者登记（同"指令时灵时不灵"规则）；
 - 值日域需求（排班/轮岗/值日请假/值日照片/值日看板）→ duty-bot；「昨日值日播报」已落地为 duty-bot 自身看板卡的「昨日战报」段（12:00 与手动看板同卡，值日群播报；原 pm-robot 方案作废，hub 的 `DUTY_WEBHOOK_URL`/`DUTY_BROADCAST_SCHEDULE` 降级为预留未接线键）；**请假当日补位**（从较远排班抽调，duty-bot v15 起）同为 duty-bot 域；
-- 值日专用群（快递申领群）：hub 基础指令关闭，放行「值日助手」看板与关键词自动回答（@与未@均生效，未命中@回引导语）。**管辖范畴/生效范畴以 duty-bot `GET /api/duty/policy` 下发为准，群变更只改 duty-bot `.env` 的 `DUTY_GROUP_CHAT_IDS`**（hub 的 `DUTY_CHAT_ID` 仅失联兜底）；
+- 值日专用群（快递申领群）：hub 基础指令关闭，看板「值日助手」**仅 @ 或私聊触发**（未@不出看板）；关键词回答全群统一（未@也生效，不再经值日策略放行，2026-09-13）。**管辖范畴/生效范畴以 duty-bot `GET /api/duty/policy` 下发为准，群变更只改 duty-bot `.env` 的 `DUTY_GROUP_CHAT_IDS`**（hub 的 `DUTY_CHAT_ID` 仅失联兜底）；
 - 各机器人权能/指令/监听/权限全景与端口：看 `dashboard/registry.js`（单一事实来源，改权能须同步）与本地运维台；
 - 部署一律 `npm run push`（见 `.agents/skills/qianli-deploy/SKILL.md`），部署失败排查放顶层会话。
 

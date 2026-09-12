@@ -66,7 +66,7 @@ module.exports = {
       ],
       permissions: [
         '审批群（APPROVAL_CHAT_ID）：整体切换为仅 /approval-*',
-        '值日管辖群（duty-bot /api/duty/policy 下发，当前=快递申领群）：hub 基础指令关闭，放行「值日助手」看板与关键词自动回答（@与未@均生效）',
+        '值日管辖群（duty-bot /api/duty/policy 下发，当前=快递申领群）：hub 基础指令关闭，看板「值日助手」仅 @ 或私聊触发；关键词回答全群统一（未@也生效，2026-09-13）',
         '私聊基础指令白名单 P2P_COMMAND_OPEN_IDS / P2P_COMMAND_CHAT_IDS（值日指令不限）',
       ],
       localRun: { script: 'src/index.js', cwd: '', env: {} },
@@ -97,7 +97,7 @@ module.exports = {
       windows: [
         { m: 'GET', p: '/api/print/policy', d: '打印机登记/审批通道/分发参数全景（只读）' },
       ],
-      notes: 'push 无 git 步骤；版本锚点取顶层归档提交；v24 起分发引擎状态持久化（DISPATCH_STATE_FILE=/home/qianli/bambu-data，重启不丢队列/打印中）；v25 起人工指定与自动匹配按打印机分发闸门互斥（分钟级 TOCTOU 关闭）；打印排队/开始/完成/失败事件写入动态广场（机器人项目看板）',
+      notes: 'push 无 git 步骤；版本锚点取顶层归档提交；v24 起分发引擎状态持久化（DISPATCH_STATE_FILE=/home/qianli/bambu-data/dispatch-state.json，重启不丢队列/打印中）；v25 起人工指定与自动匹配按打印机分发闸门互斥（分钟级 TOCTOU 关闭）；打印排队/开始/完成/失败事件写入动态广场（机器人项目看板）',
     },
     {
       id: 'approval',
@@ -159,7 +159,7 @@ module.exports = {
       listening: ['不消费消息事件（hub 转发 /api/chat/command）', 'GET /api/duty/policy → hub 消费（值日域管辖范畴/生效范畴单一事实来源）', 'GET /api/duty/roster、POST /api/duty/roster/refresh、GET|POST /api/duty/whitelist（名册/白名单定制窗口）'],
       commands: [
         '值日助手（p2p 用法 / group 看板带不带 / 均可，1h 限流）',
-        '我要请假 / 查询我的下一次值日 / 绑定 姓名 / 是 / 否（口语变体：是的/好了/完成了/做完了/搞定 等，有当日询问会话时等同「是」）',
+        '我要请假 / 查询我的下一次值日 / 绑定 姓名 / 打卡 / 打卡了（完成打卡主词，2026-09-13 起）/ 否 / 生成排班表；「是」及口语变体（是的/好了/完成了/做完了/搞定 等）兼容保留，有当日询问会话时等同打卡',
         '生成排班表（名册 admin 专用）',
       ],
       windows: [
@@ -197,7 +197,7 @@ module.exports = {
       pm2Name: null,
       nasDir: null,
       deploy: '仅本机运行（node server.js），不部署 NAS',
-      role: '全项目可视化运维：总览仪表台（服务状态矩阵/1h 时间线/24h 可用率/掉线事件、活跃看板=功能使用+功能激活+队员活跃度）、端口职能/权限/指令清单、本地与 NAS 服务状态、运行日志、更新状态；本地测试进程启停；npm push 等快捷指令。',
+      role: '全项目可视化运维：总览仪表台（服务状态矩阵/1h 时间线/24h 可用率/掉线事件、活跃看板=队员活跃+功能激活）、端口职能/权限/指令清单、本地与 NAS 服务状态、运行日志、更新状态；本地测试进程启停；npm push 等快捷指令。',
       listening: ['仅 127.0.0.1，无外部访问'],
       commands: ['HTTP API：/api/overview（含 NAS 状态） /api/stats（总览仪表台：采样史/可用率/掉线事件） /api/activity（活跃看板：网关使用统计+各域 policy 激活聚合） /api/local/:id/start|stop|log /api/action/:id 与 /api/action/:id/log /api/nas/log/:name /api/nas/restart/:name /api/windows（定制窗口清单） /api/nas/api（SSH 代理直达 NAS 本机接口）'],
       permissions: ['NAS 凭据直读 approval-bot/.env（不复制、不入库）'],
