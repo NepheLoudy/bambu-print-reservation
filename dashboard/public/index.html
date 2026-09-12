@@ -384,7 +384,7 @@ function renderActivationCard() {
   rows.push(actRow('每日待审批提醒', ap ? cronDescribe(ap.reminder && ap.reminder.schedule) : '<span class="nas">不可达</span>'));
   rows.push(actRow('财务催办周报', ap ? cronDescribe(ap.cron && ap.cron.schedule) : '<span class="nas">不可达</span>'));
   rows.push('<div class="act-head">bambu · 打印 / ticket · 工单</div>');
-  rows.push(actRow('policy 窗口', '<span class="nas">未上线（随各自在途批补上）</span>'));
+  rows.push(actRow('policy 窗口', '<span class="nas">未落地（已登记待办）</span>'));
   el.innerHTML = rows.join('');
 }
 

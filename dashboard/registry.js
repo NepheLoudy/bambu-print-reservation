@@ -46,7 +46,7 @@ module.exports = {
       listening: [
         '全部消息事件（gateway 转发）；群聊需 @机器人，私聊直接对话',
         'p2p：DDL 逾期确认回复 → 值日分支（指令/图片，duty-bot 未接管时落回常规流）→ 基础指令（白名单）→ 对话',
-        '群：@对话 → 值日群分支（看板带不带 / 均可、@+纯图片静默、非管辖群值日指令回提示）→ 审批群分支 → 基础指令 → 关键词自动回答',
+        '群：@对话 → 值日群分支（看板带不带 / 均可、@+纯图片静默、非管辖群值日指令回提示）→ 审批群分支 → 基础指令 → 关键词自动回答；会议提醒对值日管辖群跳过（群级功能全关）',
         'GET /api/hub/policy（定制窗口：审批群/值日策略源/回答表范围/播报群全景只读）',
       ],
       commands: [
@@ -159,7 +159,7 @@ module.exports = {
       windows: [
         { m: 'GET', p: '/api/duty/policy', d: '值日域管辖策略（可在线改写管辖群）' },
         { m: 'POST', p: '/api/duty/policy', d: '管辖范畴在线改写（groupChatIds）', kind: 'policy-edit' },
-        { m: 'GET', p: '/api/duty/roster', d: '名册全景（通讯录同步，63 人）' },
+        { m: 'GET', p: '/api/duty/roster', d: '名册全景（通讯录同步，64 人）' },
         { m: 'POST', p: '/api/duty/roster/refresh', d: '手动刷新通讯录名册', kind: 'action' },
         { m: 'GET', p: '/api/duty/whitelist', d: '白名单（值日排除名单，可增删）', kind: 'whitelist' },
         { m: 'POST', p: '/api/duty/whitelist', d: '白名单增删', kind: 'whitelist-edit' },
@@ -167,7 +167,7 @@ module.exports = {
       ],
       permissions: [
         '排班生成权限：名册 admin:true（或 DUTY_ADMIN_OPEN_IDS）',
-        '定时任务：D-1 20:00 / 当日 18:30 / 22:00 收口（写表不延迟）/ 00:30 对账（均过静默闸门）',
+        '定时任务：D-1 20:00 / 当日 12:00 今日值日看板播报 / 18:30 询问 / 22:00 收口（写表不延迟）/ 00:30 对账（均过静默闸门）',
         '值日域管辖：DUTY_GROUP_CHAT_IDS 管辖群经 /api/duty/policy 下发，hub 群内闸门照此执行',
         '名册自动同步：启动/生成排班前/手动 refresh 读通讯录全员（open_id 直取），whitelist.json 为排除名单',
         '真实名册 config/members.json、whitelist.json 不进 git（push.js 显式 SFTP 上 NAS）',
@@ -193,7 +193,7 @@ module.exports = {
       deploy: '仅本机运行（node server.js），不部署 NAS',
       role: '全项目可视化运维：总览仪表台（服务状态矩阵/1h 时间线/24h 可用率/掉线事件、活跃看板=功能使用+功能激活+队员活跃度）、端口职能/权限/指令清单、本地与 NAS 服务状态、运行日志、更新状态；本地测试进程启停；npm push 等快捷指令。',
       listening: ['仅 127.0.0.1，无外部访问'],
-      commands: ['HTTP API：/api/overview（含 NAS 状态） /api/stats（总览仪表台：采样史/可用率/掉线事件） /api/activity（活跃看板：网关使用统计+各域 policy 激活聚合） /api/local/:id/start|stop|log /api/action/:id 与 /api/action/:id/log /api/nas/log/:name /api/nas/restart/:name'],
+      commands: ['HTTP API：/api/overview（含 NAS 状态） /api/stats（总览仪表台：采样史/可用率/掉线事件） /api/activity（活跃看板：网关使用统计+各域 policy 激活聚合） /api/local/:id/start|stop|log /api/action/:id 与 /api/action/:id/log /api/nas/log/:name /api/nas/restart/:name /api/windows（定制窗口清单） /api/nas/api（SSH 代理直达 NAS 本机接口）'],
       permissions: ['NAS 凭据直读 approval-bot/.env（不复制、不入库）'],
       localRun: null,
       quickActions: [],

@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v32**（2026-09-06，随本提交落地）。
+当前最新：**v51**（2026-09-12，随本提交落地）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -126,7 +126,7 @@
 
 ## 阶段九 · 六仓集中审查修复批次 + 兑现 v28 归档（2026-09-06）
 
-### v29 · 2026-09-06 · 随本提交落地 · fix
+### v29 · 2026-09-06 · dbbdaf5 · fix
 **全项目文档对齐 + 确定性缺陷集中修复（gateway v12 / ticket-bot v50 / pm-robot v54 / approval-bot v28 / bambu v17），本提交同时兑现 v28 的顶层归档**
 - 共性修复三类：①**文档失真**——gateway README 路由表还是 v4 撤销前的直连规则、pm-robot 关键词监听描述停在 v23 之前、bambu 工作流图与审批主通道自相矛盾、ticket-bot README 留着已删除的 deploy 脚本与命令、各 .env.example 缺键/错值（含 gateway hub 端口 2174 错误、pm-robot 长连接推荐 true 违反铁律）；②**确定性缺陷**——ticket-bot 审批联动申请编号口径（超链接渲染致自动通过链路失效风险）+ 接单守卫、bambu 缺料忙等死循环 + 分发链路无超时、approval-bot dry-run 消费回复 + 回执失败中断整轮、gateway wsClient.start() 未 catch 杀进程 + health 假绿、pm-robot Actions 部署与 push.js 双链路冲突；③**安全卫生**——approval-bot README 移除误提交的 webhook 完整地址、pm-robot 停用 Actions 部署、archive 三份 .env 已进 git 的警示写入顶层 AGENTS 与 deploy skill（密钥轮换待办）。
 - 各项目明细见各自 DEVLOG vN；已汇报未改项（gateway /api/dispatch 无鉴权暴露面、event 投递 fire-and-forget、bambu 主通道重启丢队列、pm-robot gitlink 漂移等）见审查报告。
@@ -135,7 +135,7 @@
 
 ## 阶段十 · 四仓晚间静默联动批次（2026-09-06）
 
-### v30 · 2026-09-06 · 随本提交落地 · feat
+### v30 · 2026-09-06 · cca9970（并入 v31 归档补交） · feat
 **晚间静默（播报时段限制）：02:00–09:00 内定时/自动播报积压到 09:00 统一补发（ticket-bot v51 / pm-robot v55 / approval-bot v29 / bambu v19）**
 - 规则入顶层 AGENTS.md 新「晚间静默」段：窗口 `[QUIET_HOURS_START, QUIET_HOURS_END)`（默认 2→9，Asia/Shanghai，支持跨午夜写法，`QUIET_HOURS_DISABLED=1` 关闭）；四仓各自落地 `src/utils/quietHours.js`，积压持久化 `.quiet-backlog.json`（五处 .gitignore 同步），重启不丢、启动过点即补冲刷、失败重试 ≤3 次。
 - 挤压负责制三形态（挤压要为挤压之后的事情负责）：①可重扫任务（ticket-bot 每日汇总、approval-bot 周报/每日提醒/催发票、pm-robot DDL 播报含逾期确认）冲刷时重跑整个任务函数，以补发时刻最新数据重查——夜里已了结的事不再播，标记/节流状态以实际发送时刻为准；②小时级重扫（ticket-bot 超时/结单/确认追问）静默内整轮零副作用跳过，09:00 整点轮次天然冲刷；③一次性事件通知（bambu 生命周期卡/预约通知 11 处、ticket-bot 多人单结束通告）原样落盘载荷按序补发，业务动作（打印机控制/写表/审批自动通过）不延迟。
@@ -149,7 +149,7 @@
 
 ## 阶段十一 · 无负责人问询节流 + DDL 无人接单分栏（2026-09-06）
 
-### v31 · 2026-09-06 · 随本提交落地 · feat
+### v31 · 2026-09-06 · cca9970 · feat
 **无负责人工单群内问询 6h×2 封顶（组长私聊持续升级）+ DDL 播报新增「无人接单」分栏（ticket-bot v51+v52 / pm-robot v55+v56；v30 晚间静默批次的 ticket-pm 两仓随本批实际上线）**
 - ticket-bot v52：超时分支 2.2 群内重问询改**每 6h 一次、每单封顶 2 次**（≈发起后 6h/12h 各一次，内存计数重启清零）；封顶后由「无人接单升级」组长私聊（≥3h 间隔）承担持续提醒。多人单续接窗口不受限——有人接单即写补充负责人退出超时检查，续接询问/到期自动通过在 ticketService 接单与对账路径，不经此处。
 - 两仓联动（§1.6 契约 additive 扩展）：ticket-bot `GET /api/tickets/unclosed-by-group` 每群新增 `unclaimed` 桶（触发节点 + 补充负责人为空 + 距发起 ≥6h，按「面向组别」分组、时长降序）；pm-robot DDL 卡在结单分栏前新增「🆘 无人接单工单」分栏（只列标题与发布时长不 @），/test-ddl 与降级直读链路同口径。
@@ -158,7 +158,7 @@
 
 ## 阶段十二 · 全仓例行维护批次（2026-09-06）
 
-### v32 · 2026-09-06 · 随本提交落地 · fix
+### v32 · 2026-09-06 · 85e95cc · fix
 **五仓例行 debug 扫描：代码纠偏 6 处 + 文档/锚点对齐（approval-bot v29 首推 + ticket-bot v53 / pm-robot v57 / bambu v20 / gateway v13）**
 - approval-bot v29（存量改动随批首推）：晚间静默落地（三定时任务 gateTask 积压重跑）——v30 四仓批次中唯一未 push 的一仓，本批补齐上线。
 - bambu v20：审批自愈②窗口列表兜底三处纠偏（响应字段 `instance_list`→`instance_code_list`、时间戳毫秒→秒、24h 窗口按官方 ≤10h 限制切片 + 分页）——自 v18 上线以来该兜底从未生效（生产未配 APPROVAL_CODE 休眠中，无线上影响）。
@@ -168,7 +168,7 @@
 - 意图不明未动（记录备查）：bambu approval_task 路径失败不登记自愈、对账重复拉详情噪音、数值 env 无 NaN 防护；四仓 QUIET_HOURS_DISABLED=1 时遗留积压不冲刷不清理；pm-robot 空 chatId 回落口径、静默冲刷中登记的调度窗口；gateway .env 死键 FEISHU_ENCRYPT_KEY 与未用依赖 cors。
 - 部署顺序：approval-bot → ticket-bot → pm-robot → bambu（SFTP）→ gateway → 顶层归档提交。
 
-### v33 · 2026-09-11 · 随本提交落地 · feat
+### v33 · 2026-09-11 · 7789a3a · feat
 
 **顶层归档：duty-bot v1 首推（Duty-Management）+ hub v65 值日联动 + 本地运维台 + 全仓隐私整改**
 
@@ -179,7 +179,7 @@
 - 隐私整改（全仓）：archive/project-configs 旧 .env 退出 git 跟踪（密钥维持"已泄露待轮换"定性）；gateway nas-e2e-test 群号改 env；duty-bot-plan.md 入 gitignore；顶层 AGENTS.md 总表加 duty-bot 行 + 快递申领群裁定 + dashboard 条目；架构 skill 补 duty 分支
 - ticket-bot 脱敏改动（DEVLOG/stub/注释人名）随其在途功能批同推，本批未动
 
-### v34 · 2026-09-11 · 随本提交落地 · fix
+### v34 · 2026-09-11 · 8693635 · fix
 
 **顶层归档：全仓审计 debug 批（duty v2 / hub v66 / approval v31 / dashboard 修复）**
 
@@ -190,11 +190,11 @@
 - approval-bot v31：飞书客户端 15s 超时（催发票互斥锁卡死隐患）、积压文件外迁
 - ticket-bot/bambu：client 超时与 quietHours 能力已改在工作区，随各自下一批推送（ticket-bot 在途功能批未动）
 
-### v35 · 2026-09-11 · 随本提交落地 · feat
+### v35 · 2026-09-11 · cbc7fd1 · feat
 
 **顶层锚点：duty-bot v3——缺勤补偿规则确认（已请假/未做完全路径进下周队列，含 admin 手工标记补登记）；快递申领群=值日播报群已确认**
 
-### v36 · 2026-09-11 · 随本提交落地 · feat
+### v36 · 2026-09-11 · 24c6d24 · feat
 
 **顶层联动：hub v68 值日群（快递申领群）关键词自动回答放行——群监听"占得太死"松绑**
 
@@ -202,7 +202,7 @@
 - hub v68（pm-robot 仓 3501bb5）：@消息「值日助手」看板不变、关键词命中照常回答（未命中回新值日群引导语）、未@关键词照常回答；基础指令继续关闭。
 - 文档同步：根 AGENTS.md 值日专用群裁定行、qianli-chat-architecture SKILL.md 架构图、dashboard/registry.js hub 权限、ticket-pm/LOGIC-MAP §2.4 值日分支条目。LOGIC-MAP 同文件随带上批已上线行为的在途文档补记（关键词回答管道③、多人接单 v57~v60 接单链路），在途代码（ticket-bot/bambu quietHours 等）仍未提交、随各自下一批。
 
-### v37 · 2026-09-11 · 随本提交落地 · feat
+### v37 · 2026-09-11 · a0d49a7 · feat
 
 **顶层联动：值日域权限管辖归位——duty-bot v4 管辖策略下发 + hub v69 策略驱动消费**
 
@@ -211,14 +211,14 @@
 - hub v69（5f0add5）：`dutyPolicyService` 短缓存消费策略，值日分支与未@关键词闸门全部策略化，duty-bot 失联按本仓 `DUTY_CHAT_ID` 兜底；改群/改规则今后只动 duty-bot 一侧。
 - 文档同步：根 AGENTS.md 值日群裁定行、架构 SKILL.md、dashboard/registry.js（duty/hub 条目）、两仓 README/AGENTS、ticket-pm/LOGIC-MAP §2.4。测试：duty-bot 10 项新断言 + flow/schedule 回归；hub 27 项断言。NAS 实测策略接口下发正确、双服务 health 200。
 
-### v38 · 2026-09-11 · 随本提交落地 · chore
+### v38 · 2026-09-11 · 1e19e37 · chore
 
 **顶层锚点 v37 补记：值日域权限管辖工作全部收口到顶层**
 
 - duty-bot 仓 DEVLOG 回填 v4（316756b 管辖策略下发 → 9bd691b）；pm-robot 仓 DEVLOG 回填 v68/v69（3501bb5 关键词放行、5f0add5 策略驱动 → 372c18b）。
 - 本笔更新 duty-bot / ticket-pm/project-management-robot 两个 gitlink 至含 DEVLOG 的最新 HEAD，顶层与嵌套仓状态对齐；此后值日域改权限口径只动 duty-bot 一侧。
 
-### v39 · 2026-09-11 · 随本提交落地 · feat
+### v39 · 2026-09-11 · 79bfaf1 · feat
 
 **顶层联动：duty-bot v5 表格接线——值日看板表接入（M0 表格项完成）**
 
@@ -226,7 +226,7 @@
 - duty-bot v5（d57aa0f，回填 931094f）：table:check 总状态列类型断言放宽为文本/单选皆收；校验 9 字段全过；NAS 实测 brief 读表 / generate dryRun / health 200。
 - registry 销项：M0"表格 token 回填"完成；**名册待补全（当前仅 1 人）**——排班生成前必须补 members.json 并让队员发「绑定 姓名」，否则全排一人。
 
-### v40 · 2026-09-11 · 随本提交落地 · feat
+### v40 · 2026-09-11 · 39d25c2 · feat
 
 **顶层联动：名册自动读通讯录 + 机器人后端定制窗口规则（首批三仓落地）**
 
@@ -236,7 +236,7 @@
 - 规则成文：顶层 AGENTS「机器人后端定制窗口（附属窗口）规则」——读窗口 policy 全景、写窗口热改、口径权威在各自后端、名册优先通讯录、先加窗口再登记 registry。ticket-bot/bambu 有在途批，policy 窗口随批补上（registry 已标注）。
 - 测试：duty-bot 新增 test:roster（10 项）+ flow contacts stub，schedule/policy/roster 全过。
 
-### v41 · 2026-09-11 · 随本提交落地 · feat
+### v41 · 2026-09-11 · fc631d9 · feat
 
 **顶层联动：hub v71 关键词回答表定制窗口 + 运维台「🧰 定制中心」界面**
 
@@ -245,7 +245,7 @@
 - AGENTS「机器人后端定制窗口」规则补界面条目；ticket-bot/bambu 窗口仍随在途批。
 - 运维台已重启生效（127.0.0.1:3100）。
 
-### v42 · 2026-09-11 · 随本提交落地 · fix
+### v42 · 2026-09-11 · bffe647 · fix
 
 **顶层联动：定制面板集成主看板（🧰 折叠）+ 修复编辑器无响应 + 指令风格统一 + 宣运群回执排查**
 
@@ -255,7 +255,7 @@
 - 排查结论（详见会话报告）：① /help 在财务群外显示完整帮助为既有设计（财务群是切换 /approval-* 的特例），风格统一后体验一致；② 宣运群接单回执缺失根因 = ticket-bot 当时出站请求连不上飞书 API（错误日志「接单队列推导失败: fetch failed」连接超时），队列推导失败被兜底成「无待接单工单」；工单 202609110003 本身正常待接，网络恢复后重发「接单」即可出回执；在途批的 client 超时加固即是针对此问题，建议随下一批推送。
 - ticket-bot / bambu 的 policy 窗口仍随在途批。
 
-### v43 · 2026-09-11 · 随本提交落地 · fix
+### v43 · 2026-09-11 · 2ab7050 · fix
 
 **运维台定制窗口改浮层——修复 4 秒自动刷新把展开面板重置的问题**
 
@@ -263,7 +263,7 @@
 - 改为全局悬浮窗 `#winFloat`：点卡片右上角 🧰 在该卡片上方浮现略小窗口（absolute 定位随页面滚动、内容超高滚动），独立于网格重建，输入中的表单不会被刷新清掉；再次点击 🧰 或点「收起 ✕」关闭，打开另一项目自动切换。
 - 卡片仅保留 🧰 入口按钮；whitelist/规则编辑器/管辖群编辑等功能不变。
 
-### v44 · 2026-09-11 · 随本提交落地 · fix
+### v44 · 2026-09-11 · 5dd60e7 · fix
 
 **顶层联动：窗口按键全量体检 + 名册同步加固 + 排除名单核验**
 
@@ -271,7 +271,7 @@
 - 用户反馈「手动刷新没用」根因：同步整链 ~17 次出站调用，单次网络抖动即整轮失败 + 代理 12s 超时余量偏紧 + 失败只有右上角 toast 无可见结果。修复：duty-bot v8（58237b8）同步失败自动重试一次；运维台代理超时 12s→30s；刷新按钮忙碌态 + 成功后自动弹出名册全景。
 - 排除名单核验：用户已加 18 人，14 人生效（64 人名册、队列 50）；4 人无效（Peiyu Wang/粟宇/Aouk/郑元斌，通讯录查无此人——已退队或名字写法不同），已反馈用户。
 
-### v45 · 2026-09-12 · 随本提交落地 · fix
+### v45 · 2026-09-12 · 8822459 · fix
 
 **顶层联动：值日链路全量修复（duty-bot v9 `f2220af` + hub v74 `106bc46`）——群看板斜杠门、每日播报静默跳过、打卡口径**
 
@@ -283,7 +283,7 @@
 - 验证：hub stub 测试 34 项 + duty-bot 五套件（policy/flow/board/schedule/roster）全过；NAS 两进程 online、health 200；真实群内 @（看板双形态/变体打卡/12:00 播报）待白天自然触发观察。
 - 注：dashboard/registry.js 同文件携带 gateway v14 批次的在途文案改动一并归档（该批功能已随 b4aa03e 部署）；其余在途改动（dashboard 运维台、ticket-bot 多人接单批次等）不在本批收录范围。
 
-### v46 · 2026-09-12 · 随本提交落地 · fix
+### v46 · 2026-09-12 · 265a429 · fix
 
 **顶层联动：全仓复查纠偏 + 剩余未推批次清理（ticket-bot v61 `f6f73e2` + bambu v21 + duty-bot v10）**
 
@@ -294,7 +294,7 @@
 - 复查发现 ⑦（整理）：keep-awake.ps1 防休眠工具归档 `tools/`。
 - gateway v14 DEVLOG 补交随本提交归档（v14 代码已随 b4aa03e 部署，本批不重部署、避免长连接无谓重启）；至此工作区无未收尾改动。
 
-### v47 · 2026-09-12 · 随本提交落地 · feat
+### v47 · 2026-09-12 · 64ce352 · feat
 
 **顶层联动：动态广场看板落地（机器人项目看板）+ 运行时数据保护铁律 + duty-bot 白名单事故整改**
 
@@ -305,7 +305,7 @@
 - 【运行时数据保护】duty-bot 白名单事故整改：v9 推送曾用本地空 `whitelist.json` 覆盖 NAS 侧用户编辑的 18 人排除名单（日志只记条数、不进 git、无快照，不可恢复）→ 顶层 AGENTS 新增「运行时数据保护（删除前询问铁律）」；duty-bot / hub push.js 上传私有配置前自动备份 NAS 现网 + 本地条目少于现网即跳过并回填本地（`PUSH_FORCE_PRIVATE=1` 强制）；实测 duty-bot push 时本地 members 测试桩被 NAS 64 人名册自动回填，守卫按设计生效。
 - 验证：gateway 同步 stub、duty-bot flow/policy、ticket-bot 多人单 20/20、bambu dispatcher 回归全过；五仓 push 后全部 online、health 200。
 
-### v48 · 2026-09-12 · 随本提交落地 · docs
+### v48 · 2026-09-12 · 9e4422e · docs
 
 **顶层联动：全仓状态/联动逻辑复核 + 开发规则与 agent 指示层优化（docs）**
 
@@ -316,7 +316,7 @@
 - 配套修补推送：duty-bot v12 / hub v77——tar 打包排除私有配置，堵住「SFTP 兜底清目录绕过备份守卫」的漏洞（v76 恰走该路径暴露）；hub v76 的 .env.example 标注 M4 预留键。
 - 遗留待办清单（已汇总在案）：ticket-bot `/api/tickets/policy` 与 bambu `/api/print/policy` 窗口、approval-bot 广场钩子、M4 值日播报消费方、bambu 生产 APPROVAL_CODE/PRINTER_HOSTS 配置、动态广场仪表盘 UI 点选、wiki 权限开通、duty-bot 白名单重录（等用户名单）、gateway v15/bambu v21-22 DEVLOG 锚点回填。
 
-### v49 · 2026-09-12 · 随本提交落地 · fix
+### v49 · 2026-09-12 · b5854f4 · fix
 
 **动态广场看板纠偏：网关活跃三表「日期」改日期类型（gateway v16/v17），仪表盘动态筛选可用**
 
@@ -324,8 +324,36 @@
 - 修复：三表「日期」Text→Date 迁移（存量自动转换零丢失）；gateway v16 写入/检索改当日 0 点时间戳 → v17 进一步改**整表拉回内存比对**根治（`bitable.listAllRecords` 替代 searchRecords），队员表新增 `open_id` 稳定身份列（姓名解析升级不产生重复行）。
 - NAS 实测：清理旧格式 24 行 + force 重同步后三表行数/日期值/唯一性全部正确；《搭建指南》对应筛选说明同步更新。
 
-### v50 · 2026-09-12 · 随本提交落地 · docs
+### v50 · 2026-09-12 · 649ac96 · docs
 
 **值日群引导语纯行动指引口径（duty-bot v13 + hub v78 联动）**
 
 - 值日管辖群 @未命中引导语删去「本群为值日/快递申领专用群」「关键词彩蛋照常有效」说明性内容，只保留行动指引（@我 发送「值日助手」查看今日值日 + 查询/请假/打卡请私信机器人）；duty-bot 下发 GROUP_GUIDANCE 与 hub 断联兜底 DEFAULT_GUIDANCE 同文案，hub stub 断言指纹随更。
+
+### v51 · 2026-09-12 · 随本提交落地 · fix
+
+**全量 debug + 文档修正批（duty v14 / hub v79 / approval v33 / ticket v63 联动）+ 上一批手册工作收尾**
+
+**代码修复（三个真实缺陷）**
+- duty-bot v14：白名单成员补偿义务丢失 bug——生成排表路径对不在值日队列成员的插入义务静默丢弃且被误标已安置，义务凭空消失（违反「白名单不豁免补偿」口径）；现改进未安置队列，生成回执如实上报、00:30 对账照常安置。同批：README 把未实施的 M4 写成进行时的纠偏、里程碑 M3 矛盾行合并、建表脚本补「网关队员活跃」open_id 列（与线上表对齐）、.env.example 去重。
+- hub v79：值日管辖群会议提醒关闭（此前会议卡片提醒对所有群照常运行，与「值日群群级功能全关」口径不符；按 duty-bot 下发管辖群严格命中跳过，空列表不放大到全群）；静默积压外迁落地（QUIET_BACKLOG_FILE=/home/qianli/hub-data/quiet-backlog.json + quietHours 自建目录 + 旧积压一次性迁移）。
+- approval-bot v33：quietHours 补启动自建目录（对齐 ticket/bambu/duty）、.env.example 补 QUIET_BACKLOG_FILE 键、README 补 /api/approval/policy 窗口行。
+- ticket-bot v63：README 晚间静默变量表补 QUIET_BACKLOG_FILE 行（docs，无代码改动）。
+- 回归：duty 五套 stub（schedule/policy/flow/board/roster）+ hub stub-test-duty-branch 全过。
+
+**文档修正（全仓一致性）**
+- registry.js：duty 定时任务补 12:00 今日看板播报、名册 63→64 人、hub 监听链路补会议跳过、dashboard 窗口清单补 /api/windows 与 /api/nas/api。
+- dashboard/public/index.html：bambu/ticket policy 占位文案「随各自在途批补上」（被 AGENTS 明文禁止的措辞）改「未落地（已登记待办）」。
+- ticket-pm/LOGIC-MAP：§2.1 管道图补值日分支与会议提醒管辖跳过、§1.7/§2.2 补 QUIET_BACKLOG_FILE、§3 契约补 6/7 引用、已知限制 #7「无接单N」过时条目订正（v57 已解决）。
+- AGENTS.md：DEVLOG 规则补两条惯例成文——占位哈希由下一次 push 回填、纯回填提交不占版本号、历史复用版本号（duty v8/hub v62/ticket v50）以提交哈希为准不追溯改号。
+- 《动态广场看板搭建指南》：网关队员活跃表补 open_id 稳定身份列说明。
+
+**DEVLOG 锚点系统性回填（兑现待定项 #38）**
+- 顶层 v29~v50 全部占位哈希回填（v30 晚间静默批并入 cca9970 归档补交）；duty v10~v13、hub v74~v78、approval v28~v31、ticket v54~v62、gateway v15~v17（v15 锚定其代码提交 8dd86d6）、bambu v21/v22；四仓 + bambu「当前最新」指针同步修正。09-05/09-06 回溯期更早条目按「历史条目不改写」保留。
+
+**上一批收尾（同提交入库）**
+- AGENTS「用户侧总指南（桌面 HTML）——同步义务」节、维护者手册《机器人总成使用指南.md》入库、dashboard/README 引用手册、duty-bot/hub gitlink 指针更新（v13 1d522cf / v78 6328555）——上批「值日群引导语纯行动指引」的文档侧未提交部分。
+
+**用户侧同步（工作区外）**
+- 桌面《机器人总成使用指南.html》：斜杠口径收窄为仅值日指令可省 /、值日群特殊规则补会议提醒关闭与 @+纯图片静默与引导语原文、工单节补无人接单升级私聊组长、审批节补「今日已催」卡（推送+卡片清单）、口语变体「完成」→「完成了」、运维台节去维护者内幕（xlsx 覆盖/部署链路/pm2 术语）、速查表 /test-ddl 标注管理员用。
+- 桌面《qianli-设计意图待定项.md》：#16/#30/#34/#38 逐条订正 + 新增第六节（39~45）记录本批发现与处置。

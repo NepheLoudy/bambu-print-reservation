@@ -136,7 +136,7 @@ feishu-gateway（事件接入 + 路由分工，不在本工作区）
 
 ### 1.7 晚间静默（跨任务播报闸门，`src/utils/quietHours.js`）
 
-**02:00–09:00（Asia/Shanghai，`QUIET_HOURS_START/END` 可配、`QUIET_HOURS_DISABLED=1` 关闭）窗口内，定时/自动播报一律积压到 09:00 整点补发**；积压持久化 `.quiet-backlog.json`（重启不丢；启动时过点立即补冲刷、未过点调度到 09:00）。按任务形态分三种处理（「挤压要为挤压之后的事情负责」）：
+**02:00–09:00（Asia/Shanghai，`QUIET_HOURS_START/END` 可配、`QUIET_HOURS_DISABLED=1` 关闭）窗口内，定时/自动播报一律积压到 09:00 整点补发**；积压持久化 `.quiet-backlog.json`（默认项目根，`QUIET_BACKLOG_FILE` 可挪项目目录外——SFTP 部署清目录不再丢积压；重启不丢；启动时过点立即补冲刷、未过点调度到 09:00）。按任务形态分三种处理（「挤压要为挤压之后的事情负责」）：
 
 | 播报路径 | 静默窗口内行为 | 09:00 补发机制 |
 | --- | --- | --- |
@@ -155,12 +155,14 @@ feishu-gateway（事件接入 + 路由分工，不在本工作区）
 ```
 p2p 消息：  ① DDL逾期确认(handleP2PReply) → handled? 终止
             ② chatService（私聊无需@；指令需私聊白名单；非指令命中任一回答表 → 只提示"仅面向群聊"）
-群聊消息：  ① chatService（必须@机器人；审批群(APPROVAL_CHAT_ID)指令整体切换为 /approval-*；
-                           @我时非指令命中 → 先查 @触发回答表，未命中回落 关键词回答表）
+群聊消息：  ① chatService（必须@机器人；值日管辖群分支先行：看板词/值日指令/图片转 duty-bot
+                           （带 messageId 幂等），未接管落回常规流；审批群(APPROVAL_CHAT_ID)指令整体
+                           切换为 /approval-*；@我时非指令命中 → 先查 @触发回答表，未命中回落 关键词回答表）
             ② DDL逾期确认(handleReply，仅4个播报群；确认必须来源匹配：p2p发的只能私聊回、群发的只能同群回)
             ③ 关键词自动回复·关键词回答表（未@消息命中 autoReplies.json 即回；AUTO_REPLY_CHAT_IDS 收窄，留空=全群）
             ④ 关键词监听（KEYWORD_CHAT_ID 限定，未配置则全部群）
-            ⑤ 会议提醒（所有群，仅会议卡片消息，5分钟/群去重，@所有人）
+            ⑤ 会议提醒（所有群，仅会议卡片消息，5分钟/群去重，@所有人；值日管辖群跳过——群级功能全关，严格按
+                           duty-bot 下发 groupChatIds 命中判定，空列表不放大到全群）
 ```
 
 每一环 handled 即终止管道；DDL 确认"未识别回复"在群聊静默放行给后续环节；③ 自动回复命中也不终止（发言记录照常往下走）。
@@ -176,7 +178,7 @@ p2p 消息：  ① DDL逾期确认(handleP2PReply) → handled? 终止
    - 降级①：接口失败 → `getUnclosedBuckets()` 直读工单表，全群共用同一份（不分组），**播报对象与分桶口径与主链路一致：指定负责人 → 补充负责人、触发节点+补充负责人为空+≥6h**；
    - 降级②：直读也失败 → 本次无工单分栏，DDL 播报不受影响。
 5. 逾期确认：基于 owner 字段数据递归收集逾期项目 → 逐项目私聊 owner（见 2.3）。
-6. **晚间静默**：触发落在播报静默窗口（默认 02:00–09:00，`server/src/utils/quietHours.js`）内时登记积压（`.quiet-backlog.json`），窗口结束整点**重跑整个播报任务**（含第 5 步逾期确认私聊，以补发时刻数据重查）；「今日已播报」标记在至少一群送达后才落盘，冲刷补跑与当天正常触发天然互斥。`/test-ddl`、`/test-broadcast` 人工触发不受限。对话/指令回复（DDL 确认"是/否"）不在播报闸门范围内。
+6. **晚间静默**：触发落在播报静默窗口（默认 02:00–09:00，`server/src/utils/quietHours.js`）内时登记积压（`.quiet-backlog.json`，`QUIET_BACKLOG_FILE` 可外迁项目目录外），窗口结束整点**重跑整个播报任务**（含第 5 步逾期确认私聊，以补发时刻数据重查）；「今日已播报」标记在至少一群送达后才落盘，冲刷补跑与当天正常触发天然互斥。`/test-ddl`、`/test-broadcast` 人工触发不受限。对话/指令回复（DDL 确认"是/否"）不在播报闸门范围内。
 
 卡片工单分栏只列负责人姓名不 @（结单提醒由 ticket-bot 私聊完成）。
 
@@ -215,6 +217,7 @@ p2p 消息：  ① DDL逾期确认(handleP2PReply) → handled? 终止
 3. **指令门禁同套**：指令仅群内 + 私聊白名单（`P2P_COMMAND_OPEN_IDS`/`P2P_COMMAND_CHAT_IDS`），两项目同款同值。
 4. **播报卡互不越界**：工单播报/接单回执/超时问询/结单提醒 → ticket-bot；DDL 卡/逾期确认/会议提醒/语录 → pm-robot。
 5. **事件全经网关**：两项目 `FEISHU_USE_LONG_CONNECTION=false`，收 `POST /api/feishu/event`；hub 转发指令走 `POST /api/chat/command`。
+6. **动态广场写表 / gateway 接单抢占**：动态广场写表约定（各仓 `src/services/plaza.js`、失败仅 warn、测试隔离 `PLAZA_BITABLE_TABLE_ID=''`）与 gateway `{contains:'接单', mention:true}` 全局抢占（非工单群 @含"接单"进 ticket-bot，群门禁只拦 IGNORE_CHAT_IDS，会回提示）见 `ticket-pm/AGENTS.md` 联动契约 6/7。
 
 审批节点值（两项目各自配置，需保持一致）：触发播报/联动 = 「群内有组员接单后通过」「有组员接单后通过」「负责人确认消息后通过」（指定负责人的公示即绑定只作用于最后一个）；结单相关 = 「回执单：是否结单」。无指定负责人分支的审批流按「面向组别」并行展开（每组一个「XX有组员接单后通过」节点，需全部通过流程才汇合），联动侧按任务集合批量通过。
 
@@ -230,7 +233,7 @@ p2p 消息：  ① DDL逾期确认(handleP2PReply) → handled? 终止
 | 4 | 逾期确认"是"直接写 completed | `pm-robot ddlConfirmService` | 私聊一句整句"是"就会改项目表状态（现在已限定只能私聊回复 + 整句匹配）；如需二次确认可加待确认快照/撤销窗口 |
 | 5 | owner 群的工单分栏取决于 GROUP_ROUTES 映射 | 两项目 | hub 的 owner 群（mentionField=owner）只有在 ticket-bot `GROUP_ROUTES` 把某组别映射到同一 chatId 时才有工单分栏；否则该群 DDL 卡永远无工单栏 |
 | 6 | `/test-ddl` 私聊执行时测试卡发到 owner 群 webhook | `pm-robot chatService` | 管理员私聊测试的既定行为，注意别在正式时间误触发 |
-| 7 | 待接单多工单同群时"接单"默认作用于最新一张 | `ticket-bot ticketService` handleAcceptOrder | 无"接单2"这类编号指定；错张需等该张被接/对账后自然轮转 |
+| 7 | ~~待接单多工单同群时"接单"默认作用于最新一张~~ 已解决（v57） | `ticket-bot ticketService` handleAcceptOrder | v57 起按源表实时推导队列，「接单」须带序号（最新为「接单1」），裸「接单」被拒并提示序号范围；详见 §1.3 |
 | 8 | 「是否允许多人接单」依赖审批表单 → 工单表同名字段同步 | `ticket-bot config.multiAccept` | 工单表缺列/为空时按「否」处理（接单即通过，现状）；存量单列值恒为空，仅新提交的审批会带值 |
 | 9 | 无人接单升级的轮次/间隔状态仅内存 | `ticket-bot/src/cron/index.js` timeoutRoundState/leaderNudgeState | 重启后轮次清零，组长私聊升级最多推迟一轮（1~2 小时）；不涉及写库，故不落表 |
 | 10 | 超时重问询卡对组长的 @ 可能无效 | `ticket-bot/src/feishu/bot.js` buildReannounceCard | `GROUP_LEADERS` 当前配的是 user_id，而卡片 `<at id>` 语法要求 open_id（无人接单升级的私聊链路已做 user_id→open_id 解析，群卡 @ 沿用旧写法未动；该分支本身很少触达） |
