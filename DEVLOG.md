@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v53**（2026-09-13，随本提交落地）。
+当前最新：**v54**（2026-09-13，随本提交落地）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -398,3 +398,13 @@
 - 文档同步：搭建指南（数据源表/图表清单删 #10、#12，指标卡 #4 改「今日机器人交互」）、dashboard/registry.js notes、顶层 AGENTS 看板节、gateway README/`.env.example`、桌面用户 HTML（网关活跃两处描述、仪表盘面板表删两行）。
 - 测试：usage-sync stub 改单表口径全过；新增门控用例（未@不计/@计/私聊计/显式路由计/接单计）全过。
 - 部署：gateway 路径提交 800364e 已推远端并 SFTP 部署，pm2 online、ws running，启动日志确认新同步口径；日活跃表近 30 天存量行仍为旧口径，随留存自然滚出。
+
+### v54 · 2026-09-13 · 随本提交落地 · feat
+
+**「是/否」双语义根治批：值日打卡主词改「打卡」+ DDL 确认 12 小时时效（duty v16 + hub v81，用户拍板）**
+
+- **值日打卡主词改「打卡」**：从根上避开与 DDL 确认抢「是」——「打卡/打卡了」入路由与 policy 清单（含斜杠变体），「是/口语变体」兼容保留；duty 全量文案（HELP/D-1/18:30 询问/看板 footer/否补救/收口回执/补位通知）改「回复打卡」。
+- **DDL 确认 12 小时时效**（N=12，`DDL_CONFIRM_WINDOW_HOURS` 可配）：确认私信发出后 12 小时内回复才认；**超时项目保持原状态、次日 12:00 播报重新询问**（原 7 天窗口废止）。
+- **冲突额外提示**：有未过期 DDL 确认的成员，18:30 询问追加「回『是』会确认项目，值日请回『打卡』」——hub 新增 `GET /api/ddl/pending` 供数，duty `ddlConflictClient` 短缓存消费、失联静默降级。
+- 测试：duty 五套 stub（flow 新增 4 断言 + policy 清单 20→24 词）+ hub duty-branch 回归全过。
+- 文档：registry（duty 指令/hub 监听链路）、ticket-pm/LOGIC-MAP §2.3 时效口径、维护者手册、桌面 HTML（时间线/指令表/FAQ 三处）、意图待定项销项原 #2 并记入已定口径。
