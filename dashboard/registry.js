@@ -30,7 +30,7 @@ module.exports = {
       quickActions: [
         { id: 'install', label: 'npm install', cmd: 'npm install', cwd: '' },
       ],
-      notes: '改路由/消费者登记先读 .agents/skills/qianli-chat-architecture/SKILL.md；不提供本地启动——本地实例会与 NAS 抢共用应用唯一长连接，生产事件会被随机分流；使用统计（口径=机器人交互：显式路由/私聊/@机器人）每 30 分钟自动 upsert 到机器人项目看板「网关日活跃」单表（动态广场看板数据源，POST /api/usage-sync/run?force=1 手动补数；网关功能使用/网关队员活跃两表已下线）',
+      notes: 'v19 起管理端点鉴权（/api/dispatch 与 /api/usage-sync/run 需 X-API-Token 头，GATEWAY_API_TOKEN 在 .env）+ 长连接启动失败自动重试（5s 指数退避封顶 5min + 120s 看门狗）；改路由/消费者登记先读 .agents/skills/qianli-chat-architecture/SKILL.md；不提供本地启动——本地实例会与 NAS 抢共用应用唯一长连接，生产事件会被随机分流；使用统计（口径=机器人交互：显式路由/私聊/@机器人）每 30 分钟自动 upsert 到机器人项目看板「网关日活跃」单表（动态广场看板数据源，POST /api/usage-sync/run?force=1 手动补数；网关功能使用/网关队员活跃两表已下线）',
     },
     {
       id: 'hub',

@@ -430,3 +430,13 @@
 - 病灶回顾：dispatch 的下载/上传/下发是分钟级 await 链、printing 占用登记在链尾，manualDispatch 绕过 matching 串行段且 busy 校验在链前——窗口期两路对同一台打印机双双下发（上传互覆/顶掉任务）。
 - 测试：新增 `test/dispatcher-manual-race-test.js` 8 项（受控 deferred 模拟分钟级链路）；persist/dispatcher/approval 回归全过；NAS 部署后 health 200。
 - 文档：bambu README「分发互斥」节、registry bambu notes、桌面意图待定项销项（原 bambu TOCTOU 条目）并记入已定口径。
+
+### v58 · 2026-09-13 · 随本提交落地 · feat
+
+**gateway 管理端点鉴权 + 长连接启动失败自动重试（gateway v19，用户拍板：现状不接受）**
+
+- **鉴权**：`/api/dispatch` 与 `/api/usage-sync/run` 需带 `X-API-Token` 头（`GATEWAY_API_TOKEN` 存 gateway `.env` 随 push 下发 NAS，凭据存储沿用工作区 .env 约定；timingSafeEqual 防时序侧信道）；**fail-closed**——token 未配置时两端点整体锁定（503），健康检查与只读 `GET /api/usage` 不受限。手动补数 curl 示例已带头同步进 AGENTS/搭建指南/维护者手册。
+- **长连接自动重试**：启动失败（凭证错误/网络故障）按指数退避自动重试（5s 起、翻倍封顶 5 分钟），每次尝试新建 WSClient（保证同一时刻至多一条连接），成功清零计数打恢复日志；120s 看门狗兜底「start 无响应」；health 的 ws 字段新增 `connecting` 态。
+- NAS 实测：无 token 两端点 403；带 token usage-sync 200（真实同步 09-12/09-13 两天数据）、dispatch 200；health `ws: running`。
+- 顺带：gateway v18 锚点回填（800364e，对方会话漏回填且头部指针停在 v17）；DEVLOG 头部指正 v19。
+- 文档：gateway README、registry gateway notes、桌面意图待定项销项（原 #2 gateway 条目）并记入已定口径。
