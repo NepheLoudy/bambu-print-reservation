@@ -5,6 +5,7 @@
 const assert = require('assert');
 
 // 隔离：让 manager 保持 0 台打印机、不触发外部调用
+process.env.PLAZA_BITABLE_TABLE_ID = ''; // 测试禁用动态广场写表（防污染生产表）
 process.env.PRINTER_HOSTS = '';
 
 const { colorDistance, materialMatch } = require('../src/services/dispatcher');

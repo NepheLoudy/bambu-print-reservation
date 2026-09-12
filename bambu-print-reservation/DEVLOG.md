@@ -126,3 +126,11 @@
 - `src/utils/quietHours.js`：积压文件路径支持 `QUIET_BACKLOG_FILE` 环境变量——本仓纯 SFTP 部署每次 `rm -rf` 清空 /opt/bambu-print-server，默认项目根的 `.quiet-backlog.json` 每次部署必丢，静默积压的「重启不丢」承诺在部署场景从未成立；加载时对目标目录 `mkdirSync(recursive)`（项目外数据目录无人预建）。
 - `.env` 补配 `QUIET_BACKLOG_FILE=/home/qianli/bambu-data/quiet-backlog.json`（push.js 随部署上传 NAS 生效）；`.env.example` 补注释键（补齐「新增配置同步改 example」约定欠账）。
 - 顶层 AGENTS「晚间静默」口径不变：积压文件位置变化不影响冲刷语义（任务类重跑/一次性通知原样补发）。
+
+### v22 · 2026-09-12 · 顶层归档（随顶层 v47，哈希待回填） · feat
+
+**动态广场事件流接入（打印排队/开始/完成/失败 → 机器人项目看板）**
+
+- 新增 `src/services/plaza.js`：打印生命周期四态事件写机器人项目看板「动态广场」表（`config.plaza` 默认表已内置，`PLAZA_BITABLE_TABLE_ID` 可覆盖）；失败仅 warn 绝不影响打印主链路。
+- 插桩：`dispatcher` 的 enqueue（排队，silent 不计）/ dispatch 开始 / completeTask 完成 / failTask 失败。
+- 测试：`test/dispatcher-test.js` 补 `PLAZA_BITABLE_TABLE_ID=''` 隔离（防测试污染生产表），回归全过。

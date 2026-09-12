@@ -293,3 +293,14 @@
 - 复查发现 ⑤⑥（文档纠偏）：gateway DEVLOG 头部「当前最新」v13→v14（v13 条目刚修过同型漂移、属复发）；registry ticket 条目注记改写——多人接单批次已推 v61，**`/api/tickets/policy` 定制窗口仍未落地（待后续批次）**。
 - 复查发现 ⑦（整理）：keep-awake.ps1 防休眠工具归档 `tools/`。
 - gateway v14 DEVLOG 补交随本提交归档（v14 代码已随 b4aa03e 部署，本批不重部署、避免长连接无谓重启）；至此工作区无未收尾改动。
+
+### v47 · 2026-09-12 · 随本提交落地 · feat
+
+**顶层联动：动态广场看板落地（机器人项目看板）+ 运行时数据保护铁律 + duty-bot 白名单事故整改**
+
+- 建表：机器人项目看板新增「动态广场 / 网关日活跃 / 网关功能使用 / 网关队员活跃」四表（duty-bot `scripts/create-plaza-tables.js` 幂等建表；主键改名走 PUT——飞书更新字段接口不是 PATCH）。
+- 网关活跃同步：gateway v15 每 30 分钟按日期签名 upsert 三表 + 启动回填存量 + `POST /api/usage-sync/run` 手动补数；NAS 实测出数（09-12：237 条消息 / 23 名活跃队员，open_id 姓名自动解析成功）。
+- 动态广场事件流：ticket-bot v62（工单播报/接单/结单/审批自动通过）、bambu v22（打印排队/开始/完成/失败）、duty-bot v11（值日完成/请假）、hub v75（DDL 播报）四仓钩子接入，失败仅 warn 不阻塞主流程；approval-bot 无写表客户端待后续批次。
+- 交付《动态广场看板搭建指南.md》（顶层）：指标卡/分布/对比/趋势/Feed 逐图表清单——仪表盘图表因开放平台限制无法 API 创建，需在多维表格 UI 按清单点选（约 10 分钟）；wiki 参考文档因共享应用缺 `wiki:node:read` 暂无法读取，开通后可对照调整。
+- 【运行时数据保护】duty-bot 白名单事故整改：v9 推送曾用本地空 `whitelist.json` 覆盖 NAS 侧用户编辑的 18 人排除名单（日志只记条数、不进 git、无快照，不可恢复）→ 顶层 AGENTS 新增「运行时数据保护（删除前询问铁律）」；duty-bot / hub push.js 上传私有配置前自动备份 NAS 现网 + 本地条目少于现网即跳过并回填本地（`PUSH_FORCE_PRIVATE=1` 强制）；实测 duty-bot push 时本地 members 测试桩被 NAS 64 人名册自动回填，守卫按设计生效。
+- 验证：gateway 同步 stub、duty-bot flow/policy、ticket-bot 多人单 20/20、bambu dispatcher 回归全过；五仓 push 后全部 online、health 200。

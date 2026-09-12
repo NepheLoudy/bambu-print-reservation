@@ -5,6 +5,7 @@ const { sendMessage } = require('../feishu/bot');
 const quietHours = require('../utils/quietHours');
 const printerManager = require('../printer/manager');
 const reservationService = require('./reservation');
+const plaza = require('./plaza');
 
 // ============================================================
 // 打印分发引擎：任务队列 + 空闲触发匹配
@@ -140,6 +141,7 @@ class Dispatcher {
     console.log(`[分发] 入队: ${task.applicationNo || task.recordId} ${task.materialType || ''}${task.color ? '×' + task.color : ''}${task.isUrgent ? ' [加急]' : ''}`);
 
     if (!silent) {
+      plaza.append({ event: '打印排队', title: `${task.applicationNo || task.recordId} ${task.materialType || ''}${task.color ? '×' + task.color : ''}${task.isUrgent ? '（加急）' : ''}` });
       announce(`排队卡 ${task.recordId}`, require('../feishu/bot').buildQueueCard(task, position), (err) =>
         console.error('[分发] 入队播报失败:', err.message)
       );
@@ -343,6 +345,7 @@ class Dispatcher {
         require('../feishu/bot').buildJobStartCard(task, printer),
         (err) => console.error('[分发] 开始播报失败:', err.message)
       );
+      plaza.append({ event: '打印开始', title: `${task.applicationNo || task.recordId} → ${printer.name}` });
     } catch (err) {
       console.error(`[分发] 分发失败 ${task.recordId}:`, err.message);
       // 回滚状态并重新排队（下一轮再试）；审批来源无表状态可回滚
@@ -407,6 +410,7 @@ class Dispatcher {
     }
 
     announce(`完成卡 ${task.recordId}`, require('../feishu/bot').buildJobFinishCard(task, printer), () => {});
+    plaza.append({ event: '打印完成', title: `${task.applicationNo || task.recordId} @ ${printer.name}` });
     console.log(`[分发] 完成: ${task.applicationNo || task.recordId} @ ${printer.name}`);
     this.trigger('task-finish');
   }
@@ -425,6 +429,7 @@ class Dispatcher {
     }
 
     announce(`失败卡 ${task.recordId}`, require('../feishu/bot').buildJobFailedCard(task, printer, reason), () => {});
+    plaza.append({ event: '打印失败', title: `${task.applicationNo || task.recordId} @ ${printer.name}：${reason}` });
     console.error(`[分发] 失败: ${task.applicationNo || task.recordId} @ ${printer.name} ${reason}`);
     this.trigger('task-failed');
   }

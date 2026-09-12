@@ -30,7 +30,7 @@ module.exports = {
       quickActions: [
         { id: 'install', label: 'npm install', cmd: 'npm install', cwd: '' },
       ],
-      notes: '改路由/消费者登记先读 .agents/skills/qianli-chat-architecture/SKILL.md；不提供本地启动——本地实例会与 NAS 抢共用应用唯一长连接，生产事件会被随机分流',
+      notes: '改路由/消费者登记先读 .agents/skills/qianli-chat-architecture/SKILL.md；不提供本地启动——本地实例会与 NAS 抢共用应用唯一长连接，生产事件会被随机分流；使用统计 /api/usage 每 30 分钟自动 upsert 到机器人项目看板「网关日活跃/网关功能使用/网关队员活跃」三表（动态广场看板数据源，POST /api/usage-sync/run?force=1 手动补数）',
     },
     {
       id: 'hub',
@@ -74,7 +74,7 @@ module.exports = {
         { id: 'install', label: 'npm install', cmd: 'npm install', cwd: '' },
         { id: 'test-duty', label: '值日分支 stub 测试', cmd: 'node scripts/stub-test-duty-branch.js', cwd: '' },
       ],
-      notes: '关键词自动回答表 .local.json 私有覆盖（真实回答不上传 git）',
+      notes: '关键词自动回答表 .local.json 私有覆盖（真实回答不上传 git）；DDL 播报事件写入动态广场（机器人项目看板）',
     },
     {
       id: 'bambu',
@@ -94,7 +94,7 @@ module.exports = {
       quickActions: [
         { id: 'install', label: 'npm install', cmd: 'npm install', cwd: '' },
       ],
-      notes: 'push 无 git 步骤；版本锚点取顶层归档提交',
+      notes: 'push 无 git 步骤；版本锚点取顶层归档提交；打印排队/开始/完成/失败事件写入动态广场（机器人项目看板）',
     },
     {
       id: 'approval',
@@ -137,7 +137,7 @@ module.exports = {
       quickActions: [
         { id: 'install', label: 'npm install', cmd: 'npm install', cwd: '' },
       ],
-      notes: '多人接单批次已随 v61（f6f73e2）推送：出站 fetch 15s 超时、审批人解析失败不缓存自愈、接单队列复用全量记录、静默积压挪址 QUIET_BACKLOG_FILE；定制窗口 GET /api/tickets/policy 仍未落地（待后续批次，顶层 AGENTS「机器人后端定制窗口」）',
+      notes: '多人接单批次已随 v61（f6f73e2）推送：出站 fetch 15s 超时、审批人解析失败不缓存自愈、接单队列复用全量记录、静默积压挪址 QUIET_BACKLOG_FILE；工单播报/接单/结单/审批自动通过事件写入动态广场（机器人项目看板）；定制窗口 GET /api/tickets/policy 仍未落地（待后续批次，顶层 AGENTS「机器人后端定制窗口」）',
     },
     {
       id: 'duty',
@@ -178,7 +178,7 @@ module.exports = {
         { id: 'test', label: '排班+闭环+策略 stub 测试', cmd: 'npm run test:schedule && npm run test:flow && npm run test:policy && npm run test:roster', cwd: '' },
         { id: 'table-check', label: '表格字段校验', cmd: 'npm run table:check', cwd: '' },
       ],
-      notes: '表格已接线（机器人项目看板库·值日看板表，字段经 DUTY_FIELD_* 映射）；名册自动读通讯录（63 人全员入册，open_id 直取，whitelist.json 为排除名单）；接口 GET /api/duty/brief、GET /api/duty/policy、GET /api/duty/roster、GET|POST /api/duty/whitelist、POST /api/chat/command（转发载荷带 messageId，消息级幂等全路径生效；返回 {reply, handled}）、/api/bot/test-*',
+      notes: '表格已接线（机器人项目看板库·值日看板表，字段经 DUTY_FIELD_* 映射）；名册自动读通讯录（64 人全员入册，open_id 直取，whitelist.json 为排除名单——权威在 NAS 侧，push 有备份+守卫，见顶层 AGENTS「运行时数据保护」）；值日完成/请假事件写入动态广场；接口 GET /api/duty/brief、GET /api/duty/policy、GET /api/duty/roster、GET|POST /api/duty/whitelist、POST /api/chat/command（转发载荷带 messageId，消息级幂等全路径生效；返回 {reply, handled}）、/api/bot/test-*',
     },
     {
       id: 'dashboard',
