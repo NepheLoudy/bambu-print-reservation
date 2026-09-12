@@ -29,6 +29,16 @@
 - **对 agent 会话（ZCode/TRAE 等）**：凡涉及删除、清空、重置、重写上述文件或表格数据的改动，动手前列出影响面**征询用户**；「先删后建」「顺手清理」「重新生成会覆盖旧文件」一律不允许不打招呼；
 - **事故记录**：2026-09-12 duty-bot v9 推送用本地空 `whitelist.json` 覆盖 NAS 侧用户编辑的 18 人值日排除名单（日志只记条数、文件不进 git、NAS 无快照，**不可恢复**，仅存 4 个无效名：Peiyu Wang/粟宇/Aouk/郑元斌）——本节由此设立；同批已在 duty-bot / hub push.js 落地备份+守卫。
 
+# 机器人项目看板（多维表格）数据联动
+
+**「机器人项目看板」（app_token `ZlVZbXDkRayUzSsFRiycznmZn5b`）是跨机器人的量化数据底座**，动态广场看板（仪表盘）与其四张联动表都在这里：
+
+- **动态广场**（`tbld1zHXkTzko20p`）：各机器人关键业务事件流。写入约定：各仓统一走 `src/services/plaza.js`（hub/ticket-bot/bambu 为 `bitableApi.createRecord`，duty-bot 走 requestAPI），**失败仅 warn 绝不阻塞主流程**；来源机器人/事件类型用表内单选项，新增事件类型先改建表脚本再加钩子；
+- **网关日活跃 / 网关功能使用 / 网关队员活跃**：gateway `src/bitable-sync.js` 每 30 分钟按日期签名 upsert（数据没变不写表），`POST /api/usage-sync/run?force=1` 手动补数；
+- **建表/改表**：一律改 `duty-bot/scripts/create-plaza-tables.js`（幂等，可重复执行；主键改名走 **PUT**——飞书更新字段接口不是 PATCH），禁止手改线上表结构不同步脚本；
+- **仪表盘**：图表无法用开放 API 创建，搭建/调整按顶层《动态广场看板搭建指南.md》逐图表点选；既有业务表（工单系统/项目表/值日看板/tbl_keyword）可直接作为图表数据源；
+- **铁律澄清**：机器人写多维表格属于**自身业务的数据落盘**（同 duty-bot 写值日表先例），不构成"消费消息事件"，不受对话铁律限制；但定时写表如属播报性质（未来若有）仍须过晚间静默闸门。
+
 # 机器人后端定制窗口（附属窗口）规则
 
 每个机器人后端必须把**定制类配置**（白名单/管辖范畴/权限人/群范围/回答表等）以 HTTP 窗口暴露，禁止只藏在代码或 `.env` 里：
@@ -38,7 +48,7 @@
 - **管辖/权限口径的权威在各自机器人后端**，消费方短缓存 + 断联兜底（范例：hub 消费 duty-bot `GET /api/duty/policy`）；
 - **名册类**优先自动读飞书通讯录（open_id 直取组织架构），手工名册/绑定只作兜底（范例：duty-bot `syncFromContacts`）；
 - 新增定制项：先加窗口，再同步 `dashboard/registry.js` 登记与本文档；
-- 现状：duty-bot（`/api/duty/policy`、`/api/duty/roster`、`/api/duty/whitelist`）、hub（`/api/hub/policy` + 关键词回答表 CRUD `/api/autoreplies/rules*`，写 `.local.json` 即时生效，push 会用本地 xlsx 版覆盖）、approval-bot（`/api/approval/policy`）；ticket-bot（`/api/tickets/policy`）与 bambu（`/api/print/policy`）随各自在途批补上；
+- 现状：duty-bot（`/api/duty/policy`、`/api/duty/roster`、`/api/duty/whitelist`）、hub（`/api/hub/policy` + 关键词回答表 CRUD `/api/autoreplies/rules*`，写 `.local.json` 即时生效，push 会用本地 xlsx 版覆盖）、approval-bot（`/api/approval/policy`，只读）；**ticket-bot 的 `/api/tickets/policy` 与 bambu 的 `/api/print/policy` 仍未落地**（已登记 registry 注记与顶层 DEVLOG 待办，勿再写成"随在途批补上"）；
 - **界面**：本地运维台「🧰 定制中心」（registry `windows` 清单 + `/api/nas/api` SSH 代理直达 NAS 本机接口）——白名单增删、名册刷新、各域 policy 全景查看、关键词回答表可视化编辑（增删改/启停/切表）都在运维台点选完成。
 
 # 开发日志（DEVLOG）——每次 push 记一版
@@ -75,7 +85,7 @@
 - 工单审批联动：**接单→审批任务自动通过、审批人白名单、审批节点配置、24h 追问** → ticket-bot；**审批群指令、催办周报、催发票私聊、审批实例链接** → approval-bot；
 - 工单×项目管理联动：DDL 分栏取数是 pm-robot 调 ticket-bot 的 HTTP API（`unclosed-by-group`），改出入参两边同批；两项目同住 `ticket-pm/`，联动契约见 `ticket-pm/AGENTS.md`；
 - approval_instance / approval_task 审批事件"收不到/重复" → 先查 feishu-gateway 的 EVENT_TYPES 订阅与消费者登记（同"指令时灵时不灵"规则）；
-- 值日域需求（排班/轮岗/值日请假/值日照片/值日看板）→ duty-bot；「昨日值日播报」卡片与播报 cron 规划在 pm-robot（M4 待实施；数据将取 duty-bot `GET /api/duty/brief`，该接口已上线）；
+- 值日域需求（排班/轮岗/值日请假/值日照片/值日看板）→ duty-bot；「昨日值日播报」卡片与播报 cron 规划在 pm-robot（**M4 仍未实施**：duty-bot `GET /api/duty/brief` 数据接口已上线但暂无消费方，hub `.env` 的 `DUTY_WEBHOOK_URL`/`DUTY_BROADCAST_SCHEDULE` 为该功能预留键）；
 - 值日专用群（快递申领群）：hub 基础指令关闭，放行「值日助手」看板与关键词自动回答（@与未@均生效，未命中@回引导语）。**管辖范畴/生效范畴以 duty-bot `GET /api/duty/policy` 下发为准，群变更只改 duty-bot `.env` 的 `DUTY_GROUP_CHAT_IDS`**（hub 的 `DUTY_CHAT_ID` 仅失联兜底）；
 - 各机器人权能/指令/监听/权限全景与端口：看 `dashboard/registry.js`（单一事实来源，改权能须同步）与本地运维台；
 - 部署一律 `npm run push`（见 `.agents/skills/qianli-deploy/SKILL.md`），部署失败排查放顶层会话。

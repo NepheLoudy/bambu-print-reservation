@@ -15,6 +15,7 @@ description: qianli 工作区飞书机器人项目的统一部署与开发链路
 | project-management-robot | /opt/knowledge-tracker | knowledge-tracker | 3000 | 对话枢纽（hub），DDL 播报 |
 | approval-bot | /opt/approval-bot | approval-bot | 3002 | 财务审批（纯定时催办） |
 | ticket-bot | /opt/ticket-bot | ticket-bot | 3003 | 工单播报/接单/分桶 API |
+| duty-bot | /opt/duty-bot | duty-bot | 3006 | 值日域：排班/值日助手/管辖策略下发（独立仓，push.js 混合模式同 approval-bot） |
 | bambu-print-reservation | /opt/bambu-print-server | bambu-print-server | 3001 | 打印预约（纯 SFTP 部署，无 git 步骤） |
 
 本地目录布局：ticket-bot 与 project-management-robot 归拢在 `ticket-pm/` 下（`ticket-pm/<项目名>`，联动契约见该目录 AGENTS.md）；approval-bot、feishu-gateway、bambu-print-reservation 在本仓库根目录。部署命令不变，仍在各自项目目录内执行。
@@ -30,6 +31,8 @@ npm run push "feat: 说明"
 
 push.js 依次做：① git add -A + commit + push（本地推 GitHub 失败不阻断）→ ② NAS 同步代码（git fetch 失败**自动降级 SFTP 打包直传**，NAS 访问不了 GitHub 是常态）→ ③ 上传本地 `.env` 到 NAS（覆盖）→ ④ npm install + pm2 restart。跑完必须看输出里的 ⚠ 行确认走了哪条路径。
 
+**多项目同批部署顺序**：先网关 → 再各业务机器人 → 顶层归档提交最后。注意 gateway push 的 git 步骤推的是**顶层 monorepo 远端**（origin 即 `NepheLoudy/bambu-print-reservation` 仓，历史遗留的归档远端——bambu 版本锚点也取顶层归档提交），会把已提交的顶层锚点一并推走。
+
 **每次 push 都必须在本项目 `DEVLOG.md` 文末追加一节 `vN · 日期 · 提交哈希`（一次 push = 一版，feat/fix/docs/chore 均记，revert 也记）**，格式与细则见顶层 AGENTS.md「开发日志（DEVLOG）」节。
 
 例外：`feishu-gateway` 和 `bambu-print-reservation` 在顶层 monorepo 内没有独立远端——gateway 的 push.js 只暂存 `feishu-gateway/` 路径，bambu 纯 SFTP 无 git 步骤。
@@ -37,7 +40,7 @@ push.js 依次做：① git add -A + commit + push（本地推 GitHub 失败不�
 ## .env 规则（最重要，出过事故）
 
 - `.env` 永不进 git（.gitignore 已挡）。**已知例外**：顶层 `archive/project-configs/` 里有三份历史 `.env` 备份（approval-bot / bambu-print-server / knowledge-tracker）已被顶层仓库跟踪——属于遗留问题，其中的密钥应视为已泄露处理（轮换），不要再往里加新配置，也不要把新项目的 .env 备份进去。飞书密钥和 NAS 凭证的正式存放处只有本地 `.env` 与 NAS `.env` 两处。
-- **本地 `.env` 就是部署源头：每次 push 都会原样覆盖 NAS 的 .env。** 所以部署前必须确认本地 `.env` 与 NAS 线上意图一致——拿不准就先下载 NAS 的 .env diff 一下（曾发生过：本地残留 `FEISHU_USE_LONG_CONNECTION=true` 被推上去，差点恢复双长连接抢事件）。
+- **本地 `.env` 就是部署源头：每次 push 都会原样覆盖 NAS 的 .env。** **例外——私有运行时配置（duty-bot members/whitelist、hub autoReplies.local.json）**：权威在 NAS 侧（运维台直写），push.js 已内置「先备份 NAS 现网 + 本地条目少于现网即跳过并回填」守卫（`PUSH_FORCE_PRIVATE=1` 才强制覆盖），见顶层 AGENTS「运行时数据保护」； 所以部署前必须确认本地 `.env` 与 NAS 线上意图一致——拿不准就先下载 NAS 的 .env diff 一下（曾发生过：本地残留 `FEISHU_USE_LONG_CONNECTION=true` 被推上去，差点恢复双长连接抢事件）。
 - 改线上配置的正确姿势：改本地 `.env` → `npm run push`。不要直接 sed NAS 的 .env（会被下次部署覆盖回去）。
 - 新增配置项：同步改 `.env.example`（提交）+ 各环境 `.env`（不提交）。
 
@@ -76,6 +79,7 @@ push.js 依次做：① git add -A + commit + push（本地推 GitHub 失败不�
 | webhook 播报某群收到两张卡 | 重试重发；参照 pm-robot cron 的 deliveredGroups 模式（重试只补失败群） |
 | 同一应用出现第二条长连接 | 立即查该机器人 `.env` 的 FEISHU_USE_LONG_CONNECTION 并改 false 重新 push |
 | push 后配置"自己变回去" | 确认 `.github/workflows/deploy.yml` 类旧 Actions 部署已删除（各仓库已拆，别恢复） |
+| push 冲掉运维台改的名单/回答表 | 2026-09-12 事故（whitelist 18 人被本地空壳覆盖）。push.js 已有备份+守卫；如需强行覆盖设 `PUSH_FORCE_PRIVATE=1`，事后从 `/home/qianli/<proj>-data/backup/` 可回滚 |
 
 ## 新增一个机器人项目
 

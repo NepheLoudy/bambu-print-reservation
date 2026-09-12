@@ -304,3 +304,14 @@
 - 交付《动态广场看板搭建指南.md》（顶层）：指标卡/分布/对比/趋势/Feed 逐图表清单——仪表盘图表因开放平台限制无法 API 创建，需在多维表格 UI 按清单点选（约 10 分钟）；wiki 参考文档因共享应用缺 `wiki:node:read` 暂无法读取，开通后可对照调整。
 - 【运行时数据保护】duty-bot 白名单事故整改：v9 推送曾用本地空 `whitelist.json` 覆盖 NAS 侧用户编辑的 18 人排除名单（日志只记条数、不进 git、无快照，不可恢复）→ 顶层 AGENTS 新增「运行时数据保护（删除前询问铁律）」；duty-bot / hub push.js 上传私有配置前自动备份 NAS 现网 + 本地条目少于现网即跳过并回填本地（`PUSH_FORCE_PRIVATE=1` 强制）；实测 duty-bot push 时本地 members 测试桩被 NAS 64 人名册自动回填，守卫按设计生效。
 - 验证：gateway 同步 stub、duty-bot flow/policy、ticket-bot 多人单 20/20、bambu dispatcher 回归全过；五仓 push 后全部 online、health 200。
+
+### v48 · 2026-09-12 · 随本提交落地 · docs
+
+**顶层联动：全仓状态/联动逻辑复核 + 开发规则与 agent 指示层优化（docs）**
+
+- 复核结论：6 服务 NAS 全量 health 200、8 工作区 git 全净；联动逻辑（网关路由→hub 分发→专项转发、duty 管辖策略、unclosed-by-group、plaza 写表、usage 同步、静默闸门）逐一与文档核对一致。
+- 顶层 AGENTS：新增「机器人项目看板（多维表格）数据联动」节（四表写入方约定/建表脚本幂等/写表≠消费消息的铁律澄清）；定制窗口现状纠偏（ticket-bot/bambu policy 窗口明确"仍未落地"，不再写"随在途批补上"）；M4 昨日值日播报标注"接口就绪无消费方 + hub 预留键"。
+- ticket-pm/AGENTS：新增契约 6（动态广场写表约定 + 测试隔离要求）与契约 7（gateway 接单全局抢占记录在案）；部署顺序补 duty-bot 位次与 plaza 测试隔离。
+- qianli-deploy skill：项目表补 duty-bot 行；.env 规则补私有配置守卫说明；已知坑补「push 冲掉运维台名单/回答表」条目；多项目同批部署顺序 + 顶层远端说明（origin 即 bambu 名下归档仓，历史遗留设计）。
+- 配套修补推送：duty-bot v12 / hub v77——tar 打包排除私有配置，堵住「SFTP 兜底清目录绕过备份守卫」的漏洞（v76 恰走该路径暴露）；hub v76 的 .env.example 标注 M4 预留键。
+- 遗留待办清单（已汇总在案）：ticket-bot `/api/tickets/policy` 与 bambu `/api/print/policy` 窗口、approval-bot 广场钩子、M4 值日播报消费方、bambu 生产 APPROVAL_CODE/PRINTER_HOSTS 配置、动态广场仪表盘 UI 点选、wiki 权限开通、duty-bot 白名单重录（等用户名单）、gateway v15/bambu v21-22 DEVLOG 锚点回填。

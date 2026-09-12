@@ -177,6 +177,7 @@ module.exports = {
         { id: 'install', label: 'npm install', cmd: 'npm install', cwd: '' },
         { id: 'test', label: '排班+闭环+策略 stub 测试', cmd: 'npm run test:schedule && npm run test:flow && npm run test:policy && npm run test:roster', cwd: '' },
         { id: 'table-check', label: '表格字段校验', cmd: 'npm run table:check', cwd: '' },
+        { id: 'plaza-tables', label: '动态广场建表（幂等）', cmd: 'node scripts/create-plaza-tables.js', cwd: '' },
       ],
       notes: '表格已接线（机器人项目看板库·值日看板表，字段经 DUTY_FIELD_* 映射）；名册自动读通讯录（64 人全员入册，open_id 直取，whitelist.json 为排除名单——权威在 NAS 侧，push 有备份+守卫，见顶层 AGENTS「运行时数据保护」）；值日完成/请假事件写入动态广场；接口 GET /api/duty/brief、GET /api/duty/policy、GET /api/duty/roster、GET|POST /api/duty/whitelist、POST /api/chat/command（转发载荷带 messageId，消息级幂等全路径生效；返回 {reply, handled}）、/api/bot/test-*',
     },

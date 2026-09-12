@@ -20,6 +20,8 @@
 3. **指令门禁同套规则**：指令仅群内触发、私聊白名单（`P2P_COMMAND_OPEN_IDS`/`P2P_COMMAND_CHAT_IDS`）两项目同款，改门禁逻辑两边同步。
 4. **播报卡互不越界**：工单播报卡 → ticket-bot；DDL 卡 → pm-robot；"播报对象/@谁"跟着卡片走。
 5. **事件全经 feishu-gateway**：两项目一律 `FEISHU_USE_LONG_CONNECTION=false`，收 `POST /api/feishu/event` 转发；hub 转发业务指令走 `POST /api/chat/command` 契约。审批（approval-bot）、打印（bambu）不在本工作区，它们的指令只是被 hub 转发。
+6. **动态广场写表约定**：两项目的业务事件（ticket-bot 工单播报/接单/结单，hub DDL 播报）经各自 `src/services/plaza.js` 写「机器人项目看板」的动态广场表——失败仅 warn 绝不阻塞主流程，表 id 内置 `config.plaza` 可 env 覆盖；测试环境必须置 `PLAZA_BITABLE_TABLE_ID=''` 隔离（防测试污染生产表）。表结构/建表脚本在 duty-bot 仓（顶层 AGENTS「机器人项目看板数据联动」）。
+7. **已知路由撞车（记录在案）**：网关 `contains:'接单'` 是全局抢占——值日群等非工单群里含「接单」的 @ 消息会进 ticket-bot 而非 hub（ticket-bot 群门禁兜底丢弃）；若要收窄须网关+工单管辖群联动批次一起做。
 
 ## 全局规则指针（本会话不会自动加载，开工先读）
 
@@ -37,4 +39,4 @@ npm run push "feat: 说明"                    # 提交→推送→NAS 部署→
 
 - 同批联动改动：**各项目 DEVLOG.md 各记一版**（vN 各自递增），顶层 `../../DEVLOG.md` 另记一条联动摘要；
 - 改 `.env` 配置项时同步更新各自 `.env.example`（提交）与本地 `.env`（不提交，push 时覆盖 NAS）；
-- 联动改动的部署顺序：先网关/订阅相关（若有），再 ticket-bot、pm-robot；部署后按 qianli-deploy skill 验证清单过一遍（两进程 online + health 200 + dry-run：ticket-bot `GET /api/tickets/unclosed-by-group`）。
+- 联动改动的部署顺序：先网关/订阅相关（若有），再 ticket-bot、pm-robot（duty-bot 若同批在其之前）；部署后按 qianli-deploy skill 验证清单过一遍（两进程 online + health 200 + dry-run：ticket-bot `GET /api/tickets/unclosed-by-group`）。涉及 plaza/动态广场的测试一律置 `PLAZA_BITABLE_TABLE_ID=''`。
