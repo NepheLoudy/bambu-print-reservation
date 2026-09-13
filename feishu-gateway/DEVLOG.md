@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次 git 提交 + 一次部署）。本项目无独立远端，push.js 只暂存 `feishu-gateway/` 路径提交进顶层 monorepo——版本即顶层仓库中触碰本路径的提交。v1~v8 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v21**（2026-09-13，随本提交落地）。
+当前最新：**v22**（2026-09-13，随本提交落地）。
 
 ## 阶段五 · 开发历史建档（2026-09-04）
 
@@ -146,3 +146,11 @@
 
 1. **v19 的自动重试整体不可达**（深度审查确认）：SDK（1.73.0）的 WSClient.start() 永不 reject——连接失败的唯一信号是 onError 回调（仅致命错误触发：凭证失败/重连耗尽，SDK 内部已置 terminalError 停摆）与 getConnectionStatus().state==='failed'。原 promise .then/.catch/看门狗全是死代码，凭证错误时健康检查仍误报 running。改为 onError/onReady/onReconnected 回调驱动重试（新建客户端、指数退避）+ 30s 状态巡检兜底静默失败场景。
 2. usage 统计只处理 SIGINT——pm2 restart 发 SIGTERM 丢至多 60s 活跃计数——补 SIGTERM 同款落盘。
+
+### v22 · 2026-09-13 · 随本提交落地 · feat
+
+**队员/功能统计覆盖规则落地 + 投递可靠性 + traceId（体系推荐 R3/R6，用户授权先做）**
+
+1. 统计归因上报：新增 `POST /api/usage/report`（X-API-Token 鉴权）——hub 等消费方把路由层看不见的功能命中（关键词回答/DDL 确认等）回报为队员/功能统计（recordFeature 只加用户与功能计数不加 total，防双算）。
+2. 投递可靠性（R3）：deliverTo 失败自动重试一次（3s）+ 按消费者累计失败计数暴露到 /api/health 的 delivery 字段。
+3. traceId（R6）：路由层生成 evt_xxx 随转发载荷透传，路由日志带前缀——消费者日志可按它串联全链路。

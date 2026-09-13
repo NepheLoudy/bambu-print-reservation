@@ -1,7 +1,8 @@
 const express = require('express');
 const lark = require('@larksuiteoapi/node-sdk');
 const config = require('./config');
-const { dispatchFrame } = require('./dispatch');
+const { dispatchFrame, deliveryStatsSnapshot } = require('./dispatch');
+const { recordFeature } = require('./usage');
 const usage = require('./usage');
 const bitableSync = require('./bitable-sync');
 const { requireApiToken } = require('./auth');
@@ -28,12 +29,22 @@ app.get('/api/health', (req, res) => {
     defaultTarget: config.defaultTarget,
     consumers: config.consumers,
     routes: config.messageRoutes,
+    delivery: deliveryStatsSnapshot(),
   });
 });
 
 // 使用统计（运维台活跃看板数据源）：?days=N 聚合最近 N 天（默认 1，最大 30）
 app.get('/api/usage', (req, res) => {
   res.json(usage.aggregate(req.query.days));
+});
+
+// 消费方归因上报（2026-09-13 统计覆盖规则）：hub 等服务把路由层看不见的功能命中
+// 回报为队员/功能统计（不计 total 防双算）。规则见顶层 AGENTS「全局工程规则」
+app.post('/api/usage/report', requireApiToken, (req, res) => {
+  const { openId, feature } = req.body || {};
+  if (!openId || !feature) return res.status(400).json({ error: '缺少 openId/feature' });
+  recordFeature({ senderId: openId, feature: String(feature).slice(0, 40) });
+  res.json({ ok: true });
 });
 
 // 手动触发网关活跃 → 多维表格同步（动态广场看板；?force=1 忽略签名重写全部）

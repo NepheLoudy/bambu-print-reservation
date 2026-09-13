@@ -70,6 +70,25 @@ function recordMessage({ senderId, feature }) {
   }
 }
 
+// 消费方归因上报（2026-09-13 统计覆盖规则）：hub 等服务把网关路由层看不见的
+// 功能命中（关键词回答/DDL 确认/专项指令等）回报到这里——只加用户与功能计数，
+// 不加 total（total 口径仍是网关路由层交互次数，避免双算）
+function recordFeature({ senderId, feature }) {
+  try {
+    if (!senderId || !feature) return;
+    const day = stats.days[today()] || (stats.days[today()] = { total: 0, users: {}, feats: {} });
+    const u = day.users[senderId] || (day.users[senderId] = { c: 0, last: 0 });
+    u.c += 1;
+    u.last = Date.now();
+    day.feats[feature] = (day.feats[feature] || 0) + 1;
+    prune();
+    dirty = true;
+    ensureName(senderId);
+  } catch (err) {
+    console.warn('[使用统计] 归因记录失败（忽略）:', err.message);
+  }
+}
+
 // ---------- 成员名解析（通讯录，永久缓存；失败 24h 内不重试） ----------
 const nameFailedUntil = new Map();
 const namePending = new Set();
@@ -157,6 +176,7 @@ function aggregate(daysN = 1) {
 
 module.exports = {
   recordMessage,
+  recordFeature,
   aggregate,
   statsFile: FILE,
   // 供 bitable-sync 消费：原始日桶 / 姓名缓存 / 飞书客户端

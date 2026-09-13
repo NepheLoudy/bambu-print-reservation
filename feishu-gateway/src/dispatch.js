@@ -128,7 +128,39 @@ async function replyText(messageId, text) {
   }
 }
 
+// 投递可靠性（2026-09-13 R3）：失败自动重试一次（3s 后），按消费者累计失败计数
+// 并暴露到 /api/health——各仓已有 messageId 幂等，重试不会重复生效
+const deliveryStats = { ok: 0, retried: 0, failed: 0, byConsumer: {} };
+
+function deliveryStatsSnapshot() {
+  return { ok: deliveryStats.ok, retried: deliveryStats.retried, failed: deliveryStats.failed, byConsumer: { ...deliveryStats.byConsumer } };
+}
+
 async function deliverTo(consumer, mode, frame, text) {
+  let result;
+  try {
+    result = await deliverOnce(consumer, mode, frame, text);
+    deliveryStats.ok += 1;
+    return result;
+  } catch (err) {
+    deliveryStats.failed += 1;
+    deliveryStats.byConsumer[consumer.name] = (deliveryStats.byConsumer[consumer.name] || 0) + 1;
+    console.warn(`[路由] 投递 ${consumer.name} 失败（${err.message}），3s 后重试一次`);
+    await new Promise((r) => setTimeout(r, 3000));
+    try {
+      result = await deliverOnce(consumer, mode, frame, text);
+      deliveryStats.ok += 1;
+      deliveryStats.retried += 1;
+      return result;
+    } catch (err2) {
+      deliveryStats.failed += 1;
+      deliveryStats.byConsumer[consumer.name] = (deliveryStats.byConsumer[consumer.name] || 0) + 1;
+      throw err2;
+    }
+  }
+}
+
+async function deliverOnce(consumer, mode, frame, text) {
   if (mode === 'command' && !consumer.commandUrl) {
     // 规则声明了 command 模式但消费者没配指令端点：降级为原始事件转发，必须有日志否则配置错误无从察觉
     console.warn(`[路由] ${consumer.name} 未配置指令端点（CONSUMERS 第三段），command 规则降级为原始事件转发`);
@@ -184,6 +216,8 @@ function recordUsage(frame, text, consumer, { explicit = false } = {}) {
 }
 
 async function routeMessage(frame) {
+  // traceId（2026-09-13 R6）：随转发载荷透传，消费者日志可按它串联全链路
+  frame.traceId = 'evt_' + String((frame.event && frame.event.message && frame.event.message.message_id) || Date.now()).slice(-12);
   const event = frame.event || {};
   const message = event.message || {};
   const text = extractText(message);
@@ -206,7 +240,7 @@ async function routeMessage(frame) {
 
     const consumer = findConsumer(rule.target);
     if (consumer) {
-      console.log(`[路由] 消息命中规则 ${JSON.stringify(m)} → ${consumer.name} (${rule.mode || 'event'}) chat=${message.chat_id || '?'} text="${text.slice(0, 50)}"`);
+      console.log(`[路由] ${frame.traceId} 消息命中规则 ${JSON.stringify(m)} → ${consumer.name} (${rule.mode || 'event'}) chat=${message.chat_id || '?'} text="${text.slice(0, 50)}"`);
       recordUsage(frame, text, consumer, { explicit: true });
       return deliverTo(consumer, rule.mode || 'event', frame, text);
     }
@@ -218,7 +252,7 @@ async function routeMessage(frame) {
     console.warn(`[路由] 无匹配规则且默认目标 ${config.defaultTarget} 未定义，消息丢弃: "${text.slice(0, 50)}"`);
     return { ok: false, dropped: true };
   }
-  console.log(`[路由] 消息走默认目标 → ${fallback.name} text="${text.slice(0, 50)}"`);
+  console.log(`[路由] ${frame.traceId} 消息走默认目标 → ${fallback.name} text="${text.slice(0, 50)}"`);
   recordUsage(frame, text, fallback);
   return deliverTo(fallback, 'event', frame, text);
 }
@@ -306,6 +340,7 @@ async function dispatchFrame(eventType, data) {
 }
 
 module.exports = {
+  deliveryStatsSnapshot,
   dispatchFrame,
   replyText,
   normalizeFrame,
