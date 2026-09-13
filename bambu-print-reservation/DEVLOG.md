@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次部署）。本项目 push.js 为纯 SFTP 直传、无 git 步骤，**版本锚点取顶层 monorepo 中触碰本路径的归档提交**——两次归档之间的个别部署可能无版本记录。v1~v14 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v23**（2026-09-13，随顶层 v52 归档）。
+当前最新：**v26**（2026-09-13，随顶层 v62 归档）。
 
 ## 阶段五 · 审批事件字段对齐与分发健壮化（2026-09-05）
 
@@ -161,3 +161,12 @@
 - 修复：按打印机的分发闸门——`dispatching` Set 在 dispatch 入口同步 check+add（单线程事件循环无插入窗口），finally 释放（失败/重试路径也保证）；自动匹配候选过滤掉分发中的打印机；manualDispatch busy 校验追加「正在有任务分发中」判定，且 dispatch 入口闸门兜底二次拒绝。**闸门刻意不持久化**（崩溃后清零重新评估，残留锁才危险）。
 - 测试：新增 `test/dispatcher-manual-race-test.js` 8 项（可控 deferred 模拟分钟级下载链：分发中自动匹配不可见/并发 dispatch 二路拒绝且任务留队/manualDispatch 判定/链路完成后闸门释放任务继续分发）；persist/dispatcher/approval 三套既有测试回归全过。
 - README 补「分发互斥」节与测试清单。
+
+### v26 · 2026-09-13 · 随顶层 v62 归档 · fix
+
+**深度代码审查批：四处确认 bug 修复（含两个高影响）**
+
+1. 分发进行中重启/崩溃 → 任务永久丢失：中间态（已出队未入 printing）被 known 永久拦截重入队，已审批单静默消失且无任何通知。改为显式 in-flight 追踪：dispatch 进出 inFlight 数组、落盘携带，重启时中断任务重回队列完整重发（新增往返用例）。
+2. finish 事件落在停机/打印机离线窗口 → printing 幽灵滞留（重连首报无 prevState 不产生事件）——新增 10 分钟 printing 巡检：打印中超过预估时长（6h×2 倍数保守）且打印机实况空闲即补完成收尾。
+3. manualDispatch 非 autoDispatch 分支不移出队列——人工指定的闪铸单随后被自动匹配分到别的 Bambu 覆盖。移出队列 + known 登记 + 落盘。
+4. 审批源任务重试耗尽后 /print-dispatch 永远找不到（instance_code 不在镜像表）——重试耗尽时保留 givenUp 列表，人工恢复通道打通。

@@ -74,6 +74,20 @@ check('known 超 2000 条截尾保存（保留最新段，活动任务回加）'
   assert.ok(d3.known.has('r1') && d3.known.has('r3')); // 活动任务 id 由恢复逻辑回加
 });
 
+// ---------- 2.5 分发中断恢复：inFlight 任务重回队列并解除 known 拦截（B1） ----------
+{
+  const before = freshDispatcher();
+  before.restoreState();
+  before.known = new Set(['rX']);
+  before.queue = [];
+  before.inFlight = [{ recordId: 'rX', applicationNo: '2026X', fileSource: 'approval', fileToken: 'tok_x' }];
+  before.flushState();
+  const d = freshDispatcher();
+  d.restoreState();
+  check('分发中断任务恢复：重回队列', () => assert.ok(d.queue.some((t) => t.recordId === 'rX'), JSON.stringify(d.queue)));
+  check('分发中断任务恢复：known 拦截已解除', () => assert.ok(!d.known.has('rX'), JSON.stringify([...d.known])));
+}
+
 // ---------- 3. 损坏文件 → 按空启动不抛 ----------
 fs.writeFileSync(STATE_FILE, '{broken json!!');
 const d4 = freshDispatcher();

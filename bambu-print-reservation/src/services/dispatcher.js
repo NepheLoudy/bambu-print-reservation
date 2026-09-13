@@ -74,6 +74,8 @@ class Dispatcher {
     this.completedCount = new Map(); // printerId → 累计完成数（预留：按负载选机未实现，只写不读）
     this.lastMaterialRemind = 0;  // 缺料提醒节流
     this.matching = false;        // 匹配过程串行化
+    this.givenUp = new Map();     // 重试耗尽退出的任务（recordId → task，供 /print-dispatch 人工恢复）
+    this.inFlight = [];           // 分发进行中的任务（已出队未入 printing；落盘携带，重启重回队列）
     this.dispatching = new Set(); // 正在分发中的 printerId（人工指定 vs 自动匹配互斥闸门；
                                   // 刻意不持久化——崩溃后清零重新评估，残留锁才危险）
     this.timer = null;
@@ -85,6 +87,13 @@ class Dispatcher {
     if (this.timer) return;
     this.restoreState();
     this.hookExitFlush();
+    // printing 幽灵巡检（2026-09-13）：finish 事件落在停机/打印机离线窗口时 completeTask
+    // 永不执行——打印中超过 STALE 倍数打印时长仍卡着的任务，按打印机当前实况补完成/继续等
+    if (!this.staleTimer) {
+      this.staleTimer = setInterval(() => {
+        this.sweepStalePrinting().catch((err) => console.error('[分发] printing 巡检失败:', err.message));
+      }, 10 * 60 * 1000);
+    }
     if (config.approval.enabled) {
       // 审批直连主通道：事件秒级且可靠，镜像表对账只会造成重复入队，关闭
       console.log('[分发] 审批直连主通道，表格对账已关闭');
@@ -121,6 +130,7 @@ class Dispatcher {
     return {
       savedAt: new Date().toISOString(),
       queue: this.queue,
+      inFlight: this.inFlight,
       printing: [...this.printing.entries()],
       completedCount: [...this.completedCount.entries()],
       known: [...this.known].slice(-KNOWN_CAP),
@@ -158,6 +168,18 @@ class Dispatcher {
       this.known = new Set(Array.isArray(data.known) ? data.known : []);
       for (const t of this.queue) this.known.add(t.recordId);
       for (const [, t] of this.printing) this.known.add(t.recordId);
+      // 分发中断恢复（2026-09-13）：上次退出时正在下载/上传的任务处于「已出队、未入
+      // printing」中间态——known 保留会永久拦截重入队（已审批单永不分发）。重回队列
+      // 完整重发一次（若打印机已实际开打，重发会覆盖——比静默丢单可感知得多）
+      const interrupted = Array.isArray(data.inFlight) ? data.inFlight : [];
+      for (const t of interrupted) {
+        if (!t || !t.recordId) continue;
+        this.known.delete(t.recordId);
+        if (!this.queue.some((q) => q.recordId === t.recordId)) {
+          this.queue.push(t);
+          console.warn(`[分发] 恢复分发中断任务: ${t.applicationNo || t.recordId}（重新完整分发）`);
+        }
+      }
       console.log(`[分发] 已恢复持久化状态: 队列 ${this.queue.length} / 打印中 ${this.printing.size} / 已知 ${this.known.size}（${STATE_FILE}）`);
     } catch (err) {
       console.warn('[分发] 恢复持久化状态失败（按空队列启动）:', err.message);
@@ -391,10 +413,12 @@ class Dispatcher {
       throw new Error(`打印机 ${printer.name} 正在有任务分发中，请稍候再试`);
     }
     this.dispatching.add(printer.id);
+    this.inFlight.push(task);
     try {
       await this.dispatchLocked(task, printer);
     } finally {
       this.dispatching.delete(printer.id);
+      this.inFlight = this.inFlight.filter((t) => t.recordId !== task.recordId);
       this.persistState();
     }
   }
@@ -457,6 +481,9 @@ class Dispatcher {
         console.error(
           `[分发] 任务 ${task.recordId} 已重试 ${task.dispatchRetries} 次仍失败，退出队列，请人工处理`
         );
+        // 保留到 givenUp（2026-09-13）：审批源任务 recordId=instance_code 不在镜像表，
+        // 不保留则 /print-dispatch 永远找不到它——人工恢复通道（B4）
+        this.givenUp.set(task.recordId, task);
         announce(
           `分发放弃卡 ${task.recordId}`,
           require('../feishu/bot').buildJobFailedCard(
@@ -544,6 +571,34 @@ class Dispatcher {
     }));
   }
 
+  /**
+   * printing 幽灵巡检（2026-09-13）：任务打印中时长超过「预估时长 × STALE_MULT」且打印机
+   * 实况已回空闲/已完成 → 补跑 completeTask（表格状态与队列收尾）；实况仍在打印 → 继续等。
+   * 预估时长缺省 6h（保守；真实打印时长无处可查，宁慢勿误）。
+   */
+  async sweepStalePrinting() {
+    const STALE_MULT = 2;
+    const BASE_HOURS = 6;
+    for (const [printerId, task] of [...this.printing.entries()]) {
+      if (!task.startedAt) continue;
+      const ageMs = Date.now() - task.startedAt;
+      if (ageMs < BASE_HOURS * 3600 * 1000 * STALE_MULT) continue;
+      const state = printerManager.getPrinterState(printerId);
+      if (!state) continue;
+      if (['空闲', '已完成'].includes(state.status)) {
+        console.warn(`[分发] printing 巡检：${task.applicationNo || task.recordId} 打印中已 ${Math.round(ageMs / 3600000)}h 且打印机实况空闲，补完成收尾`);
+        this.printing.delete(printerId);
+        this.completedCount.set(printerId, (this.completedCount.get(printerId) || 0) + 1);
+        printerManager.updateState(printerId, { activeTask: null });
+        await bitableApi
+          .updateRecord(config.bitable.reservationTableId, task.recordId, { '申请状态': config.status.COMPLETED })
+          .catch((err) => console.error('[分发] 巡检补完成写表失败:', err.message));
+        announce(`完成卡 ${task.recordId}`, require('../feishu/bot').buildJobFinishCard(task, state), () => {});
+        plaza.append({ event: '打印完成', title: `${task.applicationNo || task.recordId} @ ${state.name || printerId}（巡检补记）` });
+      }
+    }
+  }
+
   getPrintingSnapshot() {
     return [...this.printing.entries()].map(([printerId, task]) => ({
       printer: printerManager.getPrinterState(printerId)?.name || printerId,
@@ -561,6 +616,12 @@ class Dispatcher {
     if (!printer) throw new Error(`未找到打印机「${printerName}」`);
 
     let task = this.queue.find((t) => t.recordId === recordId || t.applicationNo === recordId);
+    let fromGivenUp = false;
+    if (!task && this.givenUp.has(recordId)) {
+      // 重试耗尽被放弃的任务：人工恢复通道（B4）
+      task = this.givenUp.get(recordId);
+      fromGivenUp = true;
+    }
     if (!task) {
       // 不在队列里（可能还在审批中）→ 拉记录直接分发
       const records = await bitableApi.getAllRecords(config.bitable.reservationTableId);
@@ -572,11 +633,15 @@ class Dispatcher {
     }
 
     if (!printer.autoDispatch) {
-      // 非自动机型（如闪铸）：只写表提示人工上传
+      // 非自动机型（如闪铸）：只写表提示人工上传。
+      // 任务必须移出队列（2026-09-13）：留着会被下一轮自动匹配分到别的 Bambu，覆盖人工指定
+      this.queue = this.queue.filter((t) => t.recordId !== task.recordId);
+      this.known.add(task.recordId);
       await bitableApi.updateRecord(config.bitable.reservationTableId, task.recordId, {
         '申请状态': config.status.QUEUED,
         [config.dispatch.printerField]: printer.name,
       });
+      this.persistState();
       return {
         manualOnly: true,
         message: `已指定 ${printer.name}（${printer.model}，需人工上传文件启动打印）：请用厂商工具将「${task.fileName}」发送到该打印机`,
@@ -596,6 +661,7 @@ class Dispatcher {
     }
 
     this.queue = this.queue.filter((t) => t.recordId !== task.recordId);
+    if (fromGivenUp) this.givenUp.delete(task.recordId);
     await this.dispatch(task, printer);
     this.persistState();
     return { manualOnly: false, message: `已分发到 ${printer.name}` };
