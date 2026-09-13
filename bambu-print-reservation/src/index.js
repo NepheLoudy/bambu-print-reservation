@@ -1,4 +1,5 @@
 const express = require('express');
+const { requireApiToken } = require('./auth');
 const cors = require('cors');
 const config = require('./config');
 const reservationService = require('./services/reservation');
@@ -224,7 +225,7 @@ app.get('/api/printers/:id', (req, res) => {
   }
 });
 
-app.post('/api/printers/:id/print', async (req, res) => {
+app.post('/api/printers/:id/print', requireApiToken, async (req, res) => {
   try {
     const { id } = req.params;
     const { filePath } = req.body;
@@ -241,7 +242,7 @@ app.post('/api/printers/:id/print', async (req, res) => {
   }
 });
 
-app.post('/api/printers/:id/pause', async (req, res) => {
+app.post('/api/printers/:id/pause', requireApiToken, async (req, res) => {
   try {
     const { id } = req.params;
     await printerManager.pausePrintOnPrinter(parseInt(id));
@@ -252,7 +253,7 @@ app.post('/api/printers/:id/pause', async (req, res) => {
   }
 });
 
-app.post('/api/printers/:id/resume', async (req, res) => {
+app.post('/api/printers/:id/resume', requireApiToken, async (req, res) => {
   try {
     const { id } = req.params;
     await printerManager.resumePrintOnPrinter(parseInt(id));
@@ -263,7 +264,7 @@ app.post('/api/printers/:id/resume', async (req, res) => {
   }
 });
 
-app.post('/api/printers/:id/stop', async (req, res) => {
+app.post('/api/printers/:id/stop', requireApiToken, async (req, res) => {
   try {
     const { id } = req.params;
     await printerManager.stopPrintOnPrinter(parseInt(id));
@@ -389,7 +390,7 @@ app.post('/api/dispatch/reconcile', async (req, res) => {
 });
 
 // 审批源对账（手动触发）：重拉失败登记 + 补扫窗口内漏收事件的审批实例
-app.post('/api/approval/reconcile', async (req, res) => {
+app.post('/api/approval/reconcile', requireApiToken, async (req, res) => {
   try {
     const handled = await approvalService.reconcileApprovals();
     res.json({ success: true, handled });

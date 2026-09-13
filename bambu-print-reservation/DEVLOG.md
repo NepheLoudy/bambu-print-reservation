@@ -170,3 +170,10 @@
 2. finish 事件落在停机/打印机离线窗口 → printing 幽灵滞留（重连首报无 prevState 不产生事件）——新增 10 分钟 printing 巡检：打印中超过预估时长（6h×2 倍数保守）且打印机实况空闲即补完成收尾。
 3. manualDispatch 非 autoDispatch 分支不移出队列——人工指定的闪铸单随后被自动匹配分到别的 Bambu 覆盖。移出队列 + known 登记 + 落盘。
 4. 审批源任务重试耗尽后 /print-dispatch 永远找不到（instance_code 不在镜像表）——重试耗尽时保留 givenUp 列表，人工恢复通道打通。
+
+### v27 · 2026-09-13 · 随本提交落地 · feat
+
+**管理端点鉴权 + 部署前测试闸门（体系推荐 R2/R4）**
+
+- 新增 src/auth.js：打印机控制（print/pause/resume/stop）与 /api/approval/reconcile 需 X-API-Token（fail-closed）；/api/reservations 与 /api/chat/command 为用户可达链路不挂闸。
+- push.js 加部署前测试闸门：dispatcher/persist/manual-race/approval 四套全过才部署。

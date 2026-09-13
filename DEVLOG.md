@@ -479,3 +479,16 @@
 - **工程规则成文**（顶层 AGENTS 新节「全局工程规则」）：管理/写端点必须鉴权（auth.js 模板）、DEVLOG 头部指针随批维护（已三次漂移）、行为改动必须过桩测试。
 - **文档补缺**：ticket-pm/LOGIC-MAP 接单门禁已知边界、bambu README「可靠性与自愈」节。
 - 回归：duty 五套、hub duty-branch、ticket 22+12、gateway usage-sync、bambu 4 套全部通过。意图文档待拍板清单维持 3 条 + 体系推荐 7 条。
+
+### v63 · 2026-09-13 · 随本提交落地 · feat
+
+**体系推荐落地批：统计覆盖规则 + 写端点鉴权铺开 + 部署前测试闸门 + 投递可靠性 + traceId + NAS 快照（R2-R6 授权先做；hub v85 / duty v21 / ticket v69 / approval v34 / bambu v27 / gateway v22-v23 联动）**
+
+- **队员/功能统计覆盖**（回答「队员活跃是否只读交互/能否扩覆盖」）：网关路由层只看得见 @/私聊/显式路由——新增 `POST /api/usage/report`（X-API-Token）归因通道（recordFeature 只加用户与功能计数不加 total 防双算）；hub 关键词回答命中（@与未@）与 DDL 确认回复已接入上报。AGENTS「全局工程规则」成文第四条：新交互能力必须在命中点上报，此后新功能自动被队员活跃/功能统计涵盖。
+- **R2 写端点鉴权铺开五仓**：gateway auth.js 同款模板分发 duty/hub/ticket/approval/bambu（src/auth.js，API_TOKEN 全局共享值 fail-closed）；管理/写端点全部锁定（duty policy/whitelist/refresh/test-*、hub autoreplies/keywords/projects/logs、ticket sync/bot-*、approval test-*、bambu 打印机控制与对账）；`/api/chat/command` 与 `/api/feishu/event` 为用户可达链路不挂闸。运维台 /api/nas/api 代理对 POST 自动附共享头（凭据直读 approval-bot/.env）。NAS 实测：五仓无 token 全 403。
+- **R4 部署前测试闸门**：六个 push.js 部署前自动跑本仓全部 stub 测试，失败中止（SKIP_TESTS=1 可跳）。自证有效：hub 首推即被闸门拦截一次。
+- **R3 投递可靠性**：deliverTo 失败 3s 后重试一次 + 按消费者失败计数，/api/health 新增 delivery 字段。
+- **R6 traceId（部分）**：网关路由层生成 evt_xxx 随转发载荷透传并打日志；各仓接入随改随加。
+- **R5 NAS 快照**：/home/qianli/scripts/snapshot-data.sh（tar 各 *-data → backups/YYYY-MM-DD/，14 天滚动）+ crontab 每日 03:30，首拍已验证。
+- **状态**：R1（共享工具层收敛）排下一批次（纯重构需整批回归）；R7 维持前瞻（LLM 需密钥决策、双应用需量级触发）。
+- 鉴权值统一：网关 GATEWAY_API_TOKEN 与五仓 API_TOKEN 同值（gateway v23），运维只记一个。

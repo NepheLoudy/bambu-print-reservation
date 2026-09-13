@@ -27,7 +27,7 @@ function readNasConfig() {
   try {
     const text = fs.readFileSync(path.join(ROOT, 'approval-bot', '.env'), 'utf-8');
     const get = (k) => (text.match(new RegExp(`^${k}=(.*)$`, 'm')) || [])[1] || '';
-    return { host: get('NAS_HOST').trim(), port: Number(get('NAS_PORT').trim() || 22), username: get('NAS_USER').trim(), password: get('NAS_PASSWORD').trim() };
+    return { host: get('NAS_HOST').trim(), port: Number(get('NAS_PORT').trim() || 22), username: get('NAS_USER').trim(), password: get('NAS_PASSWORD').trim(), apiToken: (get('API_TOKEN') || get('QIANLI_API_TOKEN') || '').trim() };
   } catch (err) {
     return null;
   }
@@ -488,7 +488,12 @@ app.post('/api/nas/api', async (req, res) => {
   const shQuote = (s) => `'` + String(s).replace(/'/g, `'\\''`) + `'`;
   // 名册通讯录同步等慢窗口需要较长超时（实测 ~6s，放宽到 30s）
   let cmd = `curl -s -m 30 -X ${method} -H 'Content-Type: application/json'`;
-  if (method === 'POST') cmd += ` -d ${shQuote(JSON.stringify(req.body?.body ?? {}))}`;
+  if (method === 'POST') {
+    cmd += ` -d ${shQuote(JSON.stringify(req.body?.body ?? {}))}`;
+    // 管理端点鉴权（2026-09-13）：POST 自动附共享 X-API-Token（凭据直读 approval-bot/.env）
+    const apiToken = (readNasConfig() || {}).apiToken || '';
+    if (apiToken) cmd += ` -H 'X-API-Token: ${apiToken}'`;
+  }
   cmd += ` http://localhost:${port}${apiPath}`;
   try {
     const out = await sshExec(cmd, 45000);
