@@ -154,3 +154,7 @@
 1. 统计归因上报：新增 `POST /api/usage/report`（X-API-Token 鉴权）——hub 等消费方把路由层看不见的功能命中（关键词回答/DDL 确认等）回报为队员/功能统计（recordFeature 只加用户与功能计数不加 total，防双算）。
 2. 投递可靠性（R3）：deliverTo 失败自动重试一次（3s）+ 按消费者累计失败计数暴露到 /api/health 的 delivery 字段。
 3. traceId（R6）：路由层生成 evt_xxx 随转发载荷透传，路由日志带前缀——消费者日志可按它串联全链路。
+
+### v23 · 2026-09-13 · 随本提交落地 · chore
+
+**token 统一（chore）**：`.env` 的 GATEWAY_API_TOKEN 值改为与全工作区共享 API_TOKEN 相同（五仓 + 网关一个 token，运维只记一个）；中间件不变。
