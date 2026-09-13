@@ -10,3 +10,4 @@ duty-bot-plan.md
 # 历史配置备份含真实密钥与成员信息，不再跟踪（密钥应视为已泄露、待轮换；widget 存档仍跟踪）
 archive/project-configs/*.env
 archive/project-configs/*.env.example
+dashboard-run.log
