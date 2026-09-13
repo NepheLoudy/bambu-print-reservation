@@ -14,6 +14,8 @@ let wsLastError = null;
 let wsConnecting = false;
 let wsRetryTimer = null;
 let wsRetryCount = 0;
+let wsClient = null;          // 当前 WSClient 实例（重试时整体新建）
+let wsStatusTimer = null;     // 连接状态巡检（兜底 SDK 静默失败场景）
 const WS_RETRY_BASE_MS = 5 * 1000;      // 首次重试 5s
 const WS_RETRY_MAX_MS = 5 * 60 * 1000;  // 封顶 5 分钟
 const WS_START_WATCHDOG_MS = 120 * 1000; // start() 无响应看门狗
@@ -70,12 +72,45 @@ function startWs() {
     return;
   }
 
-  const wsClient = new lark.WSClient({
+  // 2026-09-13（v21）：SDK 的 WSClient.start() 永不 reject（连接失败的唯一信号是
+  // onError 回调与 getConnectionStatus().state==='failed'），promise 链不可依赖——
+  // 改为 onError/onReady 回调驱动 + 30s 状态巡检兜底。
+  // 每次尝试新建 WSClient：SDK 致命错误会置 terminalError 并停摆，旧实例状态不可信；
+  // 新建保证同一时刻至多一条连接。
+  wsStarted = false;
+  wsConnecting = true;
+  wsLastError = null;
+
+  wsClient = new lark.WSClient({
     appId: config.feishu.appId,
     appSecret: config.feishu.appSecret,
     appType: lark.AppType.SelfBuild,
     domain: lark.Domain.FeiShu,
     loggerLevel: lark.LoggerLevel.info,
+    onReady: () => {
+      const recovered = wsRetryCount > 0;
+      wsStarted = true;
+      wsConnecting = false;
+      wsLastError = null;
+      wsRetryCount = 0;
+      console.log(recovered ? '📡 长连接已恢复（重试成功）' : `📡 长连接已启动（共用应用本机唯一连接），订阅事件: ${config.eventTypes.join(', ')}`);
+    },
+    onReconnected: () => {
+      wsStarted = true;
+      wsConnecting = false;
+      wsLastError = null;
+    },
+    onError: (err) => {
+      // SDK 的 autoReconnect 会自行处理瞬时断线；走到这里的 onError 是致命错误
+      // （凭证失败 / 重连耗尽，SDK 已置 terminalError 停摆）——必须新建客户端重试
+      wsStarted = false;
+      wsConnecting = false;
+      wsLastError = (err && err.message) || String(err);
+      wsRetryCount += 1;
+      const delay = Math.min(WS_RETRY_BASE_MS * 2 ** Math.min(wsRetryCount - 1, 10), WS_RETRY_MAX_MS);
+      console.error(`[网关] 长连接致命错误（第 ${wsRetryCount} 次），${Math.round(delay / 1000)}s 后新建客户端重试:`, wsLastError);
+      scheduleWsRetry(delay);
+    },
   });
 
   const dispatcher = new lark.EventDispatcher({});
@@ -91,42 +126,29 @@ function startWs() {
     });
   }
 
-  // start() 返回 Promise：连接失败（凭证错误/网络故障）若不 catch 会变成 unhandled rejection 直接杀死进程。
-  // 2026-09-13 起失败自动重试（指数退避 5s→5min 封顶），每次尝试新建 WSClient——失败的客户端
-  // 状态不可信，新建可保证同一时刻至多一条连接；成功后重试计数清零。
-  wsStarted = false;
-  wsConnecting = true;
-  wsLastError = null;
-  wsClient
-    .start({ eventDispatcher: dispatcher })
-    .then(() => {
-      const recovered = wsRetryCount > 0;
-      wsStarted = true;
-      wsConnecting = false;
-      wsLastError = null;
-      wsRetryCount = 0;
-      console.log(recovered ? '📡 长连接已恢复（重试成功）' : `📡 长连接已启动（共用应用本机唯一连接），订阅事件: ${config.eventTypes.join(', ')}`);
-    })
-    .catch((err) => {
-      wsStarted = false;
-      wsConnecting = false;
-      wsLastError = err.message;
-      wsRetryCount += 1;
-      const delay = Math.min(WS_RETRY_BASE_MS * 2 ** (wsRetryCount - 1), WS_RETRY_MAX_MS);
-      console.error(`[网关] 长连接启动失败（第 ${wsRetryCount} 次），${Math.round(delay / 1000)}s 后自动重试:`, err.message);
-      scheduleWsRetry(delay);
-    });
+  wsClient.start({ eventDispatcher: dispatcher });
   console.log(`📡 长连接启动中（共用应用本机唯一连接），订阅事件: ${config.eventTypes.join(', ')}`);
 
-  // 看门狗：start() 长时间无响应（既不成功也不失败）时兜底重试
-  setTimeout(() => {
-    if (!wsStarted && !wsRetryTimer && wsConnecting) {
-      wsConnecting = false;
-      wsLastError = '启动 120s 未完成（无响应），转入自动重试';
-      console.error('[网关]', wsLastError);
-      scheduleWsRetry(WS_RETRY_BASE_MS);
-    }
-  }, WS_START_WATCHDOG_MS).unref();
+  // 状态巡检（30s）：兜底「SDK 未触发 onError 也未连上」的静默失败场景
+  if (!wsStatusTimer) {
+    wsStatusTimer = setInterval(() => {
+      if (!wsClient || wsRetryTimer || wsStarted) return;
+      let st = null;
+      try { st = wsClient.getConnectionStatus ? wsClient.getConnectionStatus() : null; } catch { st = null; }
+      if (st && st.state === 'failed') {
+        wsConnecting = false;
+        wsLastError = wsLastError || '状态巡检发现长连接 failed';
+        console.error('[网关] 状态巡检发现长连接 failed，转入自动重试');
+        scheduleWsRetry(WS_RETRY_BASE_MS);
+      } else if (st && st.state === 'connected' && !wsStarted) {
+        wsStarted = true;
+        wsConnecting = false;
+        wsLastError = null;
+        wsRetryCount = 0;
+        console.log('📡 长连接已连接（状态巡检确认）');
+      }
+    }, 30 * 1000);
+  }
 }
 
 function scheduleWsRetry(delay) {

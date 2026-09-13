@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次 git 提交 + 一次部署）。本项目无独立远端，push.js 只暂存 `feishu-gateway/` 路径提交进顶层 monorepo——版本即顶层仓库中触碰本路径的提交。v1~v8 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v20**（2026-09-13，随本提交落地）。
+当前最新：**v21**（2026-09-13，随本提交落地）。
 
 ## 阶段五 · 开发历史建档（2026-09-04）
 
@@ -139,3 +139,10 @@
 **文档重审订正：README 鉴权示例/环境变量表/重试说明/接单语义（全量文档重审批，无代码改动）**
 
 - /api/dispatch 手动投递 curl 示例补 `X-API-Token` 头（v19 fail-closed 后原示例必失败）；环境变量一览补 `GATEWAY_API_TOKEN` 行；补「长连接自动重试（5s→5min 指数退避 + 120s 看门狗 + connecting 态）」说明（兑现 v19 文档声明）；接单语义旧表述（「在工单群内 @机器人（任意文本）」）更新为现行口径（整句/变式 + ticket-bot 实时队列门禁，无单群静默）。
+
+### v21 · 2026-09-13 · 随本提交落地 · fix
+
+**深度代码审查批：v19 重试真修复（SDK 回调驱动）+ SIGTERM 落盘**
+
+1. **v19 的自动重试整体不可达**（深度审查确认）：SDK（1.73.0）的 WSClient.start() 永不 reject——连接失败的唯一信号是 onError 回调（仅致命错误触发：凭证失败/重连耗尽，SDK 内部已置 terminalError 停摆）与 getConnectionStatus().state==='failed'。原 promise .then/.catch/看门狗全是死代码，凭证错误时健康检查仍误报 running。改为 onError/onReady/onReconnected 回调驱动重试（新建客户端、指数退避）+ 30s 状态巡检兜底静默失败场景。
+2. usage 统计只处理 SIGINT——pm2 restart 发 SIGTERM 丢至多 60s 活跃计数——补 SIGTERM 同款落盘。

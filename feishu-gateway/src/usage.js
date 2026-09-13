@@ -37,6 +37,10 @@ process.on('SIGINT', () => {
   try { fs.writeFileSync(FILE, JSON.stringify(stats)); } catch (err) { /* 退出不等落盘 */ }
   process.exit(0);
 });
+process.on('SIGTERM', () => {
+  try { fs.writeFileSync(FILE, JSON.stringify(stats)); } catch (err) { /* 退出不等落盘 */ }
+  process.exit(0);
+});
 
 const pad = (n) => String(n).padStart(2, '0');
 function today() {
