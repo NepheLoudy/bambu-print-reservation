@@ -34,9 +34,9 @@
 
 ```
 cd ticket-bot 或 project-management-robot   # 项目目录内
-npm run push "feat: 说明"                    # 提交→推送→NAS 部署→重启，一条命令
+npm run push "feat: 说明"                    # 提交→推送→部署到部署目标（小电脑）→重启，一条命令
 ```
 
 - 同批联动改动：**各项目 DEVLOG.md 各记一版**（vN 各自递增），顶层 `../../DEVLOG.md` 另记一条联动摘要；
-- 改 `.env` 配置项时同步更新各自 `.env.example`（提交）与本地 `.env`（不提交，push 时覆盖 NAS）；
+- 改 `.env` 配置项时同步更新各自 `.env.example`（提交）与本地 `.env`（不提交，push 时覆盖部署目标的 .env；`NAS_*` 键为历史命名，语义=部署目标 小电脑 192.168.31.57:22）；
 - 联动改动的部署顺序：先网关/订阅相关（若有），再 ticket-bot、pm-robot（duty-bot 若同批在其之前）；部署后按 qianli-deploy skill 验证清单过一遍（两进程 online + health 200 + dry-run：ticket-bot `GET /api/tickets/unclosed-by-group`）。涉及 plaza/动态广场的测试一律置 `PLAZA_BITABLE_TABLE_ID=''`。

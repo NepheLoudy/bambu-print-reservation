@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v57**（2026-09-13，随本提交落地）。
+当前最新：**v64**（2026-09-14，随本提交落地）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -492,3 +492,14 @@
 - **R5 NAS 快照**：/home/qianli/scripts/snapshot-data.sh（tar 各 *-data → backups/YYYY-MM-DD/，14 天滚动）+ crontab 每日 03:30，首拍已验证。
 - **状态**：R1（共享工具层收敛）排下一批次（纯重构需整批回归）；R7 维持前瞻（LLM 需密钥决策、双应用需量级触发）。
 - 鉴权值统一：网关 GATEWAY_API_TOKEN 与五仓 API_TOKEN 同值（gateway v23），运维只记一个。
+
+## v64 · 2026-09-14 · 随本提交落地 · feat+docs+fix
+
+**网络拓扑看板上线 + 部署目标迁移收尾 + 实验室网络 skill 与全局规则 + 联动 duty-bot v22(写表 bug 修复)**
+
+- **运维台新增「🌐 网络拓扑看板」**：`GET /api/network` 五节点并行 TCP 探测（互联网/飞书云/主路由/小电脑/旧NAS，2.5s 超时封顶）+ 出口 IP（`/api/egress-ip`，5min 缓存）；前端分层拓扑图（云端/网关/本地设备）带端口时延徽标，30s 自动刷新。拓扑清单 = server.js `NET_TARGETS`（改拓扑先改它）。运维台 UI 口径全量「NAS」→「主机」（24 处；API 路径 `/api/nas/*` 与 `NAS_*` 键保留为历史命名）。
+- **部署目标迁移收尾**：AGENTS 新增「部署目标」权威条目（小电脑 DESKTOP-FE1MIGI 192.168.31.57:22，旧 NAS 10.253.33.233 停用为备件）；qianli-deploy SKILL 与 9 个 README/指南全量「NAS」→「部署目标」表述清扫（历史命名标注）；运维台开机自启落地（启动文件夹 VBS + dashboard/autostart.bat 守卫启动器）。
+- **全局规则新增**：AGENTS「会话遗留改动回库与文档补链」——agent 会话未随批入库的改动，下一会话 push 前必须 `git status` 盘点、合并提交、补齐文档。
+- **新 skill**：`.agents/skills/qianli-lab-network/SKILL.md`——实验室网络拓扑/设备接入/断网排查手册（假 ping/TTL、路由环路、UAC 远程过滤、bat ASCII 铁律、MSI 静默失败、pm2 环境快照、bash & 链式陷阱、飞书 IP 白名单指纹）。
+- **联动 duty-bot v22**：bitable.js `batchCreateRecords` 双层包裹修复（`{fields:{fields:{...}}}` → 飞书 FieldNameNotFound 1254045；排班批量写入自上线首次成功，值日表 90 条首落 2026-09-15~10-14，白名单 13 人含 Siu/汪沛宇 生效）——根因与排障全程见 duty-bot DEVLOG v22 与桌面《工作日志-2026-09-14-网络与机器人抢修.md》。
+- **工具**：enable-sshd.bat / install-openssh.bat + OpenSSH-Win64.zip（小电脑 OpenSSH 离线安装组合，sshd 已上线 :22）、fix-duty-bot.bat（duty-bot pm2 环境重建）。

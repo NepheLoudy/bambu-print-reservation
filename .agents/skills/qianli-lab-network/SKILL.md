@@ -1,0 +1,86 @@
+---
+name: qianli-lab-network
+description: qianli 实验室/家庭网络拓扑、设备接入与断网排查手册。凡涉及：设备连不通/断网/时好时坏排查、SSH 或部署到小电脑与旧 NAS、路由器/子路由/网线等拓扑变更、飞书长连接与双网关风险、IP 白名单与出口 IP 问题、pm2 进程消失或行为异常时使用。部署本身走 qianli-deploy skill，本 skill 管网络层。
+---
+
+# qianli 实验室网络拓扑与设备运维
+
+> 2026-09-14 深夜抢修实战沉淀。拓扑/地址以运维台「🌐 网络拓扑看板」实时探测为准（`/api/network`），本文记录结构与口径。
+
+## 一、当前拓扑（2026-09-14 迁移后定型）
+
+```
+飞书云 open.feishu.cn ── 唯一长连接 = 小电脑上的 feishu-gateway（其余任何机器不得持有第二条）
+        │ API 出口
+校园网 10.253.x（用户本人即网管；内网路由 10.100.3.25/.26 曾对失效地址打环）
+        │ 墙口(仅一个校园网口)
+   主路由 192.168.31.1 (NAT)
+        ├─ WiFi/LAN ─ 笔记本 LAPTOP-BGC4G36V (192.168.31.181) ── 运维台 127.0.0.1:3100
+        ├─ LAN ──── 小电脑 DESKTOP-FE1MIGI (192.168.31.57) ── 生产机：6 机器人 pm2
+        ├─ LAN ──── 旧NAS qianli-NAS (192.168.31.151, Ubuntu) ── 备件存储：机器人已清零
+        └─ 子路由(老路由器) ── 可选 AP 扩展，必须 AP 模式(见 §五)
+```
+
+要点：
+- **生产=小电脑，NAS=纯存储备件**。两台都在主路由 NAT 后，机器人只需出站连接（飞书长连接/API），NAT 不影响业务。
+- 旧 NAS 原挂校园网段(10.253.33.233 静态地址)，迁移后改 DHCP 落在 192.168.31.151——**设备挪位置后静态 IP 必然失效**，这是"灯亮但连不上"的经典根因。
+
+## 二、设备接入速查
+
+| 设备 | 地址 | 访问方式 | 凭据 | 备注 |
+| --- | --- | --- | --- | --- |
+| 小电脑 DESKTOP-FE1MIGI | 192.168.31.57 | SSH **22**（OpenSSH，默认 shell 应为 git-bash）；服务 HTTP 3000-3006/3010 | mechax / 见 approval-bot/.env `NAS_PASSWORD` | 生产机；pm2 计划任务 `qianli-bots-autostart` 自启；部署目录 `C:\qianli\opt\<项目>` |
+| 旧 NAS qianli-NAS | 192.168.31.151 | SSH **2222**；网页 3923 | qianli / 旧 .env 时期密码 | Ubuntu+桌面；**机器人已清零、`pm2-qianli` 已 disabled**，纯存储备件 |
+| 主路由 | 192.168.31.1 | 网页管理 | 路由器凭据 | 用户本人是校园网网管 |
+| 飞书云 | open.feishu.cn:443 | 应用 cli_aac7e6f6cdf8dcc0 | 各仓 .env APP_ID/SECRET | 安全设置里的 **IP 白名单**是写失败排查重点（§四） |
+
+凭据铁律：只存各仓 `.env`（不进 git）；临时脚本不得硬编码（排障脚本从 `.env` 现读）。
+
+## 三、断网/连不通排查手册（按序执行，全部实战验证）
+
+1. **分层探测，ping 单独看不可信**：ICMP 回复可能是路径上路由器的 **TTL 过期假回复**（统计显示 0% 丢包但根本没到目标）。必须配合 **TCP 端口探测**（node `net.connect` 2-3s 超时）+ `traceroute -d` 看路径。
+2. **traceroute 判读**：连续两跳来回交替（如 10.100.3.25↔.26）= **路由环路**，包永远到不了目标；同网段其他地址通、唯独目标不通 = 目标自身链路/地址问题。
+3. **"网口灯亮"≠网络可达**：链路层 up 但 TCP/IP 层可能僵死。判别：同网段网关能 ping 通 + 目标不开任何端口 + ARP 无应答 → 栈僵死 → 重启整机。
+4. **ECONNRESET/ECONNREFUSED 区分**：REFUSED=主机活着端口没人听；RESET=握手中被拒（Windows sshd 连接频率保护——连续快连会被晾几分钟，**冷却重试即可，别硬刚**）。
+5. **设备挪位/换网后先查 IP**：静态 IP 在新位置大概率失效；DHCP 设备会换地址。找不到就上厂商发现工具（Qfinder/Synology Assistant 走二层广播，**IP 配错也能发现**——但手写 UDP 广播模拟不可靠）。
+6. **日志要看对地方**：pm2 日志在 `<用户>/.pm2/logs/`；日志行无时间戳时用 `ls -la --time-style` 看文件 mtime 判新旧；**旧部署时期的日志会残留混在一起，别把历史行当现状**。
+
+## 四、网关与长连接安全（铁律 + 排查）
+
+- **全体系只允许一条飞书长连接**（小电脑上的 feishu-gateway）。任何设备重连/复活前，先确认它的 gateway 不会成为第二条——双长连接 = 所有机器人指令随机一半失灵。
+- **设备下线≠风险解除**：僵死设备一旦网络恢复，其 gateway 会立刻重连抢连接。结论：**退役机器必须物理关机或清干净 pm2 + 关自启**（旧 NAS 已执行：`pm2-qianli` disabled + 重启验证 pm2 为空）。
+- **应用安全设置里的 IP 白名单**：开启后，非白名单出口 IP 的 API 写入会被拒，且**报错面目全非**（bitable 写入会报 `FieldNameNotFound 1254045` 这类误导性错误）。读接口不受影响——"读全通、写全败、字段名核对无误"就是它的指纹。
+- **出口 IP 检测**：运维台 `/api/egress-ip`；拓扑看板头部常显。**网络拓扑/上游链路一变，出口 IP 就可能变**——变更后必查飞书开放平台 → 应用 → 安全设置 → IP 白名单。
+- 网关健康：`GET :3010/api/health` 看 `ws:"running"`；拓扑看板已内置该探测。
+
+## 五、Windows 目标机的远程管理现实（省下半夜）
+
+- **非域内本地管理员的远程通道几乎全被 UAC 过滤挡死**：WinRM（默认关）、WMI/DCOM（拒绝）、远程 schtasks（拒绝）、RDP（默认关）、psexec（无 ADMIN$）。**结论：Windows 生产机的系统级操作只能物理到场**，别浪费时间试远程。
+- **给 Windows 目标机装/修服务用「离线包 + bat」模式**：
+  - 微信/U盘 传 2 个文件到目标桌面：离线包 + 自提权 bat；
+  - bat **必须纯 ASCII**（UTF-8 中文注释会被 GBK 代码页吞行解析成乱码命令——踩过两次）；
+  - **MSI 静默失败会发生**（装完无服务）——OpenSSH 用 ZIP + `install-sshd.ps1` 才可靠；`.ps1` 双击/右键运行会被执行策略拦，**bat 内嵌 `powershell -ExecutionPolicy Bypass` 才是正道**；
+  - sshd 起来后：`sc config sshd start= auto` + 防火墙放行 22 + 确认登录账户有密码。
+- **目标机电源必须设"从不睡眠"**——睡眠 = 六机器人全断。
+
+## 六、pm2 与 dotenv 的环境快照语义（排障必修）
+
+- `dotenv` **不覆盖已存在的环境变量**；pm2 会把进程**首次启动时**的环境快照注入后续所有重启。两者叠加 = **快照里的旧值会永久压过 .env 新值**。
+- 症状：改了 .env / 换了代码，进程重启后行为依旧错误（如写表仍用旧表 ID/旧字段名）；而**同机新起的裸进程一切正常**（裸进程没有快照注入，dotenv 全量生效）。
+- 修复：`pm2 delete <名> && cd <目录> && pm2 start <入口> --name <名> && pm2 save`（delete 清快照，save 固化）。
+- 排障命令：`pm2 env <id> | grep -iE "APP|DUTY|BITABLE"` 对比 .env 文件值。
+- **bash 链式陷阱**：SSH 里 `cmd1 & cmd2 & cd X & cmd3` 的 `&` 是**后台并行**——`cd` 在独立子 shell 里，后续命令的 cwd 根本不变（pm2 start 因此找不到相对路径脚本，还静默）。**顺序依赖必须用 `&&`**。
+
+## 七、拓扑变更检查单（每次动网络/设备后过一遍）
+
+1. 运维台「🌐 网络拓扑」看板全绿（或符合预期）；`/api/network` 可脚本化断言；
+2. `curl :3010/api/health` 确认 `ws:"running"`（长连接唯一且健康）；
+3. `/api/egress-ip` 看出口 IP 是否变化 → 变了就查飞书应用 IP 白名单；
+4. 生产机 `pm2 ls` 六进程 online + `pm2 save`；
+5. 拓扑/地址有变 → 同步更新本 skill、qianli-deploy SKILL.md、各仓 `.env`（NAS_* 键）、运维台 `server.js` 的 `NET_TARGETS`。
+
+## 八、相关工具与代码位置
+
+- 拓扑探测端点：`dashboard/server.js` `GET /api/network`（NET_TARGETS 定义处即拓扑清单，改拓扑先改它）+ 前端 `public/index.html` 渲染；
+- 旧 NAS 关停/验收脚本模板：曾用 `shutdown-old-nas.js`（已删，模式：SSH→pm2 ls→kill→systemctl disable→复核）；
+- 部署链路：见 qianli-deploy skill（本 skill 不覆盖部署步骤）。

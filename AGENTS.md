@@ -22,12 +22,12 @@
 
 # 运行时数据保护（删除前询问铁律）
 
-**NAS/本机运行时的用户数据是生命资产：任何清空、删除、覆盖之前必须先备份并向用户确认，禁止静默覆盖。**
+**NAS/本机运行时的用户数据是生命资产：任何清空、删除、覆盖之前必须先备份并向用户确认，禁止静默覆盖。**（「NAS」为历史称呼：2026-09-14 起部署目标=小电脑 DESKTOP-FE1MIGI，`NAS_*` 配置键语义=部署目标，见职能总表末的「部署目标」条）
 
-- **界定**：权威编辑路径在 NAS 侧或表格 UI、而本地只有副本/种子的文件与数据——duty-bot `config/members.json`、`config/whitelist.json`（运维台白名单/名册窗口直写 NAS），hub `autoReplies*.local.json`（定制窗口直写 NAS），各仓静默积压/状态文件（`QUIET_BACKLOG_FILE`、`DUTY_STATE_FILE` 等，已挪项目外），以及多维表格业务数据；
-- **对脚本（已落地）**：duty-bot / hub 的 push.js 上传私有配置前 ①把 NAS 现网版本备份到项目外数据目录（`/home/qianli/<proj>-data/backup/`）②本地条目数少于现网时跳过上传并大声告警（`PUSH_FORCE_PRIVATE=1` 才允许覆盖，跳过时自动把现网内容回填本地消除种子落差）；其余项目如新增同类"本地种子 → NAS 覆盖"上传，必须照此模式加守卫；
+- **界定**：权威编辑路径在小电脑（DESKTOP-FE1MIGI）侧或表格 UI、而本地只有副本/种子的文件与数据——duty-bot `config/members.json`、`config/whitelist.json`（运维台白名单/名册窗口经部署目标 SSH 直写，现=小电脑），hub `autoReplies*.local.json`（定制窗口直写部署目标），各仓静默积压/状态文件（`QUIET_BACKLOG_FILE`、`DUTY_STATE_FILE` 等，已挪项目外），以及多维表格业务数据；
+- **对脚本（已落地）**：duty-bot / hub 的 push.js 上传私有配置前 ①把现网版本备份到项目外数据目录（NAS 时期为 `/home/qianli/<proj>-data/backup/`，小电脑侧对应目录待核实补记）②本地条目数少于现网时跳过上传并大声告警（`PUSH_FORCE_PRIVATE=1` 才允许覆盖，跳过时自动把现网内容回填本地消除种子落差）；其余项目如新增同类"本地种子 → 部署目标覆盖"上传，必须照此模式加守卫；
 - **对 agent 会话（ZCode/TRAE 等）**：凡涉及删除、清空、重置、重写上述文件或表格数据的改动，动手前列出影响面**征询用户**；「先删后建」「顺手清理」「重新生成会覆盖旧文件」一律不允许不打招呼；
-- **事故记录**：2026-09-12 duty-bot v9 推送用本地空 `whitelist.json` 覆盖 NAS 侧用户编辑的 18 人值日排除名单（日志只记条数、文件不进 git、NAS 无快照，**不可恢复**，仅存 4 个无效名：Peiyu Wang/粟宇/Aouk/郑元斌）——本节由此设立；同批已在 duty-bot / hub push.js 落地备份+守卫。
+- **事故记录**（历史，当时目标机=旧 NAS 10.253.33.233，保持原貌）：2026-09-12 duty-bot v9 推送用本地空 `whitelist.json` 覆盖 NAS 侧用户编辑的 18 人值日排除名单（日志只记条数、文件不进 git、NAS 无快照，**不可恢复**，仅存 4 个无效名：Peiyu Wang/粟宇/Aouk/郑元斌）——本节由此设立；同批已在 duty-bot / hub push.js 落地备份+守卫。
 
 # 机器人项目看板（多维表格）数据联动
 
@@ -49,7 +49,7 @@
 - **名册类**优先自动读飞书通讯录（open_id 直取组织架构），手工名册/绑定只作兜底（范例：duty-bot `syncFromContacts`）；
 - 新增定制项：先加窗口，再同步 `dashboard/registry.js` 登记与本文档；
 - 现状（2026-09-12 全量 debug 批后）：**五仓业务机器人窗口齐全**（gateway 为纯路由层、无定制项，不设窗口）——duty-bot（`/api/duty/policy`、`/api/duty/roster`、`/api/duty/whitelist`）、hub（`/api/hub/policy` + 关键词回答表 CRUD `/api/autoreplies/rules*`，写 `.local.json` 即时生效，push 会用本地 xlsx 版覆盖）、approval-bot（`/api/approval/policy`，只读）、ticket-bot（`/api/tickets/policy`，只读）、bambu（`/api/print/policy`，只读）；
-- **界面**：本地运维台「🧰 定制中心」（registry `windows` 清单 + `/api/nas/api` SSH 代理直达 NAS 本机接口）——白名单增删、名册刷新、各域 policy 全景查看、关键词回答表可视化编辑（增删改/启停/切表）都在运维台点选完成。
+- **界面**：本地运维台「🧰 定制中心」（registry `windows` 清单 + `/api/nas/api` SSH 代理直达部署目标本机接口——端点名 `nas` 为历史命名，语义=部署目标，现=小电脑）——白名单增删、名册刷新、各域 policy 全景查看、关键词回答表可视化编辑（增删改/启停/切表）都在运维台点选完成。
 
 # 开发日志（DEVLOG）——每次 push 记一版
 
@@ -71,6 +71,7 @@
 - **DEVLOG 头部指针随批维护**：每次 push 除文末追加条目外，必须同步更新本仓 DEVLOG 头部「当前最新」指针（含锚点哈希）——已三次发生指针滞后漂移（v12 前网关、hub v67、gateway v18/v20、顶层 v57-60），属高频复发项。
 - **行为改动必须过桩测试**：改动任何业务逻辑（非纯 docs）后、push 之前，必须跑本仓全部 stub 测试并全过（各仓 README「测试」节有清单）；新增行为必须带新断言——只靠人眼审查已两次漏过回归（日期敏感断言、收口幂等）。
 - **队员/功能统计上报规则**：新增面向成员的交互能力（指令/关键词/确认/卡片响应）时，必须在服务命中点向网关 `POST /api/usage/report`（X-API-Token）上报 `{openId, feature}`，让队员活跃/功能统计自动覆盖新功能——网关路由层只看得见 @/私聊/显式路由，hub 内部命中的功能（关键词回答、DDL 确认等）靠上报归因（hub `usageReport.js` 为范例）。
+- **会话遗留改动回库与文档补链**：agent 会话产生的改动若未随当次 `npm push` 入库（运维台/脚本类纯本地工具、调试插桩、会话被打断等，如 2026-09-13 dashboard 开机自启 bat+README），**下一个** agent 开发会话在 `npm push`（或任何 git 提交）前必须先 `git status` 盘点工作区遗留：①合理的遗留改动并入本批提交、照常记 DEVLOG，不许长期漂在未提交状态；②纯调试残留先向用户说明再清理；③逐项核对这批改动牵出的文档义务——本仓 DEVLOG（文末条目+头部指针）、AGENTS.md 规则成文、README/LOGIC-MAP、`dashboard/registry.js` 登记、用户侧《机器人总成使用指南.html》——欠哪些同批补齐，禁止「代码入库、文档跨批悬空」。
 
 # 项目职能划分总表（防需求发错会话）
 
@@ -97,6 +98,7 @@
 - 值日域需求（排班/轮岗/值日请假/值日照片/值日看板）→ duty-bot；「昨日值日播报」已落地为 duty-bot 自身看板卡的「昨日战报」段（12:00 与手动看板同卡，值日群播报；原 pm-robot 方案作废，hub 的 `DUTY_WEBHOOK_URL`/`DUTY_BROADCAST_SCHEDULE` 降级为预留未接线键）；**请假当日补位**（从较远排班抽调，duty-bot v15 起）同为 duty-bot 域；
 - 值日专用群（快递申领群）：hub 基础指令关闭，看板「值日助手」**仅 @ 或私聊触发**（未@不出看板）；关键词回答全群统一（未@也生效，不再经值日策略放行，2026-09-13）。**管辖范畴/生效范畴以 duty-bot `GET /api/duty/policy` 下发为准，群变更只改 duty-bot `.env` 的 `DUTY_GROUP_CHAT_IDS`**（hub 的 `DUTY_CHAT_ID` 仅失联兜底）；
 - 各机器人权能/指令/监听/权限全景与端口：看 `dashboard/registry.js`（单一事实来源，改权能须同步）与本地运维台；
+- **部署目标（2026-09-14 起从旧 NAS 10.253.33.233:8500 迁移）＝小电脑 DESKTOP-FE1MIGI（192.168.31.57，SSH 22，用户 mechax，Windows + PortableGit + pm2，ssh 默认 shell = git-bash）**。各文档与配置键中的「NAS」字样（`NAS_HOST/NAS_PORT/NAS_USER/NAS_PASSWORD`、`/api/nas/*` 端点、运维台「NAS 重启」按钮等）均为**历史命名，语义=部署目标**，勿再新造 NAS 称呼；旧 NAS 已停用（备件位，pm2 单元 `pm2-qianli` 已停）。
 - 部署一律 `npm run push`（见 `.agents/skills/qianli-deploy/SKILL.md`），部署失败排查放顶层会话。
 
 # 用户侧总指南（桌面 HTML）——同步义务
@@ -107,5 +109,5 @@
 
 - `archive/`：历史归档。`archive/project-configs/` 存有 approval-bot / bambu-print-server / knowledge-tracker 的旧 `.env` 备份（**已退出 git 跟踪，仅本地与历史提交留存；历史提交中的密钥应视为已泄露、待轮换**；勿把新配置备份进去）；`widget-*.json` 是旧小组件配置存档。
 - `tools/`：与飞书机器人业务无关的独立工具（`rm-battlescope` 为 RoboMaster 赛事数据分析工具，自带 README 与依赖）。
-- `dashboard/`：本地运维台（仅本机 `127.0.0.1:3100`，不部署 NAS）：全机器人端口职能/权限/指令/服务状态/日志/更新可视化、本地测试进程启停、npm push 快捷指令；NAS 凭据直读 approval-bot/.env，不入库。
+- `dashboard/`：本地运维台（仅本机 `127.0.0.1:3100`，不部署）：全机器人端口职能/权限/指令/服务状态/日志/更新可视化、本地测试进程启停、npm push 快捷指令；部署目标凭据直读 approval-bot/.env（现指向小电脑 DESKTOP-FE1MIGI 192.168.31.57:22），不入库。
 - `sop/`：SOP 静态页（`site-sop-planet` 带 Windows 一键部署脚本；`sop-misc` 为散页 HTML）。需求落在这些目录时先与用户确认再动。

@@ -39,8 +39,10 @@ if (!runTestGate()) process.exit(1);
 
 const TAR_NAME = 'bambu-print-server-deploy.tar.gz';
 const TAR_LOCAL = path.join(os.tmpdir(), TAR_NAME);
-const TAR_REMOTE = '/tmp/' + TAR_NAME;
-const REMOTE_DIR = '/opt/bambu-print-server';
+const TAR_REMOTE = '/c/qianli/' + TAR_NAME;
+const TAR_REMOTE_WIN = 'C:/qianli/' + TAR_NAME;
+const REMOTE_DIR = '/c/qianli/opt/bambu-print-server';
+const REMOTE_DIR_WIN = 'C:/qianli/opt/bambu-print-server';
 const PM2_NAME = 'bambu-print-server';
 
 const nasConfig = {
@@ -85,7 +87,7 @@ conn.on('ready', () => {
       process.exit(1);
     }
     console.log('上传代码包到 NAS...');
-    sftp.fastPut(TAR_LOCAL, TAR_REMOTE, (err2) => {
+    sftp.fastPut(TAR_LOCAL, TAR_REMOTE_WIN, (err2) => {
       if (err2) {
         console.error('代码上传失败:', err2.message);
         conn.end();
@@ -138,7 +140,7 @@ function deployCode() {
         conn.end();
         process.exit(1);
       }
-      sftp.fastPut(path.join(__dirname, '.env'), REMOTE_DIR + '/.env', (err2) => {
+      sftp.fastPut(path.join(__dirname, '.env'), REMOTE_DIR_WIN + '/.env', (err2) => {
         if (err2) {
           console.error('.env 上传失败:', err2.message);
           conn.end();

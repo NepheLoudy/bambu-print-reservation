@@ -41,8 +41,10 @@ if (!runTestGate()) process.exit(1);
 const commitMessage = process.argv[2] || 'update: 代码更新';
 const TAR_NAME = 'feishu-gateway-deploy.tar.gz';
 const TAR_LOCAL = path.join(os.tmpdir(), TAR_NAME);
-const TAR_REMOTE = '/tmp/' + TAR_NAME;
-const REMOTE_DIR = '/opt/feishu-gateway';
+const TAR_REMOTE = '/c/qianli/' + TAR_NAME;
+const TAR_REMOTE_WIN = 'C:/qianli/' + TAR_NAME;
+const REMOTE_DIR = '/c/qianli/opt/feishu-gateway';
+const REMOTE_DIR_WIN = 'C:/qianli/opt/feishu-gateway';
 const PM2_NAME = 'feishu-gateway';
 
 const nasConfig = {
@@ -127,7 +129,7 @@ conn.on('ready', () => {
       conn.end();
       process.exit(1);
     }
-    sftp.fastPut(TAR_LOCAL, TAR_REMOTE, (err2) => {
+    sftp.fastPut(TAR_LOCAL, TAR_REMOTE_WIN, (err2) => {
       if (err2) {
         console.error('代码上传失败:', err2.message);
         conn.end();
@@ -177,7 +179,7 @@ function npmInstall() {
         conn.end();
         process.exit(1);
       }
-      sftp.fastPut(path.join(__dirname, '.env'), REMOTE_DIR + '/.env', (err2) => {
+      sftp.fastPut(path.join(__dirname, '.env'), REMOTE_DIR_WIN + '/.env', (err2) => {
         if (err2) {
           console.error('.env 上传失败:', err2.message);
           conn.end();

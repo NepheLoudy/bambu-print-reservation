@@ -35,7 +35,7 @@ function readNasConfig() {
 
 function sshExec(cmd, timeoutMs = 15000) {
   const cfg = readNasConfig();
-  if (!cfg || !cfg.host || !cfg.password) return Promise.reject(new Error('未读到 NAS 配置（approval-bot/.env 的 NAS_*）'));
+  if (!cfg || !cfg.host || !cfg.password) return Promise.reject(new Error('未读到部署目标配置（approval-bot/.env 的 NAS_* 键,历史命名）'));
   return new Promise((resolve, reject) => {
     const conn = new Client();
     const timer = setTimeout(() => { conn.end(); reject(new Error('SSH 超时')); }, timeoutMs);
@@ -501,6 +501,72 @@ app.post('/api/nas/api', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ---------- 网络拓扑看板：全网连通性探测（本机视角，只读） ----------
+
+const net = require('net');
+
+// 拓扑节点定义：kind = cloud(云端依赖) / net(网关) / host(本地设备)
+const NET_TARGETS = [
+  { id: 'internet', name: '互联网', kind: 'cloud', host: '223.5.5.5', ports: [443] },
+  { id: 'feishu', name: '飞书云(API/长连接)', kind: 'cloud', host: 'open.feishu.cn', ports: [443] },
+  { id: 'router', name: '主路由', kind: 'net', host: '192.168.31.1', ports: [80] },
+  { id: 'pc', name: '小电脑(生产)', kind: 'host', host: '192.168.31.57', ports: [22, 3010, 3000, 3001, 3002, 3003, 3006] },
+  { id: 'oldnas', name: '旧NAS(备件存储)', kind: 'host', host: '192.168.31.151', ports: [2222, 3923] },
+];
+
+function tcpProbe(host, port, timeoutMs = 2500) {
+  return new Promise((resolve) => {
+    const t0 = Date.now();
+    const s = net.connect({ host, port, timeout: timeoutMs });
+    const done = (ok) => { s.removeAllListeners(); s.destroy(); resolve(ok ? Date.now() - t0 : null); };
+    s.on('connect', () => done(true));
+    s.on('timeout', () => done(false));
+    s.on('error', () => done(false));
+  });
+}
+
+let egressCache = { ip: null, at: 0 };
+async function getEgressIp() {
+  if (egressCache.ip && Date.now() - egressCache.at < 300000) return egressCache.ip;
+  for (const url of ['https://api.ipify.org?format=json', 'https://myip.ipip.net']) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+      const text = await res.text();
+      const m = text.match(/(\d+\.\d+\.\d+\.\d+)/);
+      if (m) { egressCache = { ip: m[1], at: Date.now() }; return m[1]; }
+    } catch (err) { /* 换下一个源 */ }
+  }
+  return null;
+}
+
+// 出口 IP（应用安全设置里的 IP 白名单排查用的就是它）
+app.get('/api/egress-ip', async (req, res) => {
+  res.json({ ip: await getEgressIp() });
+});
+
+// 全网拓扑探测：所有节点并行 TCP 探测，单连接 2.5s 超时封顶
+app.get('/api/network', async (req, res) => {
+  const probes = [];
+  for (const t of NET_TARGETS) {
+    for (const p of t.ports) {
+      probes.push(tcpProbe(t.host, p).then((latency) => ({ id: t.id, port: p, ok: latency !== null, latency })));
+    }
+  }
+  const results = await Promise.all(probes);
+  const nodes = NET_TARGETS.map((t) => {
+    const ports = results.filter((r) => r.id === t.id).map((r) => ({ port: r.port, ok: r.ok, latencyMs: r.latency }));
+    const okPorts = ports.filter((x) => x.ok);
+    return {
+      id: t.id, name: t.name, kind: t.kind, host: t.host,
+      up: okPorts.length > 0,
+      latencyMs: okPorts.length ? Math.min(...okPorts.map((x) => x.latencyMs)) : null,
+      ports,
+    };
+  });
+  const egressIp = await getEgressIp();
+  res.json({ time: new Date().toISOString(), egressIp, nodes, probeMs: Date.now() - t0 });
 });
 
 // 运维台是常驻本机工具：未捕获异常只记日志不退出（避免静默挂掉）

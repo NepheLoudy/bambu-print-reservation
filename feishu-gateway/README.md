@@ -77,7 +77,7 @@ qianli 项目群的所有机器人共用同一个飞书自建应用（`cli_aac7e
 | `APP_ID` / `APP_SECRET` | 共用应用凭证，缺任一则只起 HTTP 服务不连长连接 |
 | `GATEWAY_API_TOKEN` | 管理端点鉴权（2026-09-13）：`/api/dispatch`、`/api/usage-sync/run` 需带 `X-API-Token` 头；**未配置 = 两端点锁定（fail-closed）**。生成：`openssl rand -hex 24` |
 | `DDL_*` / `PLAZA_*` 等 | 见 `.env.example` 逐键注释 |
-| `EVENT_TYPES` | 长连接订阅的事件类型（逗号分隔）。**改动需同步 NAS 上的 .env**（v10 生产断链即代码默认值与线上 .env 不一致导致） |
+| `EVENT_TYPES` | 长连接订阅的事件类型（逗号分隔）。**改动需同步部署目标上的 .env**（v10 生产断链即代码默认值与线上 .env 不一致导致） |
 | `CONSUMERS` | 下游消费者登记，覆盖默认清单 |
 | `MESSAGE_ROUTES` | 消息路由规则（JSON 数组），覆盖默认规则 |
 | `DEFAULT_TARGET` | 消息未命中任何规则时的目标，默认 hub |
@@ -103,7 +103,7 @@ qianli 项目群的所有机器人共用同一个飞书自建应用（`cli_aac7e
    npm install
    npm run push
    ```
-   部署后验证：在内网可达网关端口的前提下 `curl http://10.253.33.233:3010/api/health`，`ws` 应为 `running`（若为 `error: ...` 说明长连接启动失败，查网关日志）。
+   部署后验证：在内网可达网关端口的前提下 `curl http://192.168.31.57:3010/api/health`，`ws` 应为 `running`（若为 `error: ...` 说明长连接启动失败，查网关日志）。
 
 2. **切换各机器人**（改 `.env` 后 `pm2 restart`）：
    - project-management-robot：`FEISHU_USE_LONG_CONNECTION=false`
@@ -137,4 +137,4 @@ curl -X POST http://localhost:3010/api/dispatch -H "Content-Type: application/js
 1. 机器人本身：监听本机一个未占用端口，实现 `POST /api/feishu/event`（处理 `{header, event}` 标准回调结构），`.env` 设 `FEISHU_USE_LONG_CONNECTION=false`；
 2. 网关 `CONSUMERS` 追加一行 `名称|http://localhost:端口/api/feishu/event`（需要指令模式再加指令 URL）；
 3. 如需多维表格事件：机器人内按 table_id 过滤；如需消息事件：在 `MESSAGE_ROUTES` 加规则或走默认 hub；
-4. 如需接入全新事件类型（非消息/表格/审批）：在网关 `.env` 的 `EVENT_TYPES` 追加，并在 `src/dispatch.js` 的 `dispatchFrame` 里加分发逻辑——**NAS 上的 .env 要同步改**，否则新事件到不了网关。
+4. 如需接入全新事件类型（非消息/表格/审批）：在网关 `.env` 的 `EVENT_TYPES` 追加，并在 `src/dispatch.js` 的 `dispatchFrame` 里加分发逻辑——**部署目标上的 .env 要同步改**，否则新事件到不了网关。
