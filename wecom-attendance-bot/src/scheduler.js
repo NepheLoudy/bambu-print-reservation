@@ -5,8 +5,9 @@
 // - 补发：每小时整点对表——若已过本周发送时刻而水位(lastSentWeekKey)没跟上，
 //   说明发送时段进程不在线（重启/宕机），立即补发该周。补发同时天然承担
 //   失败重试（拉数/发送失败不改水位，下个整点自动再试），无需独立重试队列。
-// - 静默口径：本服务是单次周播，默认发送时刻 09:30 落在晚间静默窗口
-//   （02:00–09:00）之外，不引入积压机制；改 cron 时请保持白天发送（README 有说明）。
+// - 静默口径：周播 cron 默认发送时刻 09:30 在晚间静默窗口（02:00–09:00）之外；
+//   补发看门狗与失败告警属自动播报，命中静默窗口整轮跳过（utils/quietHours），
+//   窗口后下一个整点 tick 按最新状态重查补发/告警——本任务是可重扫型，无需积压落盘。
 // - 首启保护：水位为空（从未成功播报过）不补发，避免部署即广播；
 //   可用 POST /api/attendance/test-broadcast 手动触发验证。
 // ============================================================
@@ -15,6 +16,7 @@ const config = require('./config');
 const report = require('./report');
 const store = require('./store');
 const wecom = require('./wecom');
+const quietHours = require('./utils/quietHours');
 
 let cronTask = null;
 let watchdogTask = null;
@@ -49,8 +51,14 @@ async function runWeekly({ offset = 0, dryRun = false, trigger = 'cron' } = {}) 
   return { window: win, markdown, csv, filename, sent: true, totals: aggregated.totals };
 }
 
-// 失败告警：拉数挂了 webhook 仍可用（它不走可信 IP），把原因喊到同一个负责人群
-async function alertFailure(err, win) {
+// 失败告警：拉数挂了 webhook 仍可用（它不走可信 IP），把原因喊到同一个负责人群。
+// 静默窗口内自动链路不喊（不记 lastError，窗口后重试自然再告警）；
+// 人工当下主动触发（manual）不受静默限制。
+async function alertFailure(err, win, { manual = false } = {}) {
+  if (!manual && quietHours.inQuietHours()) {
+    console.log('[考勤] 静默窗口内，失败告警顺延（窗口后自动重试再告警）');
+    return;
+  }
   const state = store.loadState();
   if (state.lastError && state.lastError.weekKey === win.key) return; // 同一周只喊一次，watchdog 会静默重试
   store.saveState({ ...state, lastError: { weekKey: win.key, at: new Date().toISOString(), message: String(err.message), errcode: err.errcode == null ? null : String(err.errcode) } });
@@ -71,7 +79,7 @@ async function guardedRun(opts) {
   } catch (err) {
     console.error(`[考勤] 播报失败:`, err.message, err.hint || '');
     const win = report.weekWindow(opts.offset || 0, Date.now(), config.cronParts.dow == null ? 1 : config.cronParts.dow);
-    if (!opts.dryRun) await alertFailure(err, win);
+    if (!opts.dryRun) await alertFailure(err, win, { manual: opts.trigger === 'manual' });
     throw err;
   } finally {
     running = false;
@@ -99,6 +107,11 @@ function start(onRun) {
   }, { timezone: config.timezone });
 
   watchdogTask = cron.schedule('5 * * * *', () => {
+    // 晚间静默（02:00–0900 窗口见 utils/quietHours）：整轮跳过，窗口后首个 tick 按最新状态补
+    if (quietHours.inQuietHours()) {
+      console.log('[watchdog] 静默窗口内，本轮对表跳过');
+      return;
+    }
     const win = catchupNeeded();
     if (win) {
       console.log(`[watchdog] 发现漏播（水位落后于 ${win.key}），补发`);

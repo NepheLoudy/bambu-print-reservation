@@ -82,4 +82,27 @@ const rep2 = aggregate([{ userid: 'u9', checkin_time: S('2026-09-07T08:00:00+08:
 const csv2 = renderCsv(win, rep2);
 assert.ok(csv2.includes('"实验室,二楼"'), '含逗号字段加引号');
 
-console.log('✓ stub-test-report 全部通过（聚合/渲染/CSV 21 组断言）');
+// 8) markdown 字节熔断：超大名单截断并提示（企微 markdown 消息 4096 字节上限防护）
+const bigMembers = Array.from({ length: 200 }, (_, i) => ({ userid: `u${i}`, name: `成员${i}号测试名字` }));
+const bigRecords = bigMembers.map((m, i) => ({
+  userid: m.userid,
+  checkin_time: S(`2026-09-07T0${i % 9}:00:00+08:00`),
+  checkin_type: '上班打卡',
+  exception_type: '',
+  location_title: '',
+  wifiname: '',
+  groupname: '',
+}));
+const repBig = aggregate(bigRecords, bigMembers);
+const mdBig = renderMarkdownV2(win, repBig);
+assert.ok(Buffer.byteLength(mdBig, 'utf8') < 4096, '熔断后不超企微 4096 字节上限');
+assert.ok(mdBig.includes('名单过长已截断'), '熔断提示出现');
+assert.ok(/（\d+\/200 人）/.test(mdBig), '截断计数（shown/total）');
+assert.ok(mdBig.includes('完整数据见 CSV 附件'), '熔断提示指向 CSV 附件');
+assert.ok(!md.includes('名单过长已截断'), '小名单不触发熔断');
+
+// 9) CSV 空兜底行与 10 列表头对齐
+const csvEmptyCols = renderCsv(win, empty).replace(/^\uFEFF/, '').split('\r\n');
+assert.strictEqual(csvEmptyCols[1].split(',').length, 10, '空记录兜底行与表头列数一致');
+
+console.log('✓ stub-test-report 全部通过（聚合/渲染/CSV 27 组断言）');

@@ -22,8 +22,22 @@ app.use(express.json({ limit: '2mb' }));
 const startedAt = Date.now();
 
 // ---- 健康检查（不受鉴权限制，运维台巡检用） ----
+// 名册/状态文件损坏时健康检查要仍可用（巡检端点不能被配置错误打挂），错误进 membersError/stateError
 app.get('/api/health', (req, res) => {
-  const state = store.loadState();
+  let state = {};
+  let stateError = null;
+  let members = [];
+  let membersError = null;
+  try {
+    state = store.loadState();
+  } catch (e) {
+    stateError = e.message;
+  }
+  try {
+    members = store.loadMembers();
+  } catch (e) {
+    membersError = e.message;
+  }
   res.json({
     ok: true,
     uptimeSec: Math.floor((Date.now() - startedAt) / 1000),
@@ -32,7 +46,9 @@ app.get('/api/health', (req, res) => {
       secret: !!config.secret,
       webhook: !!config.webhookKey,
       apiToken: !!config.apiToken,
-      members: store.loadMembers().length,
+      members: membersError ? null : members.length,
+      membersError,
+      stateError,
     },
     cron: config.cron,
     timezone: config.timezone,

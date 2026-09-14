@@ -145,8 +145,11 @@ function aggregate(records, members) {
 }
 
 // markdown_v2 渲染（企微群机器人 markdown_v2 才支持表格；不支持字体颜色与 @）
+// 成员表随名单线性增长，而企微 markdown 消息有 4096 字节上限——名单几十人即触顶
+// 永久发送失败。这里按 UTF-8 字节数熔断：超限截断成员表并提示看 CSV 附件（完整数据在附件）。
 function renderMarkdownV2(window, report, opts = {}) {
   const maxDetail = opts.maxDetailLines || 50;
+  const maxBytes = opts.maxBytes || 3800; // 预留告警尾巴与安全边距，硬上限 4096
   const esc = (s) => String(s == null ? '' : s).replace(/\|/g, '\\|');
   const lines = [];
   lines.push(`## 📋 考勤周报（${window.label}）`);
@@ -157,8 +160,18 @@ function renderMarkdownV2(window, report, opts = {}) {
     lines.push('');
     lines.push('| 成员 | 打卡天数 | 记录数 | 异常 |');
     lines.push('| --- | --- | --- | --- |');
+    let used = lines.reduce((s, l) => s + Buffer.byteLength(l, 'utf8') + 1, 0);
+    let shownUsers = 0;
     for (const u of report.users) {
-      lines.push(`| ${esc(u.name)} | ${u.punchDays} | ${u.punches} | ${u.exceptions.length || '-'} |`);
+      const row = `| ${esc(u.name)} | ${u.punchDays} | ${u.punches} | ${u.exceptions.length || '-'} |`;
+      const rowBytes = Buffer.byteLength(row, 'utf8') + 1;
+      if (used + rowBytes > maxBytes) break;
+      used += rowBytes;
+      lines.push(row);
+      shownUsers += 1;
+    }
+    if (shownUsers < report.users.length) {
+      lines.push(`> …名单过长已截断（${shownUsers}/${report.users.length} 人），完整数据见 CSV 附件`);
     }
   }
   if (report.exceptionLines.length) {
@@ -201,7 +214,7 @@ function renderCsv(window, report) {
       r.groupname || '',
     ].map(csvEscape).join(','));
   }
-  if (rows.length === 1) rows.push('（本周无打卡记录）,,,');
+  if (rows.length === 1) rows.push('（本周无打卡记录）,,,,,,,,,'); // 与 10 列表头对齐
   return '\uFEFF' + rows.join('\r\n');
 }
 

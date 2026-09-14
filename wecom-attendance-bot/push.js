@@ -164,11 +164,16 @@ conn.on('ready', () => {
         process.exit(1);
       }
       console.log('✓ 代码包已上传');
-      // 代码目录全量替换；运行时数据在项目外数据目录（state/exports/backup），不受影响
-      exec('mkdir -p ' + REMOTE_DIR + '; '
-        + 'rm -rf ' + REMOTE_DIR + '/.git ' + REMOTE_DIR + '/* ' + REMOTE_DIR + '/.[!.]* 2>/dev/null || true; '
-        + 'tar -xzf ' + TAR_REMOTE + ' -C ' + REMOTE_DIR + '; '
-        + 'mkdir -p ' + DATA_DIR + '/exports ' + DATA_DIR + '/backup', () => npmInstall());
+      // 【运行时数据保护】守卫必须在 rm -rf 之前读现网文件：
+      // 备份现网版本 + 判断本地种子是否过期（否则 rm 之后现网永远是空，守卫形同虚设，
+      // 正是 2026-09-12 duty-bot 白名单覆盖事故的复现路径）
+      planPrivateConfig(0, {}, (plan) => {
+        // 代码目录全量替换；运行时数据在项目外数据目录（state/exports/backup），不受影响
+        exec('mkdir -p ' + REMOTE_DIR + '; '
+          + 'rm -rf ' + REMOTE_DIR + '/.git ' + REMOTE_DIR + '/* ' + REMOTE_DIR + '/.[!.]* 2>/dev/null || true; '
+          + 'tar -xzf ' + TAR_REMOTE + ' -C ' + REMOTE_DIR + '; '
+          + 'mkdir -p ' + DATA_DIR + '/exports ' + DATA_DIR + '/backup', () => npmInstall(plan));
+      });
     });
   });
 });
@@ -200,7 +205,7 @@ function exec(cmd, cb) {
 }
 
 // ============ [3/4] npm install + 上传 .env 与私有配置 ============
-function npmInstall() {
+function npmInstall(plan) {
   console.log('\n========== [3/4] npm install + 上传 .env 与成员名单 ==========');
   // PATH 里显式带上 node 目录（小电脑 pm2 环境的既有做法）
   exec('export PATH=/c/tools/node-v22.10.0-win-x64:/mingw64/bin:/usr/local/bin:/usr/bin:/bin:/Windows/System32:$PATH; cd ' + REMOTE_DIR + ' && npm install --omit=dev', () => {
@@ -217,24 +222,21 @@ function npmInstall() {
           process.exit(1);
         }
         console.log('✓ .env 已上传（含企微密钥，仅存于部署目标）');
-        uploadPrivate(0);
+        applyPrivateConfig(0, plan, restart);
       });
     });
   });
 }
 
-function uploadPrivate(i) {
+// 阶段一（rm -rf 之前）：读现网私有配置 → 有内容且与本地不同先备份 → 判断本地种子是否过期。
+// plan 形如 { 'config/members.json': { action: 'upload'|'restore', remoteContent } }
+function planPrivateConfig(i, plan, done) {
   const files = PRIVATE_CONFIG_FILES.filter((f) => fs.existsSync(path.join(__dirname, f)));
   if (i >= files.length) {
-    console.log('✓ 私有配置处理完毕（成员名单权威在部署目标侧，push 仅在种子不落后时上传）');
-    return restart();
+    console.log('✓ 私有配置现网状态盘点完毕（备份/守卫判定前置于代码目录替换）');
+    return done(plan);
   }
-  return guardUploadPrivate(files[i], () => uploadPrivate(i + 1));
-}
-
-// 私有配置保护上传：①现网有内容且与本地不同 → 先备份到项目外数据目录；
-// ②本地条目数少于现网 → 视为种子过期，跳过上传（PUSH_FORCE_PRIVATE=1 才覆盖）
-function guardUploadPrivate(f, done) {
+  const f = files[i];
   conn.sftp((err, sftp) => {
     if (err) {
       console.error('SFTP 失败:', err.message);
@@ -247,20 +249,14 @@ function guardUploadPrivate(f, done) {
       const remoteCount = readErr ? 0 : countEntries(remoteContent);
       const localCount = countEntries(localContent);
 
-      const proceed = () => {
-        const mkdirCmd = 'mkdir -p ' + REMOTE_DIR + '/' + path.dirname(f);
-        return exec(mkdirCmd, () => {
-          sftp.fastPut(path.join(__dirname, f), remotePath, (err2) => {
-            if (err2) {
-              console.error(`${f} 上传失败:`, err2.message);
-              conn.end();
-              process.exit(1);
-            }
-            console.log(`✓ ${f} 已上传`);
-            done();
-          });
-        });
-      };
+      if (remoteCount > localCount && process.env.PUSH_FORCE_PRIVATE !== '1') {
+        // 本地种子过期：跳过上传，且把现网内容回填本地 + 记入 plan 待 rm 后回写远端（防 rm 丢失）
+        console.warn(`⚠ [私有配置保护] 将跳过 ${f} 上传：本地 ${localCount} 条 < 现网 ${remoteCount} 条（本地种子过期，权威在部署目标侧）。`);
+        console.warn('  确认要用本地覆盖请设 PUSH_FORCE_PRIVATE=1 重跑；现网内容已回填本地以防丢失。');
+        fs.writeFileSync(path.join(__dirname, f), remoteContent);
+        plan[f] = { action: 'restore', remoteContent };
+        return planPrivateConfig(i + 1, plan, done);
+      }
 
       const backupThen = (next) => {
         if (readErr || !remoteContent.trim() || remoteContent === localContent) return next();
@@ -275,13 +271,55 @@ function guardUploadPrivate(f, done) {
         });
       };
 
-      if (remoteCount > localCount && process.env.PUSH_FORCE_PRIVATE !== '1') {
-        console.warn(`⚠ [私有配置保护] 跳过 ${f} 上传：本地 ${localCount} 条 < 现网 ${remoteCount} 条（本地种子过期，权威在部署目标侧）。`);
-        console.warn('  确认要用本地覆盖请设 PUSH_FORCE_PRIVATE=1 重跑；现网内容已回填本地以防丢失。');
-        fs.writeFileSync(path.join(__dirname, f), remoteContent);
-        return done();
-      }
-      backupThen(proceed);
+      backupThen(() => {
+        plan[f] = { action: 'upload' };
+        planPrivateConfig(i + 1, plan, done);
+      });
+    });
+  });
+}
+
+// 阶段二（解压之后）：按 plan 执行——upload 传本地种子；restore 把盘点到的现网内容写回去
+// （代码目录被 rm -rf 全量替换过，跳过上传的文件必须显式恢复，否则现网权威数据丢失）
+function applyPrivateConfig(i, plan, done) {
+  const files = PRIVATE_CONFIG_FILES.filter((f) => fs.existsSync(path.join(__dirname, f)));
+  if (i >= files.length) {
+    console.log('✓ 私有配置处理完毕（成员名单权威在部署目标侧，push 仅在种子不落后时上传）');
+    return done();
+  }
+  const f = files[i];
+  const entry = plan[f] || { action: 'upload' };
+  conn.sftp((err, sftp) => {
+    if (err) {
+      console.error('SFTP 失败:', err.message);
+      conn.end();
+      process.exit(1);
+    }
+    const remotePath = REMOTE_DIR_WIN + '/' + f;
+    const mkdirThen = (next) => exec('mkdir -p ' + REMOTE_DIR + '/' + path.dirname(f), next);
+    if (entry.action === 'restore') {
+      return mkdirThen(() => {
+        sftp.writeFile(remotePath, entry.remoteContent, (err2) => {
+          if (err2) {
+            console.error(`${f} 现网内容回写失败:`, err2.message);
+            conn.end();
+            process.exit(1);
+          }
+          console.log(`✓ ${f} 已按现网版本恢复（本地种子过期，未覆盖）`);
+          applyPrivateConfig(i + 1, plan, done);
+        });
+      });
+    }
+    return mkdirThen(() => {
+      sftp.fastPut(path.join(__dirname, f), remotePath, (err2) => {
+        if (err2) {
+          console.error(`${f} 上传失败:`, err2.message);
+          conn.end();
+          process.exit(1);
+        }
+        console.log(`✓ ${f} 已上传`);
+        applyPrivateConfig(i + 1, plan, done);
+      });
     });
   });
 }
@@ -290,10 +328,12 @@ function guardUploadPrivate(f, done) {
 function restart() {
   console.log('\n========== [4/4] 重启服务 ==========');
   // 只收出站 API/webhook + 本机回环 HTTP 窗口，无需开放防火墙端口
-  const cmd = 'pm2 restart ' + PM2_NAME + ' --update-env 2>/dev/null || pm2 start ' + REMOTE_DIR + '/src/index.js --name ' + PM2_NAME + '; pm2 save';
+  // PATH 显式带 node 目录：小电脑 SSH 非交互 shell 默认 PATH 不含 node/pm2（同 npmInstall）
+  const cmd = 'export PATH=/c/tools/node-v22.10.0-win-x64:/mingw64/bin:/usr/local/bin:/usr/bin:/bin:$PATH; '
+    + 'pm2 restart ' + PM2_NAME + ' --update-env 2>/dev/null || pm2 start ' + REMOTE_DIR + '/src/index.js --name ' + PM2_NAME + '; pm2 save';
   exec(cmd, () => {
     console.log('\n✅ 部署完成，服务状态：');
-    conn.exec('pm2 list', (err, stream) => {
+    conn.exec('export PATH=/c/tools/node-v22.10.0-win-x64:$PATH; pm2 list', (err, stream) => {
       if (err) { conn.end(); return; }
       stream.on('data', (d) => process.stdout.write(d.toString()));
       stream.on('close', () => conn.end());

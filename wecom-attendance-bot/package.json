@@ -8,8 +8,9 @@
     "dev": "nodemon src/index.js",
     "deploy": "node push.js",
     "push": "node push.js",
-    "test": "npm run test:window && npm run test:report && npm run test:store && npm run test:wecom",
+    "test": "npm run test:window && npm run test:report && npm run test:store && npm run test:wecom && npm run test:quiethours",
     "test:window": "node scripts/stub-test-window.js",
+    "test:quiethours": "node scripts/stub-test-quiethours.js",
     "test:report": "node scripts/stub-test-report.js",
     "test:store": "node scripts/stub-test-store.js",
     "test:wecom": "node scripts/stub-test-wecom.js"
