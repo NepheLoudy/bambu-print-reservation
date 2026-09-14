@@ -128,8 +128,10 @@ async function replyText(messageId, text) {
   }
 }
 
-// 投递可靠性（2026-09-13 R3）：失败自动重试一次（3s 后），按消费者累计失败计数
-// 并暴露到 /api/health——各仓已有 messageId 幂等，重试不会重复生效
+// 投递可靠性（2026-09-13 R3；2026-09-15 计数修正）：传输异常自动重试一次（3s 后），
+// 按消费者累计失败计数并暴露到 /api/health——各仓已有 messageId 幂等，重试不会重复生效。
+// HTTP 层失败（下游 4xx/5xx）不自动重试（指令类转发下游可能已执行，重试有双执行风险），
+// 但如实计入 failed，不再误计为 ok（此前监控把下游半死状态显示成全绿）。
 const deliveryStats = { ok: 0, retried: 0, failed: 0, byConsumer: {} };
 
 function deliveryStatsSnapshot() {
@@ -140,6 +142,13 @@ async function deliverTo(consumer, mode, frame, text) {
   let result;
   try {
     result = await deliverOnce(consumer, mode, frame, text);
+    if (result && result.ok === false) {
+      // 下游 HTTP 层失败：计 failed 并告警日志，不重试（见上），也不给 ok 充数
+      deliveryStats.failed += 1;
+      deliveryStats.byConsumer[consumer.name] = (deliveryStats.byConsumer[consumer.name] || 0) + 1;
+      console.warn(`[路由] 投递 ${consumer.name} HTTP 层失败（status ${result.status}），不计重试`);
+      return result;
+    }
     deliveryStats.ok += 1;
     return result;
   } catch (err) {

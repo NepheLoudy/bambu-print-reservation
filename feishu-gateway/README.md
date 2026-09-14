@@ -20,7 +20,7 @@ qianli 项目群的所有机器人共用同一个飞书自建应用（`cli_aac7e
 
 ## 统一方案：单连接 + 本地路由
 
-**长连接自动重试（2026-09-13）**：启动失败（凭证错误/网络故障）按指数退避自动重试（5s 起、翻倍封顶 5 分钟），每次尝试新建 WSClient（同一时刻至多一条连接），成功后计数清零；另有 120s 看门狗兜底「start 无响应」；`/api/health` 的 `ws` 字段新增 `connecting` 态。
+**长连接自动重试（2026-09-13）**：启动失败（凭证错误/网络故障）按指数退避自动重试（2s 起、翻倍封顶 5 分钟），每次尝试新建 WSClient（同一时刻至多一条连接），成功后计数清零；连接态由 30s 轮询自愈（failed 自动重连；connecting 恒挂起属 SDK 异常场景，重启进程兜底）；`/api/health` 的 `ws` 字段新增 `connecting` 态。
 
 **只有本网关持有共用应用的唯一长连接**，收到事件后按规则通过本机 HTTP 转发给各机器人已有的 `/api/feishu/event` 端点（机器人全部设置 `FEISHU_USE_LONG_CONNECTION=false`）。事件从此确定性到达，不再被抢。
 
@@ -93,6 +93,7 @@ qianli 项目群的所有机器人共用同一个飞书自建应用（`cli_aac7e
 - 消息事件命中路由目标后顺带计数（只观察不改路由）：**谁**（open_id，经共用应用查通讯录解析成姓名并永久缓存）在用**什么功能**（`/` 开头取首个 token 精确到指令；工单接单监听说的是「接单」这两个字，单独成桶；其余按私聊对话/@群对话计）；
 - 按天分桶保留 30 天，落盘 `<数据目录>/usage-stats.json`（60s 兜底刷新 + SIGINT 落盘，重启不丢）；
 - 查询：`GET /api/usage?days=N`（默认 1，最大 30），返回 `users`（含姓名）/`features`/`daily` 聚合；运维台「使用活跃」看板即消费此接口；
+- `POST /api/usage/report`（X-API-Token）——各机器人在功能命中点回传 `{openId, feature}`，供队员活跃/功能统计归因（hub 关键词回答、DDL 确认等网关看不见的内部命中靠此上报）
 - 落多维表格：`PLAZA_BITABLE_APP_TOKEN` + `PLAZA_BITABLE_DAILY_TABLE` 配置后每 30 分钟按日期签名 upsert 到「网关日活跃」单表（动态广场看板数据源；分功能/分队员的两张明细表已于 2026-09-13 下线），`POST /api/usage-sync/run?force=1` 手动补数（**管理端点鉴权**：需带 `X-API-Token: $GATEWAY_API_TOKEN` 头，token 在本仓 `.env`；`/api/dispatch` 同样受控，未配置 token 时两端点锁定）。
 
 ## 部署与切换步骤
