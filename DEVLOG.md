@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v70**（2026-09-15，随本提交落地）。
+当前最新：**v70**（2026-09-15，7c836f9）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -541,7 +541,7 @@
 - 同批登记：dashboard/registry.js 新增 wecom-attendance 条目、qianli-deploy SKILL 项目清单收编（六个项目）、顶层 AGENTS 职能表加行、用户指南 HTML 增补；本批入库说明：v68 归档时本目录曾被误扫入库、由 `11fef0e` 撤出并留言待本项目会话规范入库，本批即该正式入库；
 - 待办：企微管理后台建自建应用+「打卡-可调用接口的应用」授权+可信 IP 后回填 `.env` 的 WECOM 三项与成员名单，`POST /api/attendance/test-broadcast` 真发验证；「缺卡判定」留 v2。
 
-## v70 · 2026-09-15 · 随本提交落地 · fix
+## v70 · 2026-09-15 · 7c836f9 · fix
 
 **全项目深度审查修复批：五路并行审查六域，P0 级纰漏当晚清零**
 
