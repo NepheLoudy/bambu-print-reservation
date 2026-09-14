@@ -42,15 +42,15 @@ module.exports = {
       pm2Name: 'knowledge-tracker',
       nasDir: '/c/qianli/opt/knowledge-tracker/server',
       deploy: 'npm run push（根目录）',
-      role: '所有对话/指令的唯一入口：@对话、基础指令、关键词监听与自动回答、抽奖（/抽奖 指令·整表大奖池）、DDL 播报与逾期确认、会议提醒、项目表；专项指令转发各服务。',
+      role: '所有对话/指令的唯一入口：@对话、基础指令、关键词监听与自动回答、抽奖（一个工作表=一个指令=一个奖池）、DDL 播报与逾期确认、会议提醒、项目表；专项指令转发各服务。',
       listening: [
         '全部消息事件（gateway 转发）；群聊需 @机器人，私聊直接对话',
         'p2p：DDL 逾期确认回复（12 小时时效，超时次日播报重问）→ 值日分支（指令/图片，duty-bot 未接管时落回常规流）→ 基础指令（白名单）→ 对话',
-        '群：@对话 → 值日群分支（看板仅 @ 触发、带不带 / 均可、@+纯图片静默、非管辖群值日指令回提示）→ 审批群分支 → 基础指令（静态表未命中接 抽奖动态指令 /抽奖）→ 关键词自动回答（全群统一，未@也生效）；会议提醒对值日管辖群跳过（群级功能全关）',
+        '群：@对话 → 值日群分支（看板仅 @ 触发、带不带 / 均可、@+纯图片静默、非管辖群值日指令回提示）→ 审批群分支 → 基础指令（静态表未命中接 抽奖动态指令，工作表名=指令名）→ 关键词自动回答（全群统一，未@也生效）；会议提醒对值日管辖群跳过（群级功能全关）',
         'GET /api/hub/policy（定制窗口：审批群/值日策略源/回答表范围/播报群全景只读）',
       ],
       commands: [
-        '/help /lottery /抽奖（动态指令，LOTTERY_COMMAND 可改名；整表大奖池行数不限） /status /test-ddl /keywords /autoreply /history（后五个为运维指令，不在群聊 /help 展示）',
+        '/help /lottery /<工作表名>（动态抽奖指令，一个工作表=一个指令=一个奖池，如 /抽奖） /status /test-ddl /keywords /autoreply /history（后五个为运维指令，不在群聊 /help 展示）',
         '/approval-* → approval-bot（:3002）',
         '/print-* → bambu（:3001）',
         '值日助手 / 我要请假 / 查询我的下一次值日 / 绑定 X / 打卡（主词，2026-09-13 起；是/口语变体兼容保留）/ 否 / 生成排班表 → duty-bot（:3006；带 / 前缀等效）',
@@ -72,7 +72,7 @@ module.exports = {
         '审批群（APPROVAL_CHAT_ID）：整体切换为仅 /approval-*',
         '值日管辖群（duty-bot /api/duty/policy 下发，当前=快递申领群）：hub 基础指令关闭，看板「值日助手」仅 @ 或私聊触发；关键词回答全群统一（未@也生效，2026-09-13）',
         '私聊基础指令白名单 P2P_COMMAND_OPEN_IDS / P2P_COMMAND_CHAT_IDS（值日指令不限）',
-        '抽奖：@机器人 发「/抽奖」即抽一次（指令名 LOTTERY_COMMAND 可改名/配别名；奖池=抽奖配置表.xlsx 整表，行数不限；值日管辖群可用；审批群不开放；私聊按指令白名单口径）；LOTTERY_CHAT_IDS 可收窄；动态进 /help',
+        '抽奖：@机器人 发「/工作表名」即抽一次（抽奖配置表.xlsx 一个工作表=一个指令=一个奖池，复制表改名即新抽奖；值日管辖群可用；审批群不开放；私聊按指令白名单口径）；LOTTERY_CHAT_IDS 可收窄；动态进 /help',
       ],
       localRun: { script: 'src/index.js', cwd: '', env: {} },
       quickActions: [

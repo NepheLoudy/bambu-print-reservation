@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v67**（2026-09-15，随本提交落地）。
+当前最新：**v68**（2026-09-15，随本提交落地）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -524,3 +524,9 @@
 **抽奖收敛单指令大奖池联动（hub v88）：表格只填 奖品|概率 两列，/抽奖 一个指令对应无限奖品**
 
 - 用户澄清「一个抽奖指令对应无穷可填的奖品和概率」：hub v88 把抽奖配置表瘦身为奖品|概率两列（整表=/抽奖 的大奖池，一行=一个奖品、行数不限），指令名挪到 .env 的 LOTTERY_COMMAND（默认「抽奖」，可改名/配别名）；解析器兼容 v87 旧格式（旧表示例行仍为注释，0 有效奖品）。registry/AGENTS/用户指南/LOGIC-MAP 同批。
+
+## v68 · 2026-09-15 · 随本提交落地 · refactor
+
+**抽奖多奖池定稿联动（hub v90）：一个工作表 = 一个抽奖指令 = 一个奖池**
+
+- 用户定稿：抽奖配置表按 sheet 组织，工作表名即指令名（复制表改名=新抽奖），表内奖品|概率两列行数不限；无「奖品」表头的表自动忽略；LOTTERY_COMMAND 废弃。hub v90（服务层无改动，stub 全过）；registry/AGENTS/用户指南/LOGIC-MAP 同批。
