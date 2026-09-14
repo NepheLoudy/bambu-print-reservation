@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v68**（2026-09-15，随本提交落地）。
+当前最新：**v69**（2026-09-15，随本提交落地）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -530,3 +530,13 @@
 **抽奖多奖池定稿联动（hub v90）：一个工作表 = 一个抽奖指令 = 一个奖池**
 
 - 用户定稿：抽奖配置表按 sheet 组织，工作表名即指令名（复制表改名=新抽奖），表内奖品|概率两列行数不限；无「奖品」表头的表自动忽略；LOTTERY_COMMAND 废弃。hub v90（服务层无改动，stub 全过）；registry/AGENTS/用户指南/LOGIC-MAP 同批。
+
+## v69 · 2026-09-15 · 随本提交落地 · feat
+
+**新项目 wecom-attendance-bot v1 诞生：企业微信考勤周报机器人（负责人群每周播报打卡数据）**
+
+- 功能：定时（默认周一 09:30 上海时间）调企微 `checkin/getcheckindata` 拉上一完整周打卡记录（考勤机已同步进企微，不碰硬件）→ 按人聚合打卡天数/异常 → 群机器人 webhook 播报 markdown_v2 周报卡 + CSV 明细附件（替代手机手动导出）；补发看门狗每小时对表（漏播/失败自动补，水位防重复）；拉数失败向同群发告警卡（webhook 不走可信 IP，60020 附处理提示）；
+- 架构裁定：**企业微信域项目**——不消费消息事件、不接 feishu-gateway、不受对话铁律/统计上报规则约束；部署共用顶层链路（repo:top 模式同 gateway，SFTP 直传小电脑，pm2 名 `wecom-attendance`，端口 3007）；members.json 沿用 duty-bot 备份+守卫；写端点 X-API-Token 照 gateway auth.js 模板；
+- 四套桩测试 51 断言全过（窗口时区锚定/聚合渲染/存储/企微分批），push.js 内置测试闸门；开发期修三处真 bug：weekWindow 双重时区转换、分批断言边界、nextSendTime 前后方向（node-cron 3.x 无 nextDates，下次执行时刻自算）；
+- 同批登记：dashboard/registry.js 新增 wecom-attendance 条目、qianli-deploy SKILL 项目清单收编（六个项目）、顶层 AGENTS 职能表加行、用户指南 HTML 增补；本批入库说明：v68 归档时本目录曾被误扫入库、由 `11fef0e` 撤出并留言待本项目会话规范入库，本批即该正式入库；
+- 待办：企微管理后台建自建应用+「打卡-可调用接口的应用」授权+可信 IP 后回填 `.env` 的 WECOM 三项与成员名单，`POST /api/attendance/test-broadcast` 真发验证；「缺卡判定」留 v2。
