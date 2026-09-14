@@ -17,7 +17,7 @@ let wsRetryTimer = null;
 let wsRetryCount = 0;
 let wsClient = null;          // 当前 WSClient 实例（重试时整体新建）
 let wsStatusTimer = null;     // 连接状态巡检（兜底 SDK 静默失败场景）
-const WS_RETRY_BASE_MS = 5 * 1000;      // 首次重试 5s
+const WS_RETRY_BASE_MS = 2 * 1000;      // 首次重试 2s(2026-09-14 提速:校园网被踢秒级自愈后尽快恢复事件流)
 const WS_RETRY_MAX_MS = 5 * 60 * 1000;  // 封顶 5 分钟
 const WS_START_WATCHDOG_MS = 120 * 1000; // start() 无响应看门狗
 
