@@ -25,7 +25,7 @@ function runTestGate() {
     return true;
   }
   const { spawnSync } = require('child_process');
-  const cmd = 'node scripts/stub-test-multi-accept.js && node scripts/stub-test-sync.js';
+  const cmd = 'npm test';
   if (!cmd) { console.log('[测试闸门] 无测试命令，跳过'); return true; }
   console.log('[测试闸门] 运行:', cmd);
   const r = spawnSync(cmd, { shell: true, stdio: 'inherit', cwd: __dirname });
@@ -218,10 +218,11 @@ function uploadEnv() {
 // ============ [4/4] 重启服务 ============
 function restart() {
   console.log('\n========== [4/4] 重启服务 ==========');
-  const cmd = 'pm2 restart ticket-bot --update-env 2>/dev/null || pm2 start /c/qianli/opt/ticket-bot/src/index.js --name ticket-bot; pm2 save';
+  const cmd = 'export PATH=/c/tools/node-v22.10.0-win-x64:$PATH; '
+    + 'pm2 restart ticket-bot --update-env 2>/dev/null || pm2 start /c/qianli/opt/ticket-bot/src/index.js --name ticket-bot; pm2 save';
   exec(cmd, () => {
     console.log('\n✅ 部署完成，服务状态：');
-    conn.exec('pm2 list', (err, stream) => {
+    conn.exec('export PATH=/c/tools/node-v22.10.0-win-x64:$PATH; pm2 list', (err, stream) => {
       if (err) { conn.end(); return; }
       stream.on('data', (d) => process.stdout.write(d.toString()));
       stream.on('close', () => conn.end());

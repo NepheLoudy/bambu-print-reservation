@@ -23,6 +23,7 @@ module.exports = {
         'approval_instance / approval_task → bambu（打印审批联动）/ ticket-bot（接单→审批自动通过）',
         'drive.file.bitable_record_changed_v1 → 按 CONSUMERS 广播给登记的消费者',
         '消息命中路由后顺带记使用统计（不改路由）：GET /api/usage?days=N',
+        '各机器人命中点回传功能使用（X-API-Token）：POST /api/usage/report {openId, feature}',
       ],
       commands: ['（无业务指令，纯路由层）'],
       permissions: ['长连接独占（其它服务 FEISHU_USE_LONG_CONNECTION=false）', '消息路由表 DEFAULT_MESSAGE_ROUTES / 消费者登记 CONSUMERS'],
@@ -30,7 +31,7 @@ module.exports = {
       quickActions: [
         { id: 'install', label: 'npm install', cmd: 'npm install', cwd: '' },
       ],
-      notes: 'v19 起管理端点鉴权（/api/dispatch 与 /api/usage-sync/run 需 X-API-Token 头，GATEWAY_API_TOKEN 在 .env）+ 长连接启动失败自动重试（5s 指数退避封顶 5min + 120s 看门狗）；改路由/消费者登记先读 .agents/skills/qianli-chat-architecture/SKILL.md；不提供本地启动——本地实例会与部署目标(小电脑)抢共用应用唯一长连接，生产事件会被随机分流；使用统计（口径=机器人交互：显式路由/私聊/@机器人）每 30 分钟自动 upsert 到机器人项目看板「网关日活跃」单表（动态广场看板数据源，POST /api/usage-sync/run?force=1 手动补数；网关功能使用/网关队员活跃两表已下线）',
+      notes: 'v19 起管理端点鉴权（/api/dispatch 与 /api/usage-sync/run 需 X-API-Token 头，GATEWAY_API_TOKEN 在 .env）+ 长连接启动失败自动重试（2s 起指数退避封顶 5min，30s 轮询自愈）；改路由/消费者登记先读 .agents/skills/qianli-chat-architecture/SKILL.md；不提供本地启动——本地实例会与部署目标(小电脑)抢共用应用唯一长连接，生产事件会被随机分流；使用统计（口径=机器人交互：显式路由/私聊/@机器人）每 30 分钟自动 upsert 到机器人项目看板「网关日活跃」单表（动态广场看板数据源，POST /api/usage-sync/run?force=1 手动补数；网关功能使用/网关队员活跃两表已下线）',
     },
     {
       id: 'hub',
@@ -170,7 +171,7 @@ module.exports = {
       windows: [
         { m: 'GET', p: '/api/duty/policy', d: '值日域管辖策略（可在线改写管辖群）' },
         { m: 'POST', p: '/api/duty/policy', d: '管辖范畴在线改写（groupChatIds）', kind: 'policy-edit' },
-        { m: 'GET', p: '/api/duty/roster', d: '名册全景（通讯录同步，64 人）' },
+        { m: 'GET', p: '/api/duty/roster', d: '名册全景（通讯录同步，人数动态）' },
         { m: 'POST', p: '/api/duty/roster/refresh', d: '手动刷新通讯录名册', kind: 'action' },
         { m: 'GET', p: '/api/duty/whitelist', d: '白名单（值日排除名单，可增删）', kind: 'whitelist' },
         { m: 'POST', p: '/api/duty/whitelist', d: '白名单增删', kind: 'whitelist-edit' },

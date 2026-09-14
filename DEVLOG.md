@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v69**（2026-09-15，随本提交落地）。
+当前最新：**v70**（2026-09-15，随本提交落地）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -531,7 +531,7 @@
 
 - 用户定稿：抽奖配置表按 sheet 组织，工作表名即指令名（复制表改名=新抽奖），表内奖品|概率两列行数不限；无「奖品」表头的表自动忽略；LOTTERY_COMMAND 废弃。hub v90（服务层无改动，stub 全过）；registry/AGENTS/用户指南/LOGIC-MAP 同批。
 
-## v69 · 2026-09-15 · 随本提交落地 · feat
+## v69 · 2026-09-15 · 99bdc4d · feat
 
 **新项目 wecom-attendance-bot v1 诞生：企业微信考勤周报机器人（负责人群每周播报打卡数据）**
 
@@ -540,3 +540,17 @@
 - 四套桩测试 51 断言全过（窗口时区锚定/聚合渲染/存储/企微分批），push.js 内置测试闸门；开发期修三处真 bug：weekWindow 双重时区转换、分批断言边界、nextSendTime 前后方向（node-cron 3.x 无 nextDates，下次执行时刻自算）；
 - 同批登记：dashboard/registry.js 新增 wecom-attendance 条目、qianli-deploy SKILL 项目清单收编（六个项目）、顶层 AGENTS 职能表加行、用户指南 HTML 增补；本批入库说明：v68 归档时本目录曾被误扫入库、由 `11fef0e` 撤出并留言待本项目会话规范入库，本批即该正式入库；
 - 待办：企微管理后台建自建应用+「打卡-可调用接口的应用」授权+可信 IP 后回填 `.env` 的 WECOM 三项与成员名单，`POST /api/attendance/test-broadcast` 真发验证；「缺卡判定」留 v2。
+
+## v70 · 2026-09-15 · 随本提交落地 · fix
+
+**全项目深度审查修复批：五路并行审查六域，P0 级纰漏当晚清零**
+
+- 审查范围：gateway / ticket-bot / hub / approval-bot / bambu / duty-bot / wecom / dashboard / 顶层文档一致性（五路并行代码审查，逐条 file:line 证据）。各仓修复明细见各仓 DEVLOG 当批条目（wecom v2、pm-robot v91、ticket v70、duty v23、bambu v28、gateway v25），要点：
+  - **数据保护**：wecom/duty 两仓 push.js 守卫时序缺陷修复（rm -rf 之后才读现网=守卫+备份整体失效，2026-09-12 白名单覆盖事故的完整复现路径）——盘点前置于目录替换、种子过期跳过并回写现网、policy-override.json 入保护清单；
+  - **功能性 bug**：hub DDL 确认漏 require usageReport（ReferenceError 吞统计+中断事件链）；ticket 组长解析负缓存回归（v68 漏改第三处）；bambu 六写端点漏鉴权（可绕审批开打印）；wecom 部署路径/静默闸门/长度熔断/健康检查；
+  - **安全**：dashboard 命令注入面关闭 + 裸 spawn 分支移除 + Host 校验；gateway 投递统计如实计数；
+  - **部署链**：ticket/duty/wecom/gateway 四仓 push.js restart 步骤补 PATH（小电脑非交互 shell 无 node/pm2，代码已传服务不重启）；
+  - **文档**：维护者手册 MD 补 wecom（六大→七大机器人）；registry 四处漂移；六仓 DEVLOG 指针与占位哈希全部落定；approval-bot 积压 commit 推上 GitHub；
+  - **遗留改动入库**：ticket-bot 部署目标迁移适配（上次会话遗留 README+push.js 未提交）随本批规范入库。
+- 桌面《qianli-设计意图待定项.md》同步：wecom 上线前置待办（凭据/名单，09-21 首播前）、已落地清单、新增建设推荐 R8~R14。
+- duty-bot 白名单增补 3 人（洪博寰/郝骏锋/zyicome，值日排除名单 13→16，写窗口操作有备份）；值日助手全链路（gateway→hub→duty-bot→webhook）注入式实测通过。

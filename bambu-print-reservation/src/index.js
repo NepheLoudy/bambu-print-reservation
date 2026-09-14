@@ -91,7 +91,7 @@ app.get('/api/reservations/:id', async (req, res) => {
   }
 });
 
-app.post('/api/reservations', async (req, res) => {
+app.post('/api/reservations', requireApiToken, async (req, res) => {
   try {
     const reservation = await reservationService.createReservation(req.body);
     res.json(reservation);
@@ -101,7 +101,7 @@ app.post('/api/reservations', async (req, res) => {
   }
 });
 
-app.put('/api/reservations/:id', async (req, res) => {
+app.put('/api/reservations/:id', requireApiToken, async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
@@ -133,7 +133,7 @@ app.put('/api/reservations/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/reservations/:id', async (req, res) => {
+app.delete('/api/reservations/:id', requireApiToken, async (req, res) => {
   try {
     const { id } = req.params;
     await reservationService.cancelReservation(id);
@@ -144,7 +144,7 @@ app.delete('/api/reservations/:id', async (req, res) => {
   }
 });
 
-app.post('/api/reservations/:id/review', async (req, res) => {
+app.post('/api/reservations/:id/review', requireApiToken, async (req, res) => {
   try {
     const { id } = req.params;
     const { reviewResult, reviewComment, reviewer } = req.body;
@@ -366,7 +366,7 @@ app.get('/api/dispatch/queue', (req, res) => {
   res.json({ queue: dispatcher.getQueueSnapshot(), printing: dispatcher.getPrintingSnapshot() });
 });
 
-app.post('/api/dispatch/manual', async (req, res) => {
+app.post('/api/dispatch/manual', requireApiToken, async (req, res) => {
   try {
     const { recordId, printerName } = req.body;
     if (!recordId || !printerName) {
@@ -380,7 +380,7 @@ app.post('/api/dispatch/manual', async (req, res) => {
   }
 });
 
-app.post('/api/dispatch/reconcile', async (req, res) => {
+app.post('/api/dispatch/reconcile', requireApiToken, async (req, res) => {
   try {
     await dispatcher.reconcile();
     res.json({ success: true });

@@ -274,7 +274,7 @@ npm run push "提交说明"      # 一键部署：git 提交推送 → 部署 �
 
 > 若本地无法访问 GitHub（443 被重置），`push.js` 会自动降级为 SFTP 直传代码，不影响部署。
 
-部署目标：小电脑 DESKTOP-FE1MIGI `mechax@192.168.31.57:22`（2026-09-14 起自旧 NAS `qianli@10.253.33.233:8500` 迁移），服务路径 `/opt/ticket-bot`，端口 `3003`，pm2 进程名 `ticket-bot`。
+部署目标：小电脑 DESKTOP-FE1MIGI `mechax@192.168.31.57:22`（2026-09-14 起自旧 NAS `qianli@10.253.33.233:8500` 迁移），服务路径 `/c/qianli/opt/ticket-bot`，端口 `3003`，pm2 进程名 `ticket-bot`。
 
 ---
 

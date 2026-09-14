@@ -20,6 +20,16 @@ const LOG_CAP = 600;
 
 const app = express();
 app.use(express.json());
+// DNS rebinding 防护（2026-09-15 审查批）：本服务只服务本机浏览器，
+// 校验 Host 头为回环——恶意网页把域名解析到 127.0.0.1 时 Host 会带原域名，直接拒绝，
+// 防「网页→本机运维台→SSH 代理」跨站打穿链
+app.use((req, res, next) => {
+  const host = String(req.headers.host || '');
+  if (!/^(127\.0\.0\.1|localhost)(:\d+)?$/i.test(host)) {
+    return res.status(403).json({ error: '仅限本机访问（Host 校验失败）' });
+  }
+  next();
+});
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ---------- NAS 连接配置：直读 approval-bot/.env（单一来源，不复制凭据） ----------
@@ -104,7 +114,9 @@ function runAction(id, cmd, cwdRel, args = []) {
   actionProcs.set(id, entry);
 
   const useShell = process.platform === 'win32';
-  const child = spawn(useShell ? `${cmd} ${args.map((a) => `"${a}"`).join(' ')}` : cmd, args.length && !useShell ? args : [], {
+  // win32 走 shell 拼接：参数内引号剥除，防 `"` 逃逸引号边界执行任意命令
+  const shellSafe = (a) => String(a).replace(/["`\r\n]/g, '');
+  const child = spawn(useShell ? `${cmd} ${args.map((a) => `"${shellSafe(a)}"`).join(' ')}` : cmd, args.length && !useShell ? args : [], {
     cwd, shell: useShell, env: { ...process.env },
   });
   actionStats.total += 1;
@@ -432,9 +444,9 @@ app.post('/api/action/:id', (req, res) => {
   } else if (cmd === 'push') {
     // push 快捷指令：npm run push "<提交说明>"（cwd 相对 proj.dir，默认项目根）
     entry = { cmd: 'npm', args: ['run', 'push', ...(req.body.message ? [String(req.body.message)] : [])], cwd: cwd || '' };
-  } else if (cmd) {
-    entry = { cmd, args, cwd };
   }
+  // 安全（2026-09-15 审查批）：不再接受客户端裸 {cmd,args} 直接 spawn——
+  // 前端只用 actionId 与 cmd:'push'，裸执行面配合 DNS rebinding/CSRF 即成网页→本机 RCE 链
   if (!entry) return res.status(400).json({ error: '未知动作' });
   const cwdRel = path.join(proj.dir, entry.cwd || '');
   res.json(runAction(proj.id, entry.cmd, cwdRel, entry.args || []));
@@ -492,9 +504,9 @@ app.post('/api/nas/api', async (req, res) => {
     cmd += ` -d ${shQuote(JSON.stringify(req.body?.body ?? {}))}`;
     // 管理端点鉴权（2026-09-13）：POST 自动附共享 X-API-Token（凭据直读 approval-bot/.env）
     const apiToken = (readNasConfig() || {}).apiToken || '';
-    if (apiToken) cmd += ` -H 'X-API-Token: ${apiToken}'`;
+    if (apiToken) cmd += ` -H ` + shQuote(`X-API-Token: ${apiToken}`);
   }
-  cmd += ` http://localhost:${port}${apiPath}`;
+  cmd += ` ` + shQuote(`http://localhost:${port}${apiPath}`);
   try {
     const out = await sshExec(cmd, 45000);
     try { res.json(JSON.parse(out)); } catch { res.json({ raw: out.slice(0, 2000) }); }

@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次部署）。本项目 push.js 为纯 SFTP 直传、无 git 步骤，**版本锚点取顶层 monorepo 中触碰本路径的归档提交**——两次归档之间的个别部署可能无版本记录。v1~v14 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v26**（2026-09-13，随顶层 v62 归档）。
+当前最新：**v28**（2026-09-15，随本提交落地；顶层归档哈希待顶层收尾提交回填）。
 
 ## 阶段五 · 审批事件字段对齐与分发健壮化（2026-09-05）
 
@@ -177,3 +177,11 @@
 
 - 新增 src/auth.js：打印机控制（print/pause/resume/stop）与 /api/approval/reconcile 需 X-API-Token（fail-closed）；/api/reservations 与 /api/chat/command 为用户可达链路不挂闸。
 - push.js 加部署前测试闸门：dispatcher/persist/manual-race/approval 四套全过才部署。
+
+### v28 · 2026-09-15 · 随本提交落地 · fix
+
+**全项目深度审查修复批：写端点鉴权补齐（铁律）**
+
+- 六个写端点漏挂 X-API-Token（与同仓 printers print/pause/resume/stop、/api/approval/reconcile 的既有鉴权自相矛盾，违反顶层 AGENTS「管理/写端点必须鉴权」铁律）：POST/PUT/DELETE /api/reservations*（含 review——可直接「通过」预约并入队）与 POST /api/dispatch/manual（可绕审批直接驱动真机）、/api/dispatch/reconcile。运维台代理 POST 自动附 token，不受影响；本机脚本直调需自带 X-API-Token 头。
+- .gitignore 增补 .dispatch-state.json（本地不配 DISPATCH_STATE_FILE 跑一次就会在项目根生成，顶层 git add -A 易误扫入库——wecom v68 前车之鉴）。
+- DEVLOG 头部指针修正 v26 → v28（v27 时漏更，该指针历史上已漏过一次）。
