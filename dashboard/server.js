@@ -548,6 +548,7 @@ app.get('/api/egress-ip', async (req, res) => {
 
 // 全网拓扑探测：所有节点并行 TCP 探测，单连接 2.5s 超时封顶
 app.get('/api/network', async (req, res) => {
+  const t0 = Date.now();
   const probes = [];
   for (const t of NET_TARGETS) {
     for (const p of t.ports) {

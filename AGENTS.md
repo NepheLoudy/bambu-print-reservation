@@ -48,7 +48,7 @@
 - **管辖/权限口径的权威在各自机器人后端**，消费方短缓存 + 断联兜底（范例：hub 消费 duty-bot `GET /api/duty/policy`）；
 - **名册类**优先自动读飞书通讯录（open_id 直取组织架构），手工名册/绑定只作兜底（范例：duty-bot `syncFromContacts`）；
 - 新增定制项：先加窗口，再同步 `dashboard/registry.js` 登记与本文档；
-- 现状（2026-09-12 全量 debug 批后）：**五仓业务机器人窗口齐全**（gateway 为纯路由层、无定制项，不设窗口）——duty-bot（`/api/duty/policy`、`/api/duty/roster`、`/api/duty/whitelist`）、hub（`/api/hub/policy` + 关键词回答表 CRUD `/api/autoreplies/rules*`，写 `.local.json` 即时生效，push 会用本地 xlsx 版覆盖）、approval-bot（`/api/approval/policy`，只读）、ticket-bot（`/api/tickets/policy`，只读）、bambu（`/api/print/policy`，只读）；
+- 现状（2026-09-12 全量 debug 批后）：**五仓业务机器人窗口齐全**（gateway 为纯路由层、无定制项，不设窗口）——duty-bot（`/api/duty/policy`、`/api/duty/roster`、`/api/duty/whitelist`）、hub（`/api/hub/policy` + 关键词回答表 CRUD `/api/autoreplies/rules*` + 抽奖配置 CRUD `/api/lottery/rules*`，写 `.local.json` 即时生效，push 会用本地 xlsx 版覆盖）、approval-bot（`/api/approval/policy`，只读）、ticket-bot（`/api/tickets/policy`，只读）、bambu（`/api/print/policy`，只读）；
 - **界面**：本地运维台「🧰 定制中心」（registry `windows` 清单 + `/api/nas/api` SSH 代理直达部署目标本机接口——端点名 `nas` 为历史命名，语义=部署目标，现=小电脑）——白名单增删、名册刷新、各域 policy 全景查看、关键词回答表可视化编辑（增删改/启停/切表）都在运维台点选完成。
 
 # 开发日志（DEVLOG）——每次 push 记一版
@@ -82,7 +82,7 @@
 | --- | --- | --- |
 | ticket-bot | 工单域：播报到组别群、@接单确认、搬运看板、结单提醒、未结单按负责人组别分桶 API | 工单、接单、结单、面向组别、指定/补充负责人 |
 | approval-bot | 财务审批域：审批群 `/approval-*`、催办周报（发票/报销单/转账）、每日待审批提醒 | 审批、发票、报销、转账、财务、采购 |
-| project-management-robot | 对话枢纽+项目管理：各群 @对话与指令分发、关键词、DDL 播报与逾期确认、会议提醒、项目表 | DDL、逾期、项目表、对话、关键词、会议、语录 |
+| project-management-robot | 对话枢纽+项目管理：各群 @对话与指令分发、关键词、抽奖（全群关键词触发，2026-09-14）、DDL 播报与逾期确认、会议提醒、项目表 | DDL、逾期、项目表、对话、关键词、抽奖、会议、语录 |
 | bambu-print-reservation | 打印预约域：`/print-*`、预约审批、打印机控制 | 打印、预约、打印机、Bambu |
 | duty-bot | 值日域：排班生成与轮转/缺勤补偿、值日私信提醒与收口、照片凭证写表、值日助手（私信说明/群看板）、值日数据接口 | 值日、排班表、轮岗、值日请假、总负责/工位区/装配区、值日照片凭证、值日看板、昨日值日播报 |
 | feishu-gateway | 事件接入层：唯一长连接、消息路由规则、表格事件广播、消费者登记 | 事件被抢、指令没到、@无响应（跨项目）、接入新机器人 |
