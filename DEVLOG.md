@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v66**（2026-09-14，随本提交落地）。
+当前最新：**v67**（2026-09-15，随本提交落地）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -518,3 +518,9 @@
 
 - hub v87 三连改（用户反馈）：①抽奖配置表改**一行=一个奖品**（触发词/奖品/概率，同一触发词多行=同一奖池，适配大量奖品）；②触发方式从「消息包含关键词（未@全群）」改为**@机器人 发 /触发词 的动态指令**（精确匹配不误伤闲聊；值日管辖群可用、审批群不开放、动态进 /help）；③群聊 /help 不再展示 /status /test-ddl /keywords /autoreply /history 五个运维/诊断指令（仍可直接使用）。stub 测试按指令口径重写全过；README/LOGIC-MAP/registry/用户指南 HTML+MD/顶层 AGENTS 同批。
 - 联动登记：registry hub commands/listening/permissions/notes（抽奖指令口径 + help 精简记录）；AGENTS 职能表归属信号改「抽奖（/指令）」。
+
+## v67 · 2026-09-15 · 随本提交落地 · refactor
+
+**抽奖收敛单指令大奖池联动（hub v88）：表格只填 奖品|概率 两列，/抽奖 一个指令对应无限奖品**
+
+- 用户澄清「一个抽奖指令对应无穷可填的奖品和概率」：hub v88 把抽奖配置表瘦身为奖品|概率两列（整表=/抽奖 的大奖池，一行=一个奖品、行数不限），指令名挪到 .env 的 LOTTERY_COMMAND（默认「抽奖」，可改名/配别名）；解析器兼容 v87 旧格式（旧表示例行仍为注释，0 有效奖品）。registry/AGENTS/用户指南/LOGIC-MAP 同批。

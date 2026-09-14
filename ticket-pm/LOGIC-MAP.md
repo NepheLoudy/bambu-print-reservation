@@ -157,7 +157,7 @@ p2p 消息：  ① DDL逾期确认(handleP2PReply) → handled? 终止
             ② chatService（私聊无需@；指令需私聊白名单；非指令命中任一回答表 → 只提示"仅面向群聊"）
 群聊消息：  ① chatService（必须@机器人；值日管辖群分支先行：看板词/值日指令/图片转 duty-bot
                            （带 messageId 幂等），未接管落回常规流；审批群(APPROVAL_CHAT_ID)指令整体
-                           切换为 /approval-*；@我时指令：静态指令表未命中再查 抽奖动态指令（/触发词，2026-09-14），仍未命中落 /print-* 与未知指令；非指令命中 → 先查 @触发回答表，未命中回落 关键词回答表）
+                           切换为 /approval-*；@我时指令：静态指令表未命中再查 抽奖动态指令（/抽奖，2026-09-14），仍未命中落 /print-* 与未知指令；非指令命中 → 先查 @触发回答表，未命中回落 关键词回答表）
             ② DDL逾期确认(handleReply，仅4个播报群；确认必须来源匹配：p2p发的只能私聊回、群发的只能同群回)
             ③ 关键词自动回复·关键词回答表（未@消息命中 autoReplies.json 即回；AUTO_REPLY_CHAT_IDS 收窄，留空=全群）
             ④ 关键词监听（KEYWORD_CHAT_ID 限定，未配置则全部群）
@@ -193,7 +193,7 @@ p2p 消息：  ① DDL逾期确认(handleP2PReply) → handled? 终止
 
 - 群聊需 @机器人（`isMentionedBot` 兼容 mentioned_type app/bot/self/名称）；私聊白名单同 ticket-bot 同套环境变量。
 - 本项目指令：`/help` `/status` `/test-ddl` `/keywords` `/autoreply` `/history`；`/print-*` → 转发 bambu `POST /api/chat/command`；**审批群**（`APPROVAL_CHAT_ID`）内 `/help` 与其余指令整体切换为 `/approval-*` → 转发 approval-bot，其它指令提示"本群仅财务指令"。
-- 值日管辖群值日分支先于一切能力（`handleDutyBranch` + `dutyPolicyService`）：**管辖范畴/生效范畴以 duty-bot `GET /api/duty/policy` 下发为准**（`DUTY_GROUP_CHAT_IDS`、看板触发词、基础指令关闭开关、引导语、p2p 指令清单；hub 60s 短缓存，duty-bot 失联时按本仓 `DUTY_CHAT_ID` 兜底；groupChatIds 空=不限制。关键词回答放行开关与值日域保留词校验已移除——2026-09-13 口径：值日助手仅 @ 与私聊触发、未@/@ 关键词回答全群统一，与值日部件无撞车面）。p2p 值日指令/图片按策略直转 duty-bot（带 messageId，duty-bot 侧消息级幂等生效；duty-bot 未接管如无会话口语变体→落回常规流程）；管辖群内 @消息：看板触发词（带不带 `/` 均可）出看板（载荷带 messageId）、@+纯图片静默吞掉、抽奖动态指令（/触发词）先于基础指令关闭的引导语（2026-09-14）、关键词命中照常回答（同款 `buildMentionReplyForText`），其余回策略引导语；**非管辖群** @ 值日指令（p2pCommands 精确词）回办理路径提示；未@消息照常走管道③（关键词回答全群统一，无值日群特殊放行开关）。已知边界（记录在案）：gateway `contains:'接单'` 全局抢占、`isMentionedBot` 把 @任何 app/bot 都算 @本机器人（共用应用妥协）、群看板限流命中静默。
+- 值日管辖群值日分支先于一切能力（`handleDutyBranch` + `dutyPolicyService`）：**管辖范畴/生效范畴以 duty-bot `GET /api/duty/policy` 下发为准**（`DUTY_GROUP_CHAT_IDS`、看板触发词、基础指令关闭开关、引导语、p2p 指令清单；hub 60s 短缓存，duty-bot 失联时按本仓 `DUTY_CHAT_ID` 兜底；groupChatIds 空=不限制。关键词回答放行开关与值日域保留词校验已移除——2026-09-13 口径：值日助手仅 @ 与私聊触发、未@/@ 关键词回答全群统一，与值日部件无撞车面）。p2p 值日指令/图片按策略直转 duty-bot（带 messageId，duty-bot 侧消息级幂等生效；duty-bot 未接管如无会话口语变体→落回常规流程）；管辖群内 @消息：看板触发词（带不带 `/` 均可）出看板（载荷带 messageId）、@+纯图片静默吞掉、抽奖动态指令（/抽奖）先于基础指令关闭的引导语（2026-09-14）、关键词命中照常回答（同款 `buildMentionReplyForText`），其余回策略引导语；**非管辖群** @ 值日指令（p2pCommands 精确词）回办理路径提示；未@消息照常走管道③（关键词回答全群统一，无值日群特殊放行开关）。已知边界（记录在案）：gateway `contains:'接单'` 全局抢占、`isMentionedBot` 把 @任何 app/bot 都算 @本机器人（共用应用妥协）、群看板限流命中静默。
 - 关键词自动回复分流（非指令）：群里 @我 → `buildMentionReplyForText`（先「@触发回答」表，命中即止；未命中回落「关键词回答」表）；私聊命中任一表 → 只回"仅面向群聊开放"提示，不返回答案。指令优先于自动回复。
 - `/test-ddl` 守卫：非播报群的群聊里拒绝执行（防止测试卡经 owner webhook 兜底跨群打到 owner 群）；私聊管理员保留 owner 群兜底。
 - 普通对话：审批群回财务引导文案，其余回 popcorn 引导文案；回复用 message reply，失败降级 chat_id 直发。
@@ -202,7 +202,7 @@ p2p 消息：  ① DDL逾期确认(handleP2PReply) → handled? 终止
 ### 2.5 关键词监听、自动回复与会议提醒（简）
 
 - 发言记录（`keywordService`，原关键词监听）：v23 起记录 `KEYWORD_CHAT_ID` 群的**全部消息**（父记录固定「全部发言」，`keywords.json`/`/keywords` 仅展示兼容），每条消息写一条子记录；群内 @机器人 的消息走对话链路不记录。
-- 抽奖（`lotteryService`，v86 全群关键词链路 → **v87 改动态指令集**）：`抽奖配置表.xlsx`「抽奖配置」工作表，**一行=一个奖品、同一触发词多行=同一奖池**（`scripts/syncLottery.js` → `lottery.json`）——群里 @机器人 发「`/触发词`」即按概率加权随机抽一条奖品原文回复（别名均可触发，精确匹配不误伤闲聊）。触发路径：chatService 指令分支静态指令表未命中 → 抽奖动态指令 → /print-* → 未知指令；值日管辖群分支同样放行（先于引导语）；审批群不开放；私聊按指令白名单口径。`LOTTERY_CHAT_IDS` 可收窄（留空=全群）。窗口 `/api/lottery/rules*`（写端点 X-API-Token）热改 `.local.json`；`/lottery` 看奖池；动态指令自动进 `/help`；命中上报统计 feature=抽奖。属对话回路，不受晚间静默限制。
+- 抽奖（`lotteryService`，v86 全群关键词链路 → v87 动态指令 → **v87b 单指令大奖池**）：`抽奖配置表.xlsx`「抽奖配置」工作表只有**奖品|概率两列、一行=一个奖品、行数不限**，整张表 = `/抽奖` 指令（指令名 `LOTTERY_COMMAND` 可改名/配别名）的一个大奖池（`scripts/syncLottery.js` → `lottery.json`）——群里 @机器人 发 `/抽奖` 即按概率加权随机抽一条奖品原文回复（精确匹配不误伤闲聊）。触发路径：chatService 指令分支静态指令表未命中 → 抽奖动态指令 → /print-* → 未知指令；值日管辖群分支同样放行（先于引导语）；审批群不开放；私聊按指令白名单口径。`LOTTERY_CHAT_IDS` 可收窄（留空=全群）。窗口 `/api/lottery/rules*`（写端点 X-API-Token）热改 `.local.json`；`/lottery` 看奖池；动态指令自动进 `/help`；命中上报统计 feature=抽奖。属对话回路，不受晚间静默限制。
 - 关键词自动回复（`autoReplyService`）：两张本地回答表，同为 `关键词回答表.xlsx` 的两个工作表、经 `scripts/syncAutoReplies.js` 转成 JSON（**工作表名精确匹配，缺失即跳过该表**，不回落第一个工作表）。
   - 「关键词回答」→ `autoReplies.json`：未@群消息路径（管道③）命中即回，`AUTO_REPLY_CHAT_IDS` 可收窄（留空/`*`=全群）；同时是 @我 时的回落表。
   - 「@触发回答」→ `autoRepliesMention.json`：只在群里 @机器人 时参与，优先级高于上表；两表都未命中才回欢迎语。跨表不合并（先命中的表胜出），表内多命中才合并。
