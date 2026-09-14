@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v65**（2026-09-14，随本提交落地）。
+当前最新：**v66**（2026-09-14，随本提交落地）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -511,3 +511,10 @@
 - **hub（ticket-pm/project-management-robot v86）**：新增抽奖能力——群消息包含触发词（默认示例「抽奖」）即按概率抽一条奖品文字原文回复，**无需 @机器人、全群生效**（@机器人时同样命中且优先级最高：抽奖 > @触发回答 > 关键词回答，互斥不双回；私聊不触发）。奖品/概率填项目根目录《抽奖配置表.xlsx》（触发词/奖品/概率三列，概率口径与「关键词回答」表一致：留空均分、不足 100 归一化、超 100 压缩、0=永不中），`scripts/syncLottery.js` 随 push 转 `lottery.json` 上线，运行时每消息重读即时生效。定制窗口 `/api/lottery/rules*`（读 + X-API-Token 写，热改 `.local.json`）；`/lottery` 指令查看奖池与概率；命中上报网关统计（feature=抽奖）；`LOTTERY_CHAT_IDS` 可收窄群范围。stub 测试新增抽奖场景全过；README/DEVLOG 同批。
 - **联动改动**：dashboard/registry.js hub 登记（抽奖窗口 4 条 + 指令/监听/权限说明）；顶层 AGENTS（职能表归属信号 + 附属窗口现状行补 `/api/lottery/rules*`）；用户侧《机器人总成使用指南.html》与维护者 MD 指南同步抽奖用法；hub DEVLOG 头部指针修复（此前滞留 v82，实际已 v85）并顺手回填 v83/v84/v85 哈希。
 - **遗留改动随批入库**（会话遗留改动回库规则盘点）：①hub `push.js` 部署目标迁移收尾路径改动（NAS→小电脑 Windows 路径，上一会话遗留）一并提交，私有上传清单泛化（autoReplies + lottery，同套现网备份+条数守卫）；②`.agents/skills/qianli-lab-network/SKILL.md` 校园网单会话生命线/互踢陷阱/出口 IP 漂移要点（v64 skill 的后续增补）；③**dashboard/server.js 修一个 HEAD 既有 bug**——`/api/network` 响应引用 `t0` 但从未定义（拓扑接口每次必抛 ReferenceError），工作区遗留的 `const t0 = Date.now();` 正是修复行，入库；④approval-bot v36（8dfccd9，纯 docs）：README「部署到 NAS」→「部署到部署目标」表述清扫收尾（v64 清扫漏网），submodule 指针随批更新。
+
+## v66 · 2026-09-14 · 随本提交落地 · refactor
+
+**抽奖改版联动（hub v87）：奖池一行=一个奖品 + 触发词升级为 /指令 + 群聊 /help 精简运维指令**
+
+- hub v87 三连改（用户反馈）：①抽奖配置表改**一行=一个奖品**（触发词/奖品/概率，同一触发词多行=同一奖池，适配大量奖品）；②触发方式从「消息包含关键词（未@全群）」改为**@机器人 发 /触发词 的动态指令**（精确匹配不误伤闲聊；值日管辖群可用、审批群不开放、动态进 /help）；③群聊 /help 不再展示 /status /test-ddl /keywords /autoreply /history 五个运维/诊断指令（仍可直接使用）。stub 测试按指令口径重写全过；README/LOGIC-MAP/registry/用户指南 HTML+MD/顶层 AGENTS 同批。
+- 联动登记：registry hub commands/listening/permissions/notes（抽奖指令口径 + help 精简记录）；AGENTS 职能表归属信号改「抽奖（/指令）」。
