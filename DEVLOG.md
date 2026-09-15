@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v80**（2026-09-16，随本提交落地）。
+当前最新：**v80**（2026-09-16，08bd733）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -634,7 +634,7 @@
 - bambu push.js 移除旧 NAS 时代的 sudo/chown qianli:qianli（新机不存在该用户，此前全靠 `;` 容错；顺带消除命令行带密码的泄露面）。
 - 联动 duty v27。
 
-## v80 · 2026-09-16 · 随本提交落地 · feat
+## v80 · 2026-09-16 · 08bd733 · feat
 
 **运维台 UI：拓扑卡片统一栅格 + 未识别设备踢出/封禁**
 
