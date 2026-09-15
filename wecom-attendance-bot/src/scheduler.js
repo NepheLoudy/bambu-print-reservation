@@ -16,18 +16,25 @@ const config = require('./config');
 const report = require('./report');
 const store = require('./store');
 const wecom = require('./wecom');
+const feishu = require('./feishu');
 const quietHours = require('./utils/quietHours');
 
 let cronTask = null;
 let watchdogTask = null;
 let running = false;
 
+function sendDowOrDefault() {
+  return config.cronParts.dow == null ? 1 : config.cronParts.dow;
+}
+
 async function runWeekly({ offset = 0, dryRun = false, trigger = 'cron' } = {}) {
+  // 通道门控（v2 飞书通道扩展）：企微群机器人 / 飞书群机器人至少配一个
+  const channels = feishu.pickChannels(config);
   const members = store.loadMembers();
   if (!members.length) {
     throw new Error('成员名单为空（config/members.json）：先用 POST /api/attendance/members 添加，或放好种子文件重启');
   }
-  const win = report.weekWindow(offset, Date.now(), config.cronParts.dow == null ? 1 : config.cronParts.dow);
+  const win = report.weekWindow(offset, Date.now(), sendDowOrDefault());
   const records = await wecom.getCheckinData(win.start / 1000, win.end / 1000, members.map((m) => m.userid));
   const aggregated = report.aggregate(records, members);
   const markdown = report.renderMarkdownV2(win, aggregated);
@@ -38,36 +45,98 @@ async function runWeekly({ offset = 0, dryRun = false, trigger = 'cron' } = {}) 
     return { window: win, markdown, csv, filename, sent: false, totals: aggregated.totals };
   }
 
-  // 先发 CSV 附件再发正文，群里附件紧跟在卡片上方，阅读顺序自然
-  await wecom.sendFile(Buffer.from(csv, 'utf8'), filename);
-  await wecom.sendMarkdownV2(markdown);
-
+  // 每通道独立水位（duty「重试只补失败群」模式）：重试只补未送达通道，不重复轰炸已收到的群
   const state = store.loadState();
+  const done = state.delivery && state.delivery.weekKey === win.key ? state.delivery : { weekKey: win.key };
+  const failed = [];
+
+  // ---- CSV 附件：尽力而为（独立水位，失败不阻断周报完成；完整 CSV 始终落盘 exports）----
+  if (channels.wecom && !done.wecomCsv) {
+    try {
+      await wecom.sendFile(Buffer.from(csv, 'utf8'), filename);
+      done.wecomCsv = true;
+    } catch (e) {
+      console.warn('[考勤] 企微 CSV 附件发送失败（不影响周报）:', e.message, e.hint || '');
+    }
+  }
+  if (channels.feishu && !done.feishuCsv) {
+    // 飞书 webhook 传不了文件：走现有应用 im API 发文件（需凭据 + 群 chat_id），没配只落盘
+    if (config.feishuAppId && config.feishuAppSecret && config.feishuCsvChatId) {
+      try {
+        await feishu.sendCsvViaApp(Buffer.from(csv, 'utf8'), filename, config.feishuCsvChatId);
+        done.feishuCsv = true;
+      } catch (e) {
+        console.warn('[考勤] 飞书 CSV（应用身份）发送失败（不影响周报）:', e.message, e.hint || '');
+      }
+    } else {
+      console.warn('[考勤] CSV 未发飞书群（未配 FEISHU_APP_ID/SECRET + FEISHU_CSV_CHAT_ID），仅落盘 exports 目录');
+    }
+  }
+
+  // ---- 周报卡：真实水位通道（企微 markdown_v2 / 飞书卡片）----
+  if (channels.wecom && !done.wecom) {
+    try {
+      await wecom.sendMarkdownV2(markdown);
+      done.wecom = true;
+    } catch (e) {
+      failed.push(`企微: ${e.message}${e.hint ? `（${e.hint}）` : ''}`);
+    }
+  }
+  if (channels.feishu && !done.feishu) {
+    try {
+      await feishu.sendCardToWebhook(config.feishuWebhookUrl, config.feishuWebhookSecret, feishu.buildAttendanceCard(win, aggregated));
+      done.feishu = true;
+    } catch (e) {
+      failed.push(`飞书: ${e.message}${e.hint ? `（${e.hint}）` : ''}`);
+    }
+  }
+
+  const pending = (channels.wecom && !done.wecom) || (channels.feishu && !done.feishu);
+  if (pending) {
+    state.delivery = done;
+    state.lastError = { weekKey: win.key, at: new Date().toISOString(), message: failed.join('；') };
+    store.saveState(state);
+    throw new Error(`部分通道发送失败: ${failed.join('；')}`);
+  }
+
   state.lastSentWeekKey = win.key;
   state.lastSentAt = new Date().toISOString();
   state.lastError = null;
+  state.delivery = done; // 保留本周期投递快照（下周期自动被新 weekKey 覆盖）
   store.saveState(state);
-  console.log(`[${trigger}] 周报已播报: ${win.label}（${aggregated.totals.punches} 条记录 / ${aggregated.totals.exceptions} 条异常）`);
+  console.log(`[${trigger}] 周报已播报: ${win.label}（${aggregated.totals.punches} 条记录 / ${aggregated.totals.exceptions} 条异常；通道 ${[channels.wecom && '企微', channels.feishu && '飞书'].filter(Boolean).join('+')}）`);
   return { window: win, markdown, csv, filename, sent: true, totals: aggregated.totals };
 }
 
-// 失败告警：拉数挂了 webhook 仍可用（它不走可信 IP），把原因喊到同一个负责人群。
+// 失败告警：向所有配置通道喊话（哪个通就发哪个，全挂则只落 lastError 供巡检）。
 // 静默窗口内自动链路不喊（不记 lastError，窗口后重试自然再告警）；
-// 人工当下主动触发（manual）不受静默限制。
+// 人工当下主动触发（manual）不受静默限制。同一周只喊一次，watchdog 会静默重试。
 async function alertFailure(err, win, { manual = false } = {}) {
   if (!manual && quietHours.inQuietHours()) {
     console.log('[考勤] 静默窗口内，失败告警顺延（窗口后自动重试再告警）');
     return;
   }
   const state = store.loadState();
-  if (state.lastError && state.lastError.weekKey === win.key) return; // 同一周只喊一次，watchdog 会静默重试
-  store.saveState({ ...state, lastError: { weekKey: win.key, at: new Date().toISOString(), message: String(err.message), errcode: err.errcode == null ? null : String(err.errcode) } });
+  if (state.lastError && state.lastError.weekKey === win.key && state.alertedWeekKey === win.key) return;
+  store.saveState({ ...state, alertedWeekKey: win.key });
   const hint = err.hint ? `\n> 处理提示：${err.hint}` : '';
-  const content = `## ⚠ 考勤周报发送失败\n> 窗口：${win.label}\n> 原因：${err.message}${hint}\n> 每小时自动重试，成功后补发本周报`;
-  try {
-    await wecom.sendMarkdownV2(content);
-  } catch (e) {
-    console.error('失败告警也发不出去（webhook 配置检查）:', e.message);
+  if (config.webhookKey) {
+    try {
+      await wecom.sendMarkdownV2(`## ⚠ 考勤周报发送失败\n> 窗口：${win.label}\n> 原因：${err.message}${hint}\n> 每小时自动重试，成功后补发本周报`);
+    } catch (e) {
+      console.error('企微告警也发不出去:', e.message, e.hint || '');
+    }
+  }
+  if (config.feishuWebhookUrl) {
+    try {
+      await feishu.sendCardToWebhook(config.feishuWebhookUrl, config.feishuWebhookSecret, {
+        config: { wide_screen_mode: true },
+        header: { template: 'red', title: { content: '⚠ 考勤周报发送失败', tag: 'plain_text' } },
+        elements: [{ tag: 'markdown', content: `**窗口：**${win.label}\n**原因：**${err.message}${err.hint ? `\n**处理提示：**${err.hint}` : ''}\n每小时自动重试，成功后补发本周报` }],
+      });
+    } catch (e) {
+      console.error('飞书告警也发不出去:', e.message, e.hint || '');
+    }
   }
 }
 

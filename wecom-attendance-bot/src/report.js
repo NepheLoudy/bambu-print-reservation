@@ -179,7 +179,7 @@ function renderMarkdownV2(window, report, opts = {}) {
     lines.push('### ⚠ 异常明细');
     const shown = report.exceptionLines.slice(0, maxDetail);
     for (const e of shown) {
-      lines.push(`> ${esc(e.name)} ${e.day} ${e.time} **${esc(e.type)}**${e.group ? `（${esc(e.group)}）` : ''}`);
+      lines.push(`> ${esc(e.name)} ${e.time} **${esc(e.type)}**${e.group ? `（${esc(e.group)}）` : ''}`);
     }
     if (report.exceptionLines.length > shown.length) {
       lines.push(`> …其余 ${report.exceptionLines.length - shown.length} 条见 CSV 附件`);

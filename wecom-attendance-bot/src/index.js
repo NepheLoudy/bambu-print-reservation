@@ -11,6 +11,7 @@ const config = require('./config');
 const { requireApiToken } = require('./auth');
 const store = require('./store');
 const wecom = require('./wecom');
+const feishu = require('./feishu');
 const report = require('./report');
 const scheduler = require('./scheduler');
 
@@ -45,6 +46,8 @@ app.get('/api/health', (req, res) => {
       corpId: !!config.corpId,
       secret: !!config.secret,
       webhook: !!config.webhookKey,
+      feishuWebhook: !!config.feishuWebhookUrl,
+      feishuCsv: !!(config.feishuAppId && config.feishuAppSecret && config.feishuCsvChatId),
       apiToken: !!config.apiToken,
       members: membersError ? null : members.length,
       membersError,
@@ -65,11 +68,18 @@ app.get('/api/attendance/policy', (req, res) => {
   res.json({
     domain: '企业微信考勤周报',
     broadcast: { cron: config.cron, timezone: config.timezone, windowLabel: win.label, windowKey: win.key },
+    channels: feishu.pickChannels(config),
     wecom: {
       corpId: config.corpId || '（未配置）',
       secretConfigured: !!config.secret,
       webhookConfigured: !!config.webhookKey,
       apiDocs: '拉数需自建应用+打卡授权+可信IP；播报走群机器人 webhook（不受可信 IP 限制）',
+    },
+    feishu: {
+      webhookConfigured: !!config.feishuWebhookUrl,
+      signConfigured: !!config.feishuWebhookSecret,
+      csvViaAppConfigured: !!(config.feishuAppId && config.feishuAppSecret && config.feishuCsvChatId),
+      apiDocs: '播报走飞书群自定义机器人 webhook（与 duty-bot 看板卡同款链路）；机器人开了签名校验需配 FEISHU_WEBHOOK_SECRET；CSV 经现有应用 im API 发文件需 FEISHU_APP_ID/SECRET + FEISHU_CSV_CHAT_ID',
     },
     members: { file: config.membersFile, count: members.length, list: members },
     state: store.loadState(),

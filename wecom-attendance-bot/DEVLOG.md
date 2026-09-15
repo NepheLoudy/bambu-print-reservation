@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次 git 提交 + 一次部署）。本项目无独立远端（repo:top 模式），push.js 只暂存 `wecom-attendance-bot/` 路径提交进顶层 monorepo——版本即顶层仓库中触碰本路径的提交。此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v1**（2026-09-15，随本提交落地）。
+当前最新：**v3**（2026-09-15，随本提交落地）。
 
 ### v1 · 2026-09-15 · 随本提交落地 · feat
 **项目诞生：企业微信考勤周报机器人——每周打卡数据聚合播报（markdown_v2 周报卡 + CSV 明细附件）**
@@ -25,3 +25,10 @@
 - /api/health 对名册/状态文件损坏免疫（membersError/stateError 字段），巡检端点不再被配置错误打挂。
 - 新增 stub-test-quiethours（15 断言）+ report 熔断/列对齐断言，五套桩测试全过。
 - 待办（需用户）：企微管理后台建应用后回填 WECOM_CORP_ID/SECRET/WEBHOOK_KEY（目标机与本地 .env 均空），并经 POST /api/attendance/members 回填负责人名单——当前 members=0，周一 09:30 首播前必须完成，否则按设计走失败告警（webhook 未配也发不出）。
+
+### v3 · 2026-09-15 · 随本提交落地 · feat
+**播报通道扩展：并入现有飞书体系（飞书群机器人 webhook 主通道 + 现有应用发 CSV）**
+- 用户提供飞书负责人群自定义机器人 webhook（ee726bc4-…），应用改为「数据源在企微、播报在飞书（企微通道可选双发）」：新增 `src/feishu.js`——群 webhook 卡片（签名算法/错误码提示对齐 duty-bot webhook.js，经典 1.0 卡片，lark_md 不渲染表格改逐人一行）+ `pickChannels` 通道门控（至少配一个）+ CSV 经现有应用 im API 发文件（FEISHU_APP_ID/SECRET + FEISHU_CSV_CHAT_ID，未配仅落盘 exports，warn 不阻断）；
+- 调度器改**每通道独立投递水位**（`state.delivery`，duty「重试只补失败群」模式）：重试只补未送达通道；CSV 附件独立水位尽力而为；失败告警向所有配置通道发（保留 v2 静默闸门与 manual 豁免；告警去重改 `alertedWeekKey`——v2 的 lastError 去重在 lastError 已前移到 runWeekly 记录后失效）；health/policy 增加通道布尔；
+- 连通性已真发验证（测试卡 code:0 成功入群，该机器人无签名/关键词限制，FEISHU_WEBHOOK_SECRET 留空）；企微侧 WECOM_* 三键仍待用户建应用回填；
+- 新增 stub-test-feishu（18 断言，签名/门控/卡片/截断/错误码），六套桩全过；修异常明细行日期重复（`day`+`time` 拼出「2026-09-08 09-08 09:41」，两渲染统一只用含日期的 `time`）与飞书空周报判定（按 totals.punches 而非 users.length）。
