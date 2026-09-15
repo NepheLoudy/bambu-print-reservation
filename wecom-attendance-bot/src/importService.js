@@ -30,11 +30,17 @@ function matchColumns(headers) {
   const lower = headers.map((h) => String(h || '').trim().toLowerCase());
   const map = {};
   const matched = [];
+  const timeCols = [];
+  lower.forEach((h, idx) => { if (h && COLUMN_HINTS.time.some((t) => h.includes(t.toLowerCase()))) timeCols.push(idx); });
   for (const [field, hints] of Object.entries(COLUMN_HINTS)) {
     for (const hint of hints) {
       const idx = lower.findIndex((h) => h && h.includes(hint.toLowerCase()));
       if (idx >= 0) { map[field] = idx; matched.push(`${field}←"${headers[idx]}"`); break; }
     }
+  }
+  if (timeCols.length > 1) {
+    // 2026-09-16：误传「打卡日报/统计」模板（上下班时间分列）会静默丢下班记录，必须挡下
+    throw new Error(`检测到 ${timeCols.length} 个时间列（${timeCols.map((i) => headers[i]).join('、')}）——像是「打卡日报/统计」模板。请导出「打卡记录明细」模板（每行一次打卡）后重试`);
   }
   return { map, matched };
 }
@@ -86,7 +92,9 @@ function parseWorkbook(buf) {
     if (!row || !row.some((c) => String(c).trim() !== '')) continue;
     const ms = toShanghaiMs(row[map.time]);
     const name = map.name != null ? String(row[map.name] || '').trim() : '';
-    if (!ms || (!name && map.userid == null)) { skipped += 1; continue; }
+    const useridCell = map.userid != null ? String(row[map.userid] || '').trim() : '';
+    if (!ms || (!name && !useridCell)) { skipped += 1; continue; } // 有时间但姓名账号全空：合并单元格续行，跳过防幽灵用户
+    if (!name && useridCell) { name = useridCell; }
     const userid = (map.userid != null && String(row[map.userid] || '').trim()) || name;
     const str = (f) => (map[f] != null ? String(row[map[f]] || '').trim() : '');
     records.push({
