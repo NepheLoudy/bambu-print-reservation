@@ -727,6 +727,7 @@ async function toggleRules(table, enabled) {
 
 // —— 网络拓扑看板 ——
 let NET = null;
+let LAN = null;
 async function refreshNetwork() {
   try {
     NET = await (await fetch('/api/network')).json();

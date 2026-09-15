@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v75**（2026-09-16，05d9226）。
+当前最新：**v76**（2026-09-16，随本提交落地）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -601,3 +601,11 @@
 - LAN 设备发现（GET /api/network/lan，60s 缓存）：ping 扫本机所在 /24 填充 ARP → 解析 arp -a → 已知设备（主路由/小电脑/旧NAS）合并标注，其余显示 IP+MAC 前缀+厂商猜测；本机不在家庭网段返回 offsite（前端挂起提示）。实测发现 11 台在线设备。
 - NET_TARGETS 补 3007（wecom）端口探测。
 - 附：approval-bot / pm-robot 有并行会话进行中的工作（未提交改动与默认信息提交），本批仅锚定其 gitlink 现状，未触碰其内容。
+
+## v76 · 2026-09-16 · 随本提交落地 · fix
+
+**全量 debug 回归批二：新代码复查修复（wecom v6 / duty v26 / gateway v27 / dashboard）**
+
+- 两路并行代理复查今晚新代码，确认缺陷当晚全修：gateway deliverTo 重构（R11 重试失败误入传输 catch 致三连投递+failed 计数污染，改为统一按尝试计数）；wecom 导入防呆（≥2 时间列判定日报/统计模板直接报错、空姓名+空账号行跳过防幽灵用户）；duty 临门提醒会话补建（防打卡无人认领误记未做完）+ missNotices 幂等守卫（双跑私信不重发）+ 管理摘要标注未绑定未通知 + test-lastcall 端点；dashboard LAN 声明补齐（首屏 ReferenceError）、lanScan 错误缓存 TTL（防 30s 轮询重扫）、看门狗发送风暴守卫、Host 校验补 [::1]、shellSafe 剥 %。
+- 遗留观察项（低危，详见桌面《设计意图待定项》）：xlsx 0.18.5 已知 CVE（输入面受控）、LAN 网段前缀硬编码、恢复通告静默丢弃、smoke-test 未附 token 失效等。
+- 另发现并记录：昨晚消费方先上 token 而网关未注入的窗口期（约 23:40–00:45）转发事件会被 403 拒收——已自愈（网关 v26 注入验证 ✓），后续部署顺序应先网关后消费方。

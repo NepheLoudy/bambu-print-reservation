@@ -25,7 +25,7 @@ app.use(express.json());
 // 防「网页→本机运维台→SSH 代理」跨站打穿链
 app.use((req, res, next) => {
   const host = String(req.headers.host || '');
-  if (!/^(127\.0\.0\.1|localhost)(:\d+)?$/i.test(host)) {
+  if (!/^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(host)) {
     return res.status(403).json({ error: '仅限本机访问（Host 校验失败）' });
   }
   next();
@@ -115,7 +115,7 @@ function runAction(id, cmd, cwdRel, args = []) {
 
   const useShell = process.platform === 'win32';
   // win32 走 shell 拼接：参数内引号剥除，防 `"` 逃逸引号边界执行任意命令
-  const shellSafe = (a) => String(a).replace(/["`\r\n]/g, '');
+  const shellSafe = (a) => String(a).replace(/["`%\r\n]/g, ''); // % 剥除：cmd.exe 引号内 %VAR% 仍展开
   const child = spawn(useShell ? `${cmd} ${args.map((a) => `"${shellSafe(a)}"`).join(' ')}` : cmd, args.length && !useShell ? args : [], {
     cwd, shell: useShell, env: { ...process.env },
   });
@@ -631,7 +631,7 @@ app.get('/api/network/lan', async (req, res) => {
   if (!LAN_SCAN.running) {
     LAN_SCAN.running = lanScan()
       .then((r) => { LAN_SCAN.cache = r; LAN_SCAN.at = Date.now(); })
-      .catch((e) => { LAN_SCAN.cache = { offsite: false, error: e.message, devices: [], scannedAt: new Date().toISOString() }; })
+      .catch((e) => { LAN_SCAN.cache = { offsite: false, error: e.message, devices: [], scannedAt: new Date().toISOString() }; LAN_SCAN.at = Date.now(); })
       .finally(() => { LAN_SCAN.running = null; });
   }
   await LAN_SCAN.running;
@@ -773,6 +773,8 @@ function watchdogEvaluate(key, name, ok, detail) {
     return;
   }
   if (due || prev.pending) {
+    // 无论发送成败都记尝试时间：失败若不更新，due 恒真会每小时重复轰炸
+    WATCHDOG.state.set(key, { ...prev, lastAlertAt: Date.now(), pending: false });
     watchdogSend(`⚠️ qianli 服务异常：${name} health 连续巡检失败（${detail}；自 ${new Date(prev.since).toLocaleString('zh-CN')} 起）。排查/重启走本地运维台或 pm2`).then((sent) => {
       if (sent) WATCHDOG.state.set(key, { ...prev, lastAlertAt: Date.now(), pending: false });
     });
