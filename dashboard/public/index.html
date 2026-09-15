@@ -120,10 +120,18 @@
   .net-trunk { width:2px; height:14px; background:var(--line); margin:0 auto; position:relative; }
   .net-trunk.tall { height:30px; }
   .net-egress { position:absolute; top:50%; left:10px; transform:translateY(-50%); color:var(--dim); font-size:11px; white-space:nowrap; }
-  .net-branchrow { display:flex; align-items:stretch; flex-wrap:wrap; }
-  .net-branch { flex:1; min-width:136px; padding-top:16px; position:relative; display:flex; }
+  .net-branchrow { display:grid; grid-template-columns:repeat(auto-fill, minmax(176px, 1fr)); gap:10px; padding-top:16px; position:relative; }
+  .net-branch { position:relative; padding-top:16px; display:flex; }
   .net-branch::before { content:''; position:absolute; top:0; left:50%; transform:translateX(-50%); width:2px; height:16px; background:var(--line); }
-  .net-branch .net-node { flex:1; }
+  .net-branch .net-node { flex:1; min-width:0; min-height:124px; overflow:hidden; }
+  .net-node .nports { max-height:52px; overflow:hidden; }
+  .net-node .nacts { display:flex; gap:4px; margin-top:6px; flex-wrap:wrap; }
+  .net-act { font-size:11px; padding:2px 8px; border-radius:4px; border:1px solid var(--line); background:transparent; color:var(--dim); cursor:pointer; }
+  .net-act:hover { border-color:var(--ok); color:var(--ok); }
+  .net-act.danger { color:var(--err); border-color:var(--err); }
+  .net-act.danger:hover { background:var(--err); color:#fff; }
+  .net-banned { color:var(--err); font-weight:700; font-size:11px; }
+  .net-node.banned { border-color:var(--err); }
   .net-devnote { color:var(--dim); font-size:11px; text-align:center; }
 </style>
 </head>
@@ -743,30 +751,43 @@ function netNodeHtml(n, extra) {
 function renderNetwork() {
   if (!NET) return;
   const byId = {}; NET.nodes.forEach((n) => { byId[n.id] = n; });
+  const clean = (x) => String(x || '').replace(/['"\\<>]/g, '');
   const discovered = (LAN && !LAN.offsite ? (LAN.devices || []) : []).filter((d) => !d.known && !d.me);
   const targetHosts = new Set(NET.nodes.map((n) => n.host));
-  const devCards = discovered
-    .filter((d) => !targetHosts.has(d.ip))
-    .map((d) => `<div class="net-branch">${netNodeHtml({
-      name: d.name, host: d.ip + (d.mac ? ' · ' + d.mac.slice(0, 8) : ''),
-      up: true, ports: [],
-    }, `<div class="nhost">${d.me ? '本机' : (d.vendor || '在线设备')}</div>`)}</div>`)
-    .join('');
   const branch = (inner) => `<div class="net-branch">${inner}</div>`;
+  const chipCap = (n) => {
+    const ports = n.ports || [];
+    const shown = ports.slice(0, 4).map((p) => `<span class="net-port ${p.ok ? 'ok' : 'bad'}">${p.port}${p.ok ? ' ✓' + p.latencyMs + 'ms' : ' ✗'}</span>`).join('');
+    const rest = ports.length - 4;
+    return shown + (rest > 0 ? `<span class="net-port">+${rest}</span>` : '');
+  };
+  const card = (n, sub) => `<div class="net-node"><div class="nname">${n.up === false ? '<span class="dot bad"></span>' : '<span class="dot ok"></span>'}${n.name}</div><div class="nhost">${n.host}</div><div class="nports">${chipCap(n)}</div>${sub || ''}</div>`;
   const rail = (n) => `<div class="net-rail" style="--n:${n}"></div>`;
   const cloudCard = (id) => (byId[id] ? `<div class="net-drop">${netNodeHtml(byId[id])}</div>` : '');
   const clouds = ['feishu', 'internet'].filter((id) => byId[id]);
-  const router = byId.router ? netNodeHtml(byId.router, '<div class="nhost">家庭网络核心 · 校园网学生账号会话（全家唯一出口）</div>') : '';
   const lanNodes = [
-    branch(netNodeHtml({ name: '笔记本 · 曼波大模型', host: '本机 127.0.0.1', up: true, ports: [{ port: 3100, ok: true, latencyMs: 0 }] }, '<div class="nhost">运维台 · 你在这里</div>')),
-    byId.pc ? branch(netNodeHtml(byId.pc, '<div class="nhost">生产 · 全部机器人</div>')) : '',
-    byId.oldnas ? branch(netNodeHtml(byId.oldnas, '<div class="nhost">备件存储 · 机器人已清</div>')) : '',
+    branch(card({ name: '笔记本 · 曼波大模型', host: '本机 127.0.0.1', up: true, ports: [{ port: 3100, ok: true, latencyMs: 0 }] }, '<div class="nhost">运维台 · 你在这里</div>')),
+    byId.pc ? branch(card(byId.pc, '<div class="nhost">生产 · 全部机器人</div>')) : '',
+    byId.oldnas ? branch(card(byId.oldnas, '<div class="nhost">备件存储 · 机器人已清</div>')) : '',
   ].join('');
+  const devCards = discovered
+    .filter((d) => !targetHosts.has(d.ip))
+    .map((d) => {
+      const acts = d.banned
+        ? `<div class="nacts"><span class="net-banned">⛔ 已封禁</span><button class="net-act" onclick="devAction('unban','${clean(d.ip)}','${clean(d.mac)}')">解封</button></div>`
+        : `<div class="nacts"><button class="net-act" onclick="devAction('kick','${clean(d.ip)}','${clean(d.mac)}','${clean(d.name)}')">踢出</button><button class="net-act danger" onclick="devAction('ban','${clean(d.ip)}','${clean(d.mac)}','${clean(d.name)}')">封禁</button></div>`;
+      return branch(card({
+        name: (d.banned ? '⛔ ' : '') + d.name,
+        host: d.ip + (d.mac ? ' · ' + d.mac.slice(0, 8) : ''),
+        up: !d.offline,
+        ports: [],
+      }, `<div class="nhost">${d.offline ? '离线（已封禁）' : '在线设备'}</div>${acts}`));
+    }).join('');
   document.getElementById('netBoard').innerHTML =
     `<div class="net-tier">${clouds.map(cloudCard).join('')}</div>` +
     rail(Math.max(clouds.length, 1)) +
     `<div class="net-trunk tall"><span class="net-egress">出口 ${NET.egressIp || '未知'}</span></div>` +
-    router +
+    (byId.router ? branch(netNodeHtml(byId.router, '<div class="nhost">家庭网络核心 · 全家唯一出口</div>')) : '') +
     `<div class="net-trunk"></div>` +
     rail(3 + devCards.length) +
     `<div class="net-branchrow">${lanNodes}${devCards}</div>`;
@@ -776,6 +797,15 @@ function renderNetwork() {
         : ` · 路由器在线设备 ${LAN.devices.length} 台（扫描于 ${(LAN.scannedAt || '').slice(11, 19)}）`)
     : '';
   document.getElementById('netMeta').textContent = `出口 IP ${NET.egressIp || '未知'} · 探测耗时 ${NET.probeMs || '?'}ms${lanMeta}`;
+}
+
+async function devAction(action, ip, mac, name) {
+  const labels = { kick: '踢出（断网）', ban: '封禁（持久断网）', unban: '解封' };
+  if (!confirm(`确认对 ${name || ip}（${mac}）执行「${labels[action]}」？`)) return;
+  const res = await fetch(`/api/network/lan/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ip, mac, name }) });
+  const data = await res.json().catch(() => ({}));
+  toast(data.ok ? labels[action] + ' ✓' : (data.error || '失败'));
+  refreshLan();
 }
 
 async function refreshLan() {

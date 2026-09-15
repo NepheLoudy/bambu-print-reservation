@@ -519,6 +519,7 @@ app.post('/api/nas/api', async (req, res) => {
 
 const net = require('net');
 const os = require('os');
+const xiaomi = require('./router-xiaomi');
 
 // 拓扑节点定义：kind = cloud(云端依赖) / net(网关) / host(本地设备)
 const NET_TARGETS = [
@@ -626,6 +627,55 @@ async function lanScan() {
   const devices = [...seen.values()].sort((a, b) => Number(a.ip.split('.')[3]) - Number(b.ip.split('.')[3]));
   return { offsite: false, subnet: base + '.0/24', devices, scannedAt: new Date().toISOString() };
 }
+// —— 设备封禁名单（.banned-devices.json，不进 git）：踢出=断网不记名单；封禁=断网+记名单持续展示 ——
+const BAN_FILE = path.join(__dirname, '.banned-devices.json');
+function loadBans() {
+  try { return JSON.parse(fs.readFileSync(BAN_FILE, 'utf8')); } catch { return {}; }
+}
+function saveBans(b) { fs.writeFileSync(BAN_FILE, JSON.stringify(b, null, 2) + '\n'); }
+function routerCreds() {
+  const cfg = readNasConfig();
+  const rp = cfg.routerPassword || (process.env.ROUTER_PASSWORD || '');
+  if (!rp) throw Object.assign(new Error('未配置路由器管理密码：在 approval-bot/.env 加 ROUTER_PASSWORD=<管理密码> 后重启运维台'), { code: 'NO_CONFIG' });
+  return { host: process.env.ROUTER_HOST || '192.168.31.1', password: rp };
+}
+async function withRouter(fn) {
+  const creds = routerCreds();
+  const session = await xiaomi.login(creds);
+  return fn({ host: creds.host, stok: session.stok, cookie: session.cookie });
+}
+async function lanDeviceAction(req, res, { ban }) {
+  const { ip, mac, name } = req.body || {};
+  const macClean = String(mac || '').toLowerCase().trim();
+  if (!macClean) return res.status(400).json({ error: '缺少 mac' });
+  try {
+    await withRouter((ctx) => xiaomi.setMacFilter(ctx, macClean, true));
+    if (ban) {
+      const bans = loadBans();
+      bans[macClean] = { ip: ip || '?', name: name || '', at: new Date().toISOString() };
+      saveBans(bans);
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(err.code === 'NO_CONFIG' ? 400 : 502).json({ error: err.message, code: err.code || null });
+  }
+}
+app.post('/api/network/lan/kick', (req, res) => lanDeviceAction(req, res, { ban: false }));
+app.post('/api/network/lan/ban', (req, res) => lanDeviceAction(req, res, { ban: true }));
+app.post('/api/network/lan/unban', (req, res) => {
+  const { mac } = req.body || {};
+  const macClean = String(mac || '').toLowerCase().trim();
+  if (!macClean) return res.status(400).json({ error: '缺少 mac' });
+  const bans = loadBans();
+  if (!bans[macClean]) return res.json({ ok: true, note: '不在封禁名单' });
+  delete bans[macClean];
+  saveBans(bans);
+  withRouter((ctx) => xiaomi.setMacFilter(ctx, macClean, false)).catch((e) => console.error('[设备] 路由器解封失败:', e.message));
+  res.json({ ok: true });
+});
+app.get('/api/router/status', (req, res) => {
+  res.json({ configured: Boolean((readNasConfig() || {}).routerPassword || process.env.ROUTER_PASSWORD), bans: Object.keys(loadBans()).length });
+});
 app.get('/api/network/lan', async (req, res) => {
   if (LAN_SCAN.cache && Date.now() - LAN_SCAN.at < 60000) return res.json(LAN_SCAN.cache);
   if (!LAN_SCAN.running) {
@@ -635,9 +685,16 @@ app.get('/api/network/lan', async (req, res) => {
       .finally(() => { LAN_SCAN.running = null; });
   }
   await LAN_SCAN.running;
-  res.json(LAN_SCAN.cache);
+  const bans = loadBans();
+  const merged = { ...(LAN_SCAN.cache || {}) };
+  merged.devices = (merged.devices || []).map((d) => ({ ...d, banned: Boolean(bans[d.mac]) }));
+  for (const [mac, meta] of Object.entries(bans)) {
+    if (!merged.devices.some((d) => d.mac === mac)) {
+      merged.devices.push({ ip: meta.ip || '?', mac, name: meta.name || '已封禁设备', vendor: '', known: false, me: false, offline: true, banned: true });
+    }
+  }
+  res.json(merged);
 });
-
 app.get('/api/network', async (req, res) => {
   const t0 = Date.now();
   const probes = [];

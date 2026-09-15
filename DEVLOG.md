@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v79**（2026-09-16，dcf3759）。
+当前最新：**v80**（2026-09-16，随本提交落地）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -633,3 +633,11 @@
 - 文案：duty push.js 头注释与 init-duty-table 输出、gateway auth 注释、dashboard 拓扑注释 → 部署目标口径。
 - bambu push.js 移除旧 NAS 时代的 sudo/chown qianli:qianli（新机不存在该用户，此前全靠 `;` 容错；顺带消除命令行带密码的泄露面）。
 - 联动 duty v27。
+
+## v80 · 2026-09-16 · 随本提交落地 · feat
+
+**运维台 UI：拓扑卡片统一栅格 + 未识别设备踢出/封禁**
+
+- 拓扑卡片改统一栅格（auto-fill 176px 等宽、等高裁剪、端口芯片超出折叠 +N），消除大小不一；样式与暗色主题统一。
+- 未识别设备新增「踢出/封禁/解封」：走小米路由器管理 API（router-xiaomi.js，社区公开登录算法：key→nonce→sha1 链→stok；设备列表 devicelist；禁用上网按固件候选端点尝试并带回原始响应）。封禁名单持久化 .banned-devices.json（离线也展示、解封恢复），凭据=approval-bot/.env 的 ROUTER_PASSWORD（未配置时按钮返回明确引导，不发路由器）。GET /api/router/status。
+- 已实测：登录算法需真实密码验证（待用户提供 ROUTER_PASSWORD 后联调端点命中情况）。
