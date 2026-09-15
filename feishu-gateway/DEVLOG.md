@@ -173,3 +173,12 @@
 - dispatch 投递统计修正：下游 HTTP 层失败（4xx/5xx）此前与传输异常分流——不抛错就不进 failed 计数，deliverTo 无条件 ok+1，监控把下游半死状态显示成全绿。改为 ok===false 时如实计 failed（含 byConsumer）并打 warn；HTTP 层失败**不自动重试**（指令类转发下游可能已执行，重试有双执行风险，与传输异常的 R3 重试区分开），注释同步口径。
 - README：退避参数 5s→2s（v24 已改代码、文档漏跟）；「120s 看门狗」表述修正为实际实现（30s 轮询自愈，connecting 恒挂起场景重启兜底）；补 POST /api/usage/report 端点文档（v22 落地的全五仓上报契约，README 一直没写）。
 - .env.example NAS_PORT 8500 → 22（旧 NAS 端口残留，照模板配置会连不上新部署目标）。
+
+### v26 · 2026-09-15 · 随本提交落地 · fix
+
+**R10/R11 鉴权收尾与投递语义升级（全项目审查推荐落地批）**
+
+- R11 事件模式 HTTP 失败重试：下游 4xx/5xx 此前只计数不重试（v25 修正了统计失真）；事件消费方都有 messageId 幂等，现与传输异常同款重试一次；command 模式保持不重试（指令无幂等键，下游可能已执行，双执行风险大于丢指令——失败有「服务暂不可用」兜底回复可感知）。
+- R10② query token 废除：auth.js 不再接受 ?token= 查询串（token 进访问日志/代理日志）；X-API-Token 头为唯一通道。工作区无 query token 消费方（运维台代理走头）。
+- R10⑤ health 收窄：消费者清单/路由表/投递统计只对本机回环调用方暴露；LAN 调用方只拿 {status, ws, uptime} 存活摘要（服务绑 0.0.0.0 供 LAN 冒烟测试是既有设计，本机运维台走 SSH 回环 curl 不受影响）。
+- .env：FEISHU_VERIFICATION_TOKEN 补配共享密钥——网关转发帧注入 token 字段（withToken），各消费方据同一密钥校验；此前网关与四仓密钥全空，消费方校验整体 fail-open。

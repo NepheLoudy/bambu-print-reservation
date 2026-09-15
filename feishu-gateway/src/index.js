@@ -22,7 +22,7 @@ const WS_RETRY_MAX_MS = 5 * 60 * 1000;  // 封顶 5 分钟
 const WS_START_WATCHDOG_MS = 120 * 1000; // start() 无响应看门狗
 
 app.get('/api/health', (req, res) => {
-  res.json({
+  const full = {
     status: 'ok',
     ws: wsLastError ? `error: ${wsLastError}` : wsStarted ? 'running' : wsConnecting ? 'connecting' : 'stopped',
     uptime: process.uptime(),
@@ -30,7 +30,12 @@ app.get('/api/health', (req, res) => {
     consumers: config.consumers,
     routes: config.messageRoutes,
     delivery: deliveryStatsSnapshot(),
-  });
+  };
+  // R10⑤（2026-09-15）：消费者清单/路由表/投递统计只对本机回环调用方暴露
+  //（LAN 内工具只需 ws 状态做存活判断；服务绑定 0.0.0.0 供 LAN 冒烟测试是既有设计）
+  const remote = String((req.socket && req.socket.remoteAddress) || '');
+  const loopback = /^(::1|127\.0\.0\.1|::ffff:127\.0\.0\.1)$/.test(remote);
+  res.json(loopback ? full : { status: full.status, ws: full.ws, uptime: full.uptime });
 });
 
 // 使用统计（运维台活跃看板数据源）：?days=N 聚合最近 N 天（默认 1，最大 30）

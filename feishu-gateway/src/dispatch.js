@@ -143,11 +143,26 @@ async function deliverTo(consumer, mode, frame, text) {
   try {
     result = await deliverOnce(consumer, mode, frame, text);
     if (result && result.ok === false) {
-      // 下游 HTTP 层失败：计 failed 并告警日志，不重试（见上），也不给 ok 充数
+      // R11（2026-09-15）：事件模式下游 HTTP 失败与传输异常同款重试一次——事件消费方
+      // 都有 messageId 幂等，重试不会重复生效；command 模式保持不重试（指令无幂等键，
+      // 下游可能已执行，重试有双执行风险），只如实计数
       deliveryStats.failed += 1;
       deliveryStats.byConsumer[consumer.name] = (deliveryStats.byConsumer[consumer.name] || 0) + 1;
-      console.warn(`[路由] 投递 ${consumer.name} HTTP 层失败（status ${result.status}），不计重试`);
-      return result;
+      if (mode === 'command') {
+        console.warn(`[路由] 投递 ${consumer.name} HTTP 层失败（status ${result.status}），指令模式不重试`);
+        return result;
+      }
+      console.warn(`[路由] 投递 ${consumer.name} HTTP 层失败（status ${result.status}），3s 后重试一次`);
+      await new Promise((r) => setTimeout(r, 3000));
+      const second = await deliverOnce(consumer, mode, frame, text);
+      if (second && second.ok !== false) {
+        deliveryStats.retried += 1;
+        console.log(`[转发] → ${consumer.name} 重试成功`);
+        return second;
+      }
+      deliveryStats.failed += 1;
+      deliveryStats.byConsumer[consumer.name] = (deliveryStats.byConsumer[consumer.name] || 0) + 1;
+      throw new Error(`重试后仍失败（status ${(second && second.status) || 'n/a'}）`);
     }
     deliveryStats.ok += 1;
     return result;
