@@ -518,13 +518,14 @@ app.post('/api/nas/api', async (req, res) => {
 // ---------- 网络拓扑看板：全网连通性探测（本机视角，只读） ----------
 
 const net = require('net');
+const os = require('os');
 
 // 拓扑节点定义：kind = cloud(云端依赖) / net(网关) / host(本地设备)
 const NET_TARGETS = [
   { id: 'internet', name: '互联网', kind: 'cloud', host: '223.5.5.5', ports: [443] },
   { id: 'feishu', name: '飞书云(API/长连接)', kind: 'cloud', host: 'open.feishu.cn', ports: [443] },
   { id: 'router', name: '主路由', kind: 'net', host: '192.168.31.1', ports: [80] },
-  { id: 'pc', name: '小电脑(生产)', kind: 'host', host: '192.168.31.57', ports: [22, 3010, 3000, 3001, 3002, 3003, 3006] },
+  { id: 'pc', name: '小电脑(生产)', kind: 'host', host: '192.168.31.57', ports: [22, 3010, 3000, 3001, 3002, 3003, 3006, 3007] },
   { id: 'oldnas', name: '旧NAS(备件存储)', kind: 'host', host: '192.168.31.151', ports: [2222, 3923] },
 ];
 
@@ -559,6 +560,84 @@ app.get('/api/egress-ip', async (req, res) => {
 });
 
 // 全网拓扑探测：所有节点并行 TCP 探测，单连接 2.5s 超时封顶
+// ---------- LAN 设备发现（2026-09-16）：路由器实际在线设备 ----------
+// 原理：ping 扫本机所在 /24 填充 ARP 缓存 → 解析 `arp -a` → 已知设备(拓扑定义)合并标注。
+// 无需路由器凭据；本机不在家庭网段时返回 offsite（前端显示提示而非空列表）。
+const LAN_SCAN = { cache: null, at: 0, running: null };
+const LAN_KNOWN = {
+  '192.168.31.1': '主路由',
+  '192.168.31.57': '小电脑(生产)',
+  '192.168.31.151': '旧NAS(备件)',
+};
+const LAN_OUI = [
+  ['f0:b4:29', 'TP-Link'], ['64:09:80', '小米'], ['28:6c:07', '小米'], ['78:11:dc', '小米'],
+  ['3c:22:fb', 'Apple'], ['f0:18:98', 'Apple'], ['ac:de:48', 'Apple'], ['a4:83:e7', 'Apple'],
+  ['34:6b:d3', '华为'], ['00:46:4b', '华为'], ['84:3a:4b', 'Intel'], ['a0:36:9f', 'Intel'],
+  ['24:0a:c4', 'ESP32/IoT'], ['5c:cf:7f', 'ESP32/IoT'],
+];
+function lanLocalIp() {
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const ni of list || []) {
+      if (ni.family === 'IPv4' && !ni.internal && ni.address.startsWith('192.168.31.')) return ni.address;
+    }
+  }
+  return null;
+}
+function lanPingOne(ip) {
+  return new Promise((resolve) => {
+    const p = spawn('ping', ['-n', '1', '-w', '400', ip], { windowsHide: true });
+    const t = setTimeout(() => { try { p.kill(); } catch {} resolve(); }, 700);
+    p.on('close', () => { clearTimeout(t); resolve(); });
+    p.on('error', () => { clearTimeout(t); resolve(); });
+  });
+}
+async function lanScan() {
+  const me = lanLocalIp();
+  if (!me) {
+    return { offsite: true, subnet: null, devices: [], scannedAt: new Date().toISOString() };
+  }
+  const base = me.split('.').slice(0, 3).join('.');
+  const ips = [];
+  for (let i = 1; i <= 254; i++) ips.push(base + '.' + i);
+  for (let i = 0; i < ips.length; i += 64) {
+    await Promise.all(ips.slice(i, i + 64).map(lanPingOne));
+  }
+  const arp = execFileSync('arp', ['-a'], { encoding: 'utf8', windowsHide: true });
+  const re = new RegExp('^\\s*(' + base + '\\.(\\d{1,3}))\\s+([0-9a-fA-F:-]{17})\\s', 'm');
+  const seen = new Map();
+  for (const line of arp.split(/\r?\n/)) {
+    const m = re.exec(line);
+    if (!m) continue;
+    const ip = m[1], last = Number(m[2]);
+    const mac = m[3].toLowerCase().replace(/-/g, ':');
+    if (last === 0 || last === 255 || (last >= 224 && last < 240)) continue;
+    if (seen.has(ip)) continue;
+    let vendor = '';
+    for (const [pfx, name] of LAN_OUI) {
+      if (mac.startsWith(pfx)) { vendor = name; break; }
+    }
+    const known = LAN_KNOWN[ip] || null;
+    seen.set(ip, {
+      ip, mac, vendor,
+      name: known || (vendor ? vendor + ' 设备' : '未识别设备'),
+      known: Boolean(known), me: ip === me,
+    });
+  }
+  const devices = [...seen.values()].sort((a, b) => Number(a.ip.split('.')[3]) - Number(b.ip.split('.')[3]));
+  return { offsite: false, subnet: base + '.0/24', devices, scannedAt: new Date().toISOString() };
+}
+app.get('/api/network/lan', async (req, res) => {
+  if (LAN_SCAN.cache && Date.now() - LAN_SCAN.at < 60000) return res.json(LAN_SCAN.cache);
+  if (!LAN_SCAN.running) {
+    LAN_SCAN.running = lanScan()
+      .then((r) => { LAN_SCAN.cache = r; LAN_SCAN.at = Date.now(); })
+      .catch((e) => { LAN_SCAN.cache = { offsite: false, error: e.message, devices: [], scannedAt: new Date().toISOString() }; })
+      .finally(() => { LAN_SCAN.running = null; });
+  }
+  await LAN_SCAN.running;
+  res.json(LAN_SCAN.cache);
+});
+
 app.get('/api/network', async (req, res) => {
   const t0 = Date.now();
   const probes = [];
@@ -587,7 +666,7 @@ process.on('uncaughtException', (err) => console.error('[未捕获异常]', err)
 process.on('unhandledRejection', (err) => console.error('[未处理Promise拒绝]', err));
 
 app.listen(PORT, '127.0.0.1', () => {
-  console.log(`🖥️  qianli 运维台: http://127.0.0.1:${PORT}（仅本机可访问）`);
+  console.log(`🌊 曼波大模型（本地运维台）: http://127.0.0.1:${PORT}（仅本机可访问）`);
   console.log(`📁 工作区根: ${ROOT}`);
   console.log(`📡 注册项目: ${registry.projects.map((p) => `${p.name}:${p.port}`).join(', ')}`);
   console.log(`📊 总览仪表台: /api/stats（状态采样史落盘 ${path.basename(HISTORY_FILE)}，保留 3 天）`);
@@ -617,7 +696,7 @@ function watchdogInQuietHours(now = Date.now()) {
   // 上海时间 = UTC+8 恒定偏移；默认窗口 [23:00, 09:00)（跨午夜；比播报静默更宽——
   // 2026-09-16 00:41 教训：运维告警不该在成员群里半夜响）
   const parse = (v, dflt) => {
-    const m = new RegExp('^(\d{1,2}):(\d{2})$').exec(String(v || ''));
+    const m = new RegExp('^(\\d{1,2}):(\\d{2})$').exec(String(v || ''));
     if (!m) return dflt;
     return Number(m[1]) * 60 + Number(m[2]);
   };

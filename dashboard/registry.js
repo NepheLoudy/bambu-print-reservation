@@ -228,7 +228,7 @@ module.exports = {
     {
       id: 'dashboard',
       name: 'qianli-dashboard',
-      label: '本地运维台（仅本机）',
+      label: '曼波大模型（本地运维台，仅本机）',
       dir: 'dashboard',
       repo: 'top',
       port: 3100,
