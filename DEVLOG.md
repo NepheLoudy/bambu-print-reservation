@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v78**（2026-09-16，随本提交落地）。
+当前最新：**v78**（2026-09-16，f324145）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -618,7 +618,7 @@
 - 全交互审计：registry 全项目动作静态核验（push/install/test 脚本与 cwd 逐项存在性）+ 全部 HTTP 端点动态探测（overview/stats/activity/windows/network/lan/watchdog/egress-ip/action-log/nas-log + SSH 代理直达六服务 policy 与 hub 规则 CRUD 路由）全部 200；动作链以 hub test-duty 真实跑通（exit 0）。
 - 目标机补 pm2 reloadLogs（logrotate 轮转后 daemon 日志句柄残留问题波及 wecom，已恢复）。
 
-## v78 · 2026-09-16 · 随本提交落地 · docs
+## v78 · 2026-09-16 · f324145 · docs
 
 **push.js 部署目标文案清扫（gateway/bambu，docs）**
 
