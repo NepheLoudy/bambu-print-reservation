@@ -1,12 +1,12 @@
 /**
- * 统一部署脚本：SFTP 直传部署到 NAS（本项目位于顶层 monorepo 内，无独立 git 远端，跳过 git 步骤）
+ * 统一部署脚本：SFTP 直传部署到部署目标（本项目位于顶层 monorepo 内，无独立 git 远端，跳过 git 步骤）
  *
  * 用法：
  *   npm run push
  *
  * 流程：
  *   [1/3] 打包代码 SFTP 直传 NAS
- *   [2/3] 上传 .env 到 NAS（含飞书密钥，只单独进 NAS，绝不进 git）
+ *   [2/3] 上传 .env 到部署目标（含飞书密钥，只单独进 NAS，绝不进 git）
  *   [3/3] npm install + 重启服务
  *
  * NAS 连接配置从 .env 读取（NAS_HOST/NAS_PORT/NAS_USER/NAS_PASSWORD），脚本不存任何密钥。
@@ -75,7 +75,7 @@ if (pack.status !== 0) {
 }
 console.log('打包完成:', TAR_LOCAL);
 
-// ============ 连接 NAS ============
+// ============ 连接部署目标 ============
 const conn = new Client();
 
 conn.on('ready', () => {
@@ -86,7 +86,7 @@ conn.on('ready', () => {
       conn.end();
       process.exit(1);
     }
-    console.log('上传代码包到 NAS...');
+    console.log('上传代码包到部署目标...');
     sftp.fastPut(TAR_LOCAL, TAR_REMOTE_WIN, (err2) => {
       if (err2) {
         console.error('代码上传失败:', err2.message);
@@ -133,7 +133,7 @@ function deployCode() {
     + 'rm -rf ' + REMOTE_DIR + '/.git ' + REMOTE_DIR + '/* ' + REMOTE_DIR + '/.[!.]* 2>/dev/null || true; '
     + 'tar -xzf ' + TAR_REMOTE + ' -C ' + REMOTE_DIR;
   exec(cmd, () => {
-    console.log('\n========== [2/3] 上传 .env 到 NAS ==========');
+    console.log('\n========== [2/3] 上传 .env 到部署目标 ==========');
     conn.sftp((err, sftp) => {
       if (err) {
         console.error('SFTP 失败:', err.message);
@@ -146,7 +146,7 @@ function deployCode() {
           conn.end();
           process.exit(1);
         }
-        console.log('✓ .env 已上传到 NAS（含飞书密钥，仅存于 NAS）');
+        console.log('✓ .env 已上传到部署目标（含飞书密钥，仅存于 NAS）');
         restart();
       });
     });
@@ -169,5 +169,5 @@ function restart() {
   });
 }
 
-console.log('正在连接 NAS...');
+console.log('正在连接部署目标...');
 conn.connect(nasConfig);

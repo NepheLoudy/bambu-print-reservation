@@ -1,5 +1,5 @@
 /**
- * 统一部署脚本：一条命令完成「代码进 Git + 配置进 NAS + 部署」
+ * 统一部署脚本：一条命令完成「代码进 Git + 配置进部署目标 + 部署」
  *
  * 用法：
  *   npm run push "提交说明"   提交并部署
@@ -185,7 +185,7 @@ function npmInstall() {
           conn.end();
           process.exit(1);
         }
-        console.log('✓ .env 已上传到 NAS（含飞书密钥，仅存于 NAS）');
+        console.log('✓ .env 已上传到部署目标（含飞书密钥，仅存于 NAS）');
         restart();
       });
     });
@@ -207,5 +207,5 @@ function restart() {
   });
 }
 
-console.log('正在连接 NAS...');
+console.log('正在连接部署目标...');
 conn.connect(nasConfig);
