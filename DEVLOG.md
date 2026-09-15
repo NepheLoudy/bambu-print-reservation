@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v74**（2026-09-16，随本提交落地）。
+当前最新：**v74**（2026-09-16，960ec4c）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -584,7 +584,7 @@
 - stub-test-import 15 断言（七套全过）；wecom 桩测试凭据隔离（真实凭据入 .env 后不再依赖"env 为空"前提）。
 - registry 标注 import 端点；AGENTS/README 数据源口径更新。
 
-## v74 · 2026-09-16 · 随本提交落地 · fix
+## v74 · 2026-09-16 · 960ec4c · fix
 
 **值日私信链补强（duty v25）+ 运维台看门狗误报修正（R14 v2）**
 
