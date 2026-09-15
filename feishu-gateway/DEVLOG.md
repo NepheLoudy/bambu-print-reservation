@@ -182,3 +182,9 @@
 - R10② query token 废除：auth.js 不再接受 ?token= 查询串（token 进访问日志/代理日志）；X-API-Token 头为唯一通道。工作区无 query token 消费方（运维台代理走头）。
 - R10⑤ health 收窄：消费者清单/路由表/投递统计只对本机回环调用方暴露；LAN 调用方只拿 {status, ws, uptime} 存活摘要（服务绑 0.0.0.0 供 LAN 冒烟测试是既有设计，本机运维台走 SSH 回环 curl 不受影响）。
 - .env：FEISHU_VERIFICATION_TOKEN 补配共享密钥——网关转发帧注入 token 字段（withToken），各消费方据同一密钥校验；此前网关与四仓密钥全空，消费方校验整体 fail-open。
+
+### v27 · 2026-09-16 · 随本提交落地 · fix
+
+**全量 debug 回归批：deliverTo 重试/计数重构**
+
+- 修复 v26 R11 实现的计数污染与三连投递：重试失败的 throw 落进外层传输异常 catch 再重试第 3 次，且外层成功路径不检查 ok 就计 ok——一次事件失败会投递 3 次、failed 计 3~4 次。重构为统一口径：事件模式 HTTP 失败重试一次（重试成功=ok+retried；最终失败=failed 计 1 次即返回，不抛不重入）；command 模式单次尝试只计 failed；传输异常路径保持原 R3 语义（重试成功 ok+retried，最终失败 failed 计清）。

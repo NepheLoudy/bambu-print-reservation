@@ -142,27 +142,26 @@ async function deliverTo(consumer, mode, frame, text) {
   let result;
   try {
     result = await deliverOnce(consumer, mode, frame, text);
-    if (result && result.ok === false) {
-      // R11（2026-09-15）：事件模式下游 HTTP 失败与传输异常同款重试一次——事件消费方
-      // 都有 messageId 幂等，重试不会重复生效；command 模式保持不重试（指令无幂等键，
-      // 下游可能已执行，重试有双执行风险），只如实计数
-      deliveryStats.failed += 1;
-      deliveryStats.byConsumer[consumer.name] = (deliveryStats.byConsumer[consumer.name] || 0) + 1;
-      if (mode === 'command') {
-        console.warn(`[路由] 投递 ${consumer.name} HTTP 层失败（status ${result.status}），指令模式不重试`);
-        return result;
-      }
+    // R11（2026-09-16 重构）：事件模式下游 HTTP 失败与传输异常同款重试一次——
+    // 事件消费方都有 messageId 幂等，重发不会重复生效；command 模式单次尝试
+    // （指令无幂等键，下游可能已执行，双执行风险大于丢指令，失败有兜底回复可感知）。
+    if (result && result.ok === false && mode !== 'command') {
       console.warn(`[路由] 投递 ${consumer.name} HTTP 层失败（status ${result.status}），3s 后重试一次`);
       await new Promise((r) => setTimeout(r, 3000));
       const second = await deliverOnce(consumer, mode, frame, text);
       if (second && second.ok !== false) {
+        deliveryStats.ok += 1;
         deliveryStats.retried += 1;
-        console.log(`[转发] → ${consumer.name} 重试成功`);
         return second;
       }
+      result = second || result;
+    }
+    if (result && result.ok === false) {
+      // 最终失败（含 command 模式单次失败）：如实计一次 failed，不给 ok 充数
       deliveryStats.failed += 1;
       deliveryStats.byConsumer[consumer.name] = (deliveryStats.byConsumer[consumer.name] || 0) + 1;
-      throw new Error(`重试后仍失败（status ${(second && second.status) || 'n/a'}）`);
+      console.warn(`[路由] 投递 ${consumer.name} 失败（status ${result.status}）`);
+      return result;
     }
     deliveryStats.ok += 1;
     return result;
@@ -173,14 +172,19 @@ async function deliverTo(consumer, mode, frame, text) {
     await new Promise((r) => setTimeout(r, 3000));
     try {
       result = await deliverOnce(consumer, mode, frame, text);
-      deliveryStats.ok += 1;
-      deliveryStats.retried += 1;
-      return result;
     } catch (err2) {
       deliveryStats.failed += 1;
       deliveryStats.byConsumer[consumer.name] = (deliveryStats.byConsumer[consumer.name] || 0) + 1;
       throw err2;
     }
+    if (result && result.ok !== false) {
+      deliveryStats.ok += 1;
+      deliveryStats.retried += 1;
+      return result;
+    }
+    deliveryStats.failed += 1;
+    deliveryStats.byConsumer[consumer.name] = (deliveryStats.byConsumer[consumer.name] || 0) + 1;
+    return result;
   }
 }
 
