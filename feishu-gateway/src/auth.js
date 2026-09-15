@@ -3,7 +3,7 @@ const crypto = require('crypto');
 // ============================================================
 // 管理端点鉴权（2026-09-13）：/api/dispatch 与 /api/usage-sync/run
 // 凭据存储沿用工作区约定——token 只放 .env（GATEWAY_API_TOKEN，不进 git），
-// push.js 随 .env 下发 NAS。校验用 timingSafeEqual 防时序侧信道。
+// push.js 随 .env 下发。校验用 timingSafeEqual 防时序侧信道。
 // fail-closed：未配置 token = 管理端点整体锁定（健康检查与只读 /api/usage 不受限）。
 // ============================================================
 

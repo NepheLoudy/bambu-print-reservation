@@ -5,8 +5,8 @@
  *   npm run push
  *
  * 流程：
- *   [1/3] 打包代码 SFTP 直传 NAS
- *   [2/3] 上传 .env 到部署目标（含飞书密钥，只单独进 NAS，绝不进 git）
+ *   [1/3] 打包代码 SFTP 直传部署目标
+ *   [2/3] 上传 .env 到部署目标（含飞书密钥，只单独存部署目标，绝不进 git）
  *   [3/3] npm install + 重启服务
  *
  * NAS 连接配置从 .env 读取（NAS_HOST/NAS_PORT/NAS_USER/NAS_PASSWORD），脚本不存任何密钥。
@@ -127,9 +127,8 @@ function exec(cmd, cb) {
 
 // ============ [2/3] 解压 + 上传 .env ============
 function deployCode() {
-  // 首次部署需建目录：/opt 需要 sudo 建目录并授权（与其它 qianli 项目一致）
-  const sudo = (cmd) => `echo "${nasConfig.password}" | sudo -S ${cmd}`;
-  const cmd = sudo('mkdir -p ' + REMOTE_DIR) + ' && ' + sudo('chown -R qianli:qianli ' + REMOTE_DIR) + '; '
+  // 首次部署建目录（2026-09-16：部署目标=小电脑，mechax 直接建；旧 NAS 时代的 sudo/chown qianli:qianli在新机上指向不存在的用户，此前全靠 `;` 容错才没断部署，顺带消除命令行带密码的泄露面）
+  const cmd = 'mkdir -p ' + REMOTE_DIR + ' && '
     + 'rm -rf ' + REMOTE_DIR + '/.git ' + REMOTE_DIR + '/* ' + REMOTE_DIR + '/.[!.]* 2>/dev/null || true; '
     + 'tar -xzf ' + TAR_REMOTE + ' -C ' + REMOTE_DIR;
   exec(cmd, () => {

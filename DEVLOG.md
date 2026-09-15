@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v78**（2026-09-16，f324145）。
+当前最新：**v79**（2026-09-16，随本提交落地）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -624,3 +624,12 @@
 
 - 用户问「真的是传到 NAS 吗」——核实：hub 实际目标=小电脑 192.168.31.57（server/.env NAS_HOST，/c/qianli/opt/knowledge-tracker，文件时间戳佐证），「NAS」仅为历史命名残留文案。四仓 push.js 用户可见文案统一清扫为「部署目标」（hub 15 处/ticket 13 处/gateway 3 处/bambu 7 处）；NAS_* 变量名保留（顶层 AGENTS 已成文其语义）。
 - 联动：hub v93（6a3e228）、ticket v72（8f40cb7）各自仓库已推；gateway/bambu 随本提交归档。
+
+## v79 · 2026-09-16 · 随本提交落地 · docs
+
+**NAS 残留全链清扫（docs；approval/hub 因并行会话占用跳过待补）**
+
+- .env.example 五份里的四份（gateway/ticket/duty/bambu）：旧 NAS 地址端口用户（10.253.33.233:8500/qianli）→ 小电脑实际值（192.168.31.57:22/mechax），注释统一「NAS_ 为历史命名，语义=部署目标」——照抄模板的新部署不会再连去旧 NAS。approval/hub 的 example 因并行会话占用未动。
+- 文案：duty push.js 头注释与 init-duty-table 输出、gateway auth 注释、dashboard 拓扑注释 → 部署目标口径。
+- bambu push.js 移除旧 NAS 时代的 sudo/chown qianli:qianli（新机不存在该用户，此前全靠 `;` 容错；顺带消除命令行带密码的泄露面）。
+- 联动 duty v27。

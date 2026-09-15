@@ -533,7 +533,7 @@ async function pullLog() {
   } catch (err) { /* 忽略轮询错误 */ }
 }
 
-// ===== 定制窗口（集成在各项目卡片内，🧰 按钮展开；读写经 SSH 代理直达 NAS 本机接口） =====
+// ===== 定制窗口（集成在各项目卡片内，🧰 按钮展开；读写经 SSH 代理直达部署目标本机接口） =====
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 async function nasApi(port, method, p, body) {
