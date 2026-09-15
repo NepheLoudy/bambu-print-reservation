@@ -211,7 +211,7 @@ module.exports = {
         '出站：飞书群自定义机器人 webhook 卡片（FEISHU_WEBHOOK_URL，签名可选；duty 看板卡同款链路）+ 可选经现有应用 im API 发 CSV 文件',
         '补发看门狗：每小时 5 分对表，漏播/失败自动补（周水位 lastSentWeekKey + 每通道投递水位，重试只补未送达通道；过静默闸门）',
       ],
-      commands: ['HTTP API：GET /api/attendance/policy（全景只读） GET /api/attendance/preview?weekOffset=N（干跑预览） POST /api/attendance/members（名单增删，X-API-Token） POST /api/attendance/test-broadcast（真发/dryRun，X-API-Token）'],
+      commands: ['HTTP API：GET /api/attendance/policy（全景只读） GET /api/attendance/preview?weekOffset=N（干跑预览） POST /api/attendance/members（名单增删，X-API-Token） POST /api/attendance/test-broadcast（真发/dryRun，X-API-Token） POST /api/attendance/import（打卡报表导入，X-API-Token；数据源=人肉周导，名单自动合并）'],
       permissions: ['定时播报：ATTENDANCE_BROADCAST_CRON（默认周一 09:30 上海时间，白天发送不落静默窗口）', '成员名单 config/members.json 不进 git（push 备份+守卫，权威在部署目标侧）'],
       windows: [
         { m: 'GET', p: '/api/attendance/policy', d: '播报参数/企微配置布尔/名单/水位全景（只读）' },
