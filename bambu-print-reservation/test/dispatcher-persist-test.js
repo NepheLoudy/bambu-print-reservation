@@ -104,7 +104,54 @@ const d5 = freshDispatcher();
 d5.restoreState();
 check('状态文件缺失时静默跳过', () => assert.equal(d5.queue.length, 0));
 
-try { fs.unlinkSync(STATE_FILE); } catch { /* 已删 */ }
+// ---------- 5~7. givenUp 持久化 + failTask 重排/让位（2026-09-15 R8） ----------
+(async () => {
+  const d6 = freshDispatcher();
+  d6.givenUp = new Map([['g1', { recordId: 'g1', applicationNo: '2026G', fileSource: 'approval', fileToken: 'tok_g' }]]);
+  d6.flushState();
+  const d7 = freshDispatcher();
+  d7.restoreState();
+  check('givenUp 重启后恢复（/print-dispatch 可继续找到）', () => {
+    assert.ok(d7.givenUp instanceof Map && d7.givenUp.has('g1'), JSON.stringify([...d7.givenUp.keys()]));
+  });
 
-console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);
-process.exit(failures === 0 ? 0 : 1);
+  const config = require('../src/config');
+  const d8 = freshDispatcher();
+  d8.givenUp = new Map();
+  d8.trigger = () => {}; // 引擎未启动，屏蔽匹配循环副作用
+  const mkTask = () => ({ recordId: 'f1', applicationNo: '2026F', fileSource: 'approval', fileToken: 'tok_f', applicant: { name: 't' } });
+
+  async function failOnce(d) {
+    const t = d.queue.find((x) => x.recordId === 'f1') || mkTask();
+    d.queue = d.queue.filter((x) => x.recordId !== 'f1');
+    d.printing = new Map([[9, t]]);
+    await d.failTask(t, { id: 9, name: 'P9' }, '测试失败');
+    return t;
+  }
+
+  const t1 = await failOnce(d8);
+  check('运行期失败第 1 次：重新排队并带冷却', () => {
+    assert.equal(d8.queue.length, 1);
+    assert.equal(d8.queue[0].recordId, 'f1');
+    assert.equal(t1.dispatchRetries, 1);
+    assert.ok(t1.nextMatchAt > Date.now() - 1000, 'nextMatchAt 已设');
+  });
+
+  let exhaustedTask = null;
+  for (let i = 0; i < config.dispatch.maxRetries - 1; i++) exhaustedTask = await failOnce(d8);
+  check(`运行期失败累计 ${config.dispatch.maxRetries} 次：进入 givenUp 退出队列`, () => {
+    assert.equal(d8.queue.length, 0);
+    assert.ok(d8.givenUp.has('f1'), JSON.stringify([...d8.givenUp.keys()]));
+    assert.equal(exhaustedTask.dispatchRetries, config.dispatch.maxRetries);
+  });
+
+  d8.flushState();
+  const d9 = freshDispatcher();
+  d9.restoreState();
+  check('failTask 让位任务随落盘恢复（与 5 呼应）', () => assert.ok(d9.givenUp.has('f1')));
+
+  try { fs.unlinkSync(STATE_FILE); } catch { /* 已删 */ }
+  console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);
+  process.exit(failures === 0 ? 0 : 1);
+})();
+

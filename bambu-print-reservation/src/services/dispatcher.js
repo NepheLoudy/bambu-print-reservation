@@ -17,6 +17,7 @@ const plaza = require('./plaza');
 const STATE_FILE = process.env.DISPATCH_STATE_FILE || path.join(__dirname, '..', '..', '.dispatch-state.json');
 try { fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true }); } catch { /* 目录不可建时退化为不持久化，分发本身不受影响 */ }
 const KNOWN_CAP = 2000;
+const GIVEN_UP_CAP = 200; // givenUp 持久化截尾（人工恢复通道的容量护栏）
 
 // ============================================================
 // 打印分发引擎：任务队列 + 空闲触发匹配
@@ -134,6 +135,9 @@ class Dispatcher {
       printing: [...this.printing.entries()],
       completedCount: [...this.completedCount.entries()],
       known: [...this.known].slice(-KNOWN_CAP),
+      // 重试耗尽任务落盘（2026-09-15）：此前纯内存，重启后 /print-dispatch 人工恢复
+      // 通道静默失效（known 已拦重入队、审批源单不在镜像表）——B4 承诺在重启场景不成立
+      givenUp: [...this.givenUp.entries()].slice(-GIVEN_UP_CAP),
     };
   }
 
@@ -166,6 +170,7 @@ class Dispatcher {
       this.printing = new Map(Array.isArray(data.printing) ? data.printing : []);
       this.completedCount = new Map(Array.isArray(data.completedCount) ? data.completedCount : []);
       this.known = new Set(Array.isArray(data.known) ? data.known : []);
+      this.givenUp = new Map(Array.isArray(data.givenUp) ? data.givenUp.slice(-GIVEN_UP_CAP) : []);
       for (const t of this.queue) this.known.add(t.recordId);
       for (const [, t] of this.printing) this.known.add(t.recordId);
       // 分发中断恢复（2026-09-13）：上次退出时正在下载/上传的任务处于「已出队、未入
@@ -550,7 +555,42 @@ class Dispatcher {
         .catch(() => {});
     }
 
-    announce(`失败卡 ${task.recordId}`, require('../feishu/bot').buildJobFailedCard(task, printer, reason), () => {});
+    // 运行期失败接入与分发失败同款的重试/让位通道（2026-09-15）：此前只把镜像表
+    // 写回「排队中」而不重排，known 拦截重入队 → 单据永久滞留（失败卡却承诺会重排）
+    task.dispatchRetries = (task.dispatchRetries || 0) + 1;
+    if (task.dispatchRetries >= config.dispatch.maxRetries) {
+      console.error(`[分发] 任务 ${task.recordId} 运行期失败已重试 ${task.dispatchRetries} 次，退出队列，请人工处理`);
+      this.givenUp.set(task.recordId, task);
+      announce(
+        `失败卡 ${task.recordId}`,
+        require('../feishu/bot').buildJobFailedCard(
+          task,
+          printer,
+          `打印失败：${reason}；已自动重试 ${task.dispatchRetries} 次仍失败，已暂停自动分发，可 /print-dispatch 人工恢复`
+        ),
+        () => {}
+      );
+    } else {
+      task.dispatchError = reason;
+      task.nextMatchAt = Date.now() + config.dispatch.retryCooldownMs;
+      task.enqueuedAt = Date.now();
+      this.queue.push(task);
+      announce(
+        `失败卡 ${task.recordId}`,
+        require('../feishu/bot').buildJobFailedCard(
+          task,
+          printer,
+          `打印失败：${reason}，已重新排队（第 ${task.dispatchRetries}/${config.dispatch.maxRetries} 次重试）`
+        ),
+        () => {}
+      );
+      setTimeout(() => {
+        if (this.queue.some((t) => t.recordId === task.recordId)) {
+          this.trigger('retry-cooldown');
+        }
+      }, config.dispatch.retryCooldownMs + 500);
+    }
+
     plaza.append({ event: '打印失败', title: `${task.applicationNo || task.recordId} @ ${printer.name}：${reason}` });
     console.error(`[分发] 失败: ${task.applicationNo || task.recordId} @ ${printer.name} ${reason}`);
     this.trigger('task-failed');
@@ -590,9 +630,12 @@ class Dispatcher {
         this.printing.delete(printerId);
         this.completedCount.set(printerId, (this.completedCount.get(printerId) || 0) + 1);
         printerManager.updateState(printerId, { activeTask: null });
-        await bitableApi
-          .updateRecord(config.bitable.reservationTableId, task.recordId, { '申请状态': config.status.COMPLETED })
-          .catch((err) => console.error('[分发] 巡检补完成写表失败:', err.message));
+        // 审批源不写镜像表（同 completeTask 守卫）：写 instance_code 必然失败，白刷错误日志
+        if (task.fileSource !== 'approval') {
+          await bitableApi
+            .updateRecord(config.bitable.reservationTableId, task.recordId, { '申请状态': config.status.COMPLETED })
+            .catch((err) => console.error('[分发] 巡检补完成写表失败:', err.message));
+        }
         announce(`完成卡 ${task.recordId}`, require('../feishu/bot').buildJobFinishCard(task, state), () => {});
         plaza.append({ event: '打印完成', title: `${task.applicationNo || task.recordId} @ ${state.name || printerId}（巡检补记）` });
       }

@@ -185,3 +185,14 @@
 - 六个写端点漏挂 X-API-Token（与同仓 printers print/pause/resume/stop、/api/approval/reconcile 的既有鉴权自相矛盾，违反顶层 AGENTS「管理/写端点必须鉴权」铁律）：POST/PUT/DELETE /api/reservations*（含 review——可直接「通过」预约并入队）与 POST /api/dispatch/manual（可绕审批直接驱动真机）、/api/dispatch/reconcile。运维台代理 POST 自动附 token，不受影响；本机脚本直调需自带 X-API-Token 头。
 - .gitignore 增补 .dispatch-state.json（本地不配 DISPATCH_STATE_FILE 跑一次就会在项目根生成，顶层 git add -A 易误扫入库——wecom v68 前车之鉴）。
 - DEVLOG 头部指针修正 v26 → v28（v27 时漏更，该指针历史上已漏过一次）。
+
+### v29 · 2026-09-15 · 随本提交落地 · fix
+
+**R8 分发可靠性包（全项目审查推荐落地批）**
+
+- failTask 运行期失败接入与分发失败同款的重试/让位通道：此前打印机上报 failed 只把镜像表写回「排队中」而不重排，known 拦截重入队 → 单据永久滞留（失败卡却承诺「会重新排队」）。现按 dispatchRetries 冷却重排，耗尽进 givenUp 并在失败卡给出 /print-dispatch 人工恢复指引。
+- givenUp 落盘（GIVEN_UP_CAP=200 截尾）：此前纯内存，重启后人工恢复通道（v26-B4）静默失效——known 已拦重入队、审批源单不在镜像表。恢复时随状态载入。
+- sweepStalePrinting 补审批源守卫（同 completeTask）：审批源 task 写 instance_code 到预约表必然失败，每 10 分钟白刷错误日志；改为跳过写表保留内存收尾。
+- config：FEISHU_USE_LONG_CONNECTION 缺省翻转为 false（长连接模式在本仓是空壳只打日志，误配即静默收不到全部事件；网关转发模式才是真实链路）。
+- .env：FEISHU_VERIFICATION_TOKEN 补配共享密钥（/api/feishu/event 此前零校验，LAN 可伪造事件驱动分发）；DISPATCH_STATE_FILE POSIX 路径显式化 C:/home。
+- dispatcher-persist-test 新增 6 断言（givenUp 往返/重排/让位/落盘恢复），四套测试全过。

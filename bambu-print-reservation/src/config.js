@@ -61,7 +61,7 @@ module.exports = {
   feishuEvent: {
     verificationToken: process.env.FEISHU_VERIFICATION_TOKEN || '',
     encryptKey: process.env.FEISHU_ENCRYPT_KEY || '',
-    useLongConnection: process.env.FEISHU_USE_LONG_CONNECTION !== 'false',
+    useLongConnection: process.env.FEISHU_USE_LONG_CONNECTION === 'true', // 默认 false：网关转发模式（长连接模式在本仓是空壳，误配即静默收不到全部事件）
   },
 
   bot: {

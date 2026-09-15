@@ -592,3 +592,104 @@ app.listen(PORT, '127.0.0.1', () => {
   console.log(`📡 注册项目: ${registry.projects.map((p) => `${p.name}:${p.port}`).join(', ')}`);
   console.log(`📊 总览仪表台: /api/stats（状态采样史落盘 ${path.basename(HISTORY_FILE)}，保留 3 天）`);
 });
+
+// ---------- R14 服务看门狗（2026-09-15）：逐时巡检生产机各服务 health，异常/恢复推群 webhook ----------
+// - 巡检对象=registry.js 全部 pm2 项目（单一事实来源），SSH 到目标机逐端口 curl /api/health；
+// - 连续 2 轮异常才告警（校园网会话被踢秒级自愈是常态，单轮抖动不值得吵人）；恢复也通告；
+// - 告警通道=duty-bot 群机器人 webhook（.env 可用 WATCHDOG_WEBHOOK_URL 覆盖）；
+// - 告警过晚间静默闸门（02:00–09:00 静默，窗口后首个巡检点补发）；持续异常 12h 重提醒一次。
+const WATCHDOG = {
+  timer: null,
+  state: new Map(),     // key -> { degraded, since, lastAlertAt, pending }
+  lastRun: null,
+  results: [],
+};
+const WATCH_REALERT_MS = 12 * 3600 * 1000;
+function watchdogWebhook() {
+  try {
+    const override = (process.env.WATCHDOG_WEBHOOK_URL || '').trim();
+    if (override) return override;
+    const text = fs.readFileSync(path.join(ROOT, 'duty-bot', '.env'), 'utf-8');
+    return ((text.match(/^DUTY_BOARD_WEBHOOK_URL=(.*)$/m) || [])[1] || '').trim();
+  } catch { return ''; }
+}
+function watchdogInQuietHours(now = Date.now()) {
+  // 上海时间 = UTC+8 恒定偏移；窗口 [02:00, 09:00)
+  const d = new Date(now + 8 * 3600 * 1000);
+  const m = d.getUTCHours() * 60 + d.getUTCMinutes();
+  return m >= 120 && m < 540;
+}
+async function watchdogSend(text) {
+  const url = watchdogWebhook();
+  if (!url) { console.warn('[看门狗] 未配置告警 webhook（duty-bot/.env 的 DUTY_BOARD_WEBHOOK_URL 或 WATCHDOG_WEBHOOK_URL），仅记录'); return false; }
+  try {
+    const res = await fetch(url, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ msg_type: 'text', content: { text } }),
+      signal: AbortSignal.timeout(10000),
+    });
+    const data = await res.json().catch(() => null);
+    return !!(data && (data.code === 0 || data.StatusCode === 0));
+  } catch (err) { console.error('[看门狗] 告警发送失败:', err.message); return false; }
+}
+async function watchdogCheck() {
+  WATCHDOG.lastRun = new Date().toISOString();
+  let out = '';
+  try {
+    const ports = registry.projects.filter((p) => p.pm2Name).map((p) => p.port);
+    const list = ports.join(' ');
+    out = await sshExec(`for p in ${list}; do printf "%s:" "$p"; curl -s -m 5 -o /dev/null -w "%{http_code}" http://localhost:$p/api/health 2>/dev/null; echo; done`, 30000);
+  } catch (err) {
+    // SSH 不可达：整机视角处理（部署目标失联/网络被踢）
+    WATCHDOG.results = [{ key: 'host', name: '部署目标(SSH)', ok: false, detail: err.message }];
+    watchdogEvaluate('host', '部署目标(SSH)', false, `SSH 不可达：${err.message}`);
+    return;
+  }
+  const rows = [];
+  for (const p of registry.projects.filter((x) => x.pm2Name)) {
+    const m = new RegExp(`^${p.port}:(.*)$`, 'm').exec(out || '');
+    const code = m ? m[1].trim() : '';
+    const ok = code === '200';
+    rows.push({ key: String(p.port), name: `${p.name}(:${p.port})`, ok, detail: code || '无响应' });
+    watchdogEvaluate(String(p.port), `${p.name}(:${p.port})`, ok, code || 'curl 无响应');
+  }
+  WATCHDOG.results = rows;
+}
+function watchdogEvaluate(key, name, ok, detail) {
+  const now = Date.now();
+  const prev = WATCHDOG.state.get(key);
+  if (ok) {
+    if (prev && prev.degraded && !watchdogInQuietHours(now)) {
+      watchdogSend(`✅ qianli 服务恢复：${name} 已恢复正常（${WATCHDOG.lastRun}）`);
+    }
+    WATCHDOG.state.set(key, { degraded: false, since: now, lastAlertAt: 0, pending: false });
+    return;
+  }
+  if (!prev || !prev.degraded) {
+    // 第 1 轮异常：只登记不告警——校园网会话被踢秒级自愈是常态，连续 2 轮（约 2h）才算真异常
+    WATCHDOG.state.set(key, { degraded: true, since: now, lastAlertAt: 0, pending: false });
+    return;
+  }
+  // 持续异常（第 2 轮起）：过静默闸门；12h 重提醒；静默窗口内标记 pending 窗口后补发
+  const due = !prev.lastAlertAt || (now - prev.lastAlertAt >= WATCH_REALERT_MS);
+  if (watchdogInQuietHours(now)) {
+    WATCHDOG.state.set(key, { ...prev, pending: true });
+    return;
+  }
+  if (due || prev.pending) {
+    watchdogSend(`⚠️ qianli 服务异常：${name} health 连续巡检失败（${detail}；自 ${new Date(prev.since).toLocaleString('zh-CN')} 起）。排查/重启走本地运维台或 pm2`).then((sent) => {
+      if (sent) WATCHDOG.state.set(key, { ...prev, lastAlertAt: Date.now(), pending: false });
+    });
+  }
+}
+app.get('/api/watchdog', (req, res) => {
+  res.json({
+    lastRun: WATCHDOG.lastRun,
+    intervalMin: 60,
+    results: WATCHDOG.results,
+    services: [...WATCHDOG.state.entries()].map(([k, v]) => ({ key: k, ...v })),
+  });
+});
+WATCHDOG.timer = setInterval(() => { watchdogCheck().catch((e) => console.error('[看门狗] 巡检异常:', e.message)); }, 60 * 60 * 1000);
+WATCHDOG.timer.unref();
+setTimeout(() => { watchdogCheck().catch((e) => console.error('[看门狗] 首轮巡检异常:', e.message)); }, 90 * 1000); // 启动 90s 后首轮

@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v71**（2026-09-15，随本提交落地）。
+当前最新：**v72**（2026-09-15，随本提交落地）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -561,3 +561,16 @@
 
 - 用户提供飞书负责人群自定义机器人 webhook，播报主通道切到飞书群机器人（数据源仍=企微打卡 API）：新增 `src/feishu.js`（webhook 卡片+签名，对齐 duty-bot webhook.js；CSV 经现有应用 im API 可选）；调度器改每通道独立投递水位（重试只补未送达通道）；失败告警双通道；health/policy 增通道布尔。通道连通性已真发验证（code:0 入群成功）。
 - 新增 stub-test-feishu（18 断言）六套全过；修异常明细行日期重复渲染。registry/项目 AGENTS/README/用户指南 HTML 同批改口径。
+
+## v72 · 2026-09-15 · 随本提交落地 · feat
+
+**R8~R14 建设推荐全量落地批（接 v70 审查批；R13 运维项与 4 项部署待回站补做）**
+
+- R8 bambu v29 分发可靠性包：failTask 运行期失败接入重试/让位通道（原只回写「排队中」不重排，单据永久滞留）；givenUp 落盘（人工恢复通道重启失效）；sweepStalePrinting 补审批源守卫；dispatcher-persist-test +6 断言。
+- R9 hub v92 交互互扰治理：DDL 确认在 p2p 对值日词表让位——「打卡/打卡了」恒让位（不再误发「请回复是/否」），口语变体先转 duty-bot（有活跃值日会话才接管，否则回落 DDL 确认）；循环加载链改调用时惰性 require；stub +6 断言。
+- R10 鉴权收尾：FEISHU_VERIFICATION_TOKEN 共享密钥补配到网关+四仓 .env（转发帧注入 token、消费方校验真实生效，event 端点 fail-open 关闭）；query token 传参废除（gateway/duty/wecom auth.js）；hub projects 写动词+logs+test-broadcast 补 X-API-Token；bambu useLongConnection 缺省翻转 false（空壳模式防误配）；gateway health 对非回环调用方收窄为存活摘要。
+- R11 gateway v26 投递语义：事件模式下游 HTTP 失败与传输异常同款重试一次（消费方 messageId 幂等）；command 模式保持不重试（指令无幂等键防双执行）。
+- R12 ticket v71 接单锁全局化：多组别工单跨群并发 chatId 锁盲区关闭，stub-test-multi-accept 新增跨群回归（24 项）。
+- R13 卫生批：approval/bambu/ticket/duty 数据路径 POSIX→C:/home 显式化；wecom push 重启改 delete+应用目录 start（修 cwd/快照残留）。**待补**：pm2-logrotate 安装、开机自启复核、wecom cwd 修正重启（目标机不可达）。
+- R14 dashboard 服务看门狗：逐时 SSH 巡检 registry 全部 pm2 服务 health，连续 2 轮异常/恢复推群 webhook（duty 群通道，WATCHDOG_WEBHOOK_URL 可覆盖），过静默闸门+12h 重提醒；GET /api/watchdog。
+- **待补部署**（本机随用户离站、家庭 LAN 不可达，代码均已推 GitHub）：gateway v26、duty v24、wecom v4 三仓 SFTP 部署；回站后各仓 npm run push 即可（git 步骤无改动，直达部署）。
