@@ -525,7 +525,7 @@ const NET_TARGETS = [
   { id: 'internet', name: '互联网', kind: 'cloud', host: '223.5.5.5', ports: [443] },
   { id: 'feishu', name: '飞书云(API/长连接)', kind: 'cloud', host: 'open.feishu.cn', ports: [443] },
   { id: 'router', name: '主路由', kind: 'net', host: '192.168.31.1', ports: [80] },
-  { id: 'pc', name: '小电脑(生产)', kind: 'host', host: '192.168.31.57', ports: [22, 3010, 3000, 3001, 3002, 3003, 3006, 3007] },
+  { id: 'pc', name: '小电脑(生产)', kind: 'host', host: '192.168.31.57', ports: [22, 3010, 3000, 3001, 3002, 3003, 3006] }, // 3007 回环专用，LAN 探测恒 ✗ 不列
   { id: 'oldnas', name: '旧NAS(备件存储)', kind: 'host', host: '192.168.31.151', ports: [2222, 3923] },
 ];
 
