@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v73**（2026-09-16，随本提交落地）。
+当前最新：**v73**（2026-09-16，fb9abd7）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -575,7 +575,7 @@
 - R14 dashboard 服务看门狗：逐时 SSH 巡检 registry 全部 pm2 服务 health，连续 2 轮异常/恢复推群 webhook（duty 群通道，WATCHDOG_WEBHOOK_URL 可覆盖），过静默闸门+12h 重提醒；GET /api/watchdog。
 - **待补部署**（本机随用户离站、家庭 LAN 不可达，代码均已推 GitHub）：gateway v26、duty v24、wecom v4 三仓 SFTP 部署；回站后各仓 npm run push 即可（git 步骤无改动，直达部署）。
 
-## v73 · 2026-09-16 · 随本提交落地 · feat
+## v73 · 2026-09-16 · fb9abd7 · feat
 
 **wecom v5 方案4：打卡数据源改人肉周导（名单问题随批解决）**
 
