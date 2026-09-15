@@ -27,11 +27,19 @@ assert.strictEqual(wecom.describeErrcode(99999), '', '未知错误码给空提�
 
 // 4) token 缓存不导出（模块态），但 getToken 无配置必须报 NO_CONFIG 而不是发请求
 (async () => {
-  await assert.rejects(() => wecom.getToken(), (e) => e.errcode === 'NO_CONFIG', '无配置报 NO_CONFIG');
-  await assert.rejects(
-    () => wecom.sendMarkdownV2('x'),
-    (e) => e.errcode === 'NO_CONFIG',
-    '无 webhook key 发送报 NO_CONFIG',
-  );
+  // 凭据隔离（2026-09-16）：真实凭据已入 .env，测试前置空 config（与 .env 解耦，防打真请求）
+  const config = require('../src/config');
+  const saved = { corpId: config.corpId, secret: config.secret, webhookKey: config.webhookKey };
+  config.corpId = ''; config.secret = ''; config.webhookKey = '';
+  try {
+    await assert.rejects(() => wecom.getToken(), (e) => e.errcode === 'NO_CONFIG', '无配置报 NO_CONFIG');
+    await assert.rejects(
+      () => wecom.sendMarkdownV2('x'),
+      (e) => e.errcode === 'NO_CONFIG',
+      '无 webhook key 发送报 NO_CONFIG',
+    );
+  } finally {
+    config.corpId = saved.corpId; config.secret = saved.secret; config.webhookKey = saved.webhookKey;
+  }
   console.log('✓ stub-test-wecom 全部通过（分批/错误码/无配置安全 8 组断言）');
 })();

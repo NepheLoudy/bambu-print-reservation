@@ -9,6 +9,8 @@ const config = {
   port: Number(process.env.PORT || 3007),
   timezone: process.env.ATTENDANCE_TIMEZONE || 'Asia/Shanghai',
   cron: process.env.ATTENDANCE_BROADCAST_CRON || '30 9 * * 1',
+  // 数据源（方案4，2026-09-16）：api=企微打卡接口（需可信IP门槛，当前不可行）；import=人肉周导报表
+  dataSource: (process.env.ATTENDANCE_DATA_SOURCE || 'api') === 'import' ? 'import' : 'api',
   corpId: process.env.WECOM_CORP_ID || '',
   secret: process.env.WECOM_ATTENDANCE_SECRET || '',
   webhookKey: process.env.WECOM_WEBHOOK_KEY || '',

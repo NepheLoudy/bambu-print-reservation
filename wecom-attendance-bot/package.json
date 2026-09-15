@@ -8,13 +8,14 @@
     "dev": "nodemon src/index.js",
     "deploy": "node push.js",
     "push": "node push.js",
-    "test": "npm run test:window && npm run test:report && npm run test:store && npm run test:wecom && npm run test:quiethours && npm run test:feishu",
+    "test": "npm run test:window && npm run test:report && npm run test:store && npm run test:wecom && npm run test:quiethours && npm run test:feishu && npm run test:import",
     "test:window": "node scripts/stub-test-window.js",
     "test:quiethours": "node scripts/stub-test-quiethours.js",
     "test:feishu": "node scripts/stub-test-feishu.js",
     "test:report": "node scripts/stub-test-report.js",
     "test:store": "node scripts/stub-test-store.js",
-    "test:wecom": "node scripts/stub-test-wecom.js"
+    "test:wecom": "node scripts/stub-test-wecom.js",
+    "test:import": "node scripts/stub-test-import.js"
   },
   "keywords": [
     "wecom",
@@ -28,7 +29,8 @@
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "node-cron": "^3.0.3",
-    "ssh2": "^1.17.0"
+    "ssh2": "^1.17.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"

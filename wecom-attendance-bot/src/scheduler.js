@@ -18,6 +18,7 @@ const store = require('./store');
 const wecom = require('./wecom');
 const feishu = require('./feishu');
 const quietHours = require('./utils/quietHours');
+const importService = require('./importService');
 
 let cronTask = null;
 let watchdogTask = null;
@@ -30,12 +31,27 @@ function sendDowOrDefault() {
 async function runWeekly({ offset = 0, dryRun = false, trigger = 'cron' } = {}) {
   // 通道门控（v2 飞书通道扩展）：企微群机器人 / 飞书群机器人至少配一个
   const channels = feishu.pickChannels(config);
-  const members = store.loadMembers();
-  if (!members.length) {
-    throw new Error('成员名单为空（config/members.json）：先用 POST /api/attendance/members 添加，或放好种子文件重启');
-  }
+  let members = store.loadMembers();
   const win = report.weekWindow(offset, Date.now(), sendDowOrDefault());
-  const records = await wecom.getCheckinData(win.start / 1000, win.end / 1000, members.map((m) => m.userid));
+  let records;
+  if (config.dataSource === 'import') {
+    // 方案4（2026-09-16）：数据源=企微后台导出的打卡明细（可信IP门槛不可行，API 弃用）
+    const st = store.loadState();
+    const imported = (st.imported && st.imported.records) || [];
+    if (!imported.length) {
+      throw new Error('导入模式：尚无导入数据——企微后台导出打卡明细后 POST /api/attendance/import 上传');
+    }
+    records = importService.filterByWindow(imported, win);
+    if (!records.length) {
+      throw new Error(`导入模式：已导入数据不覆盖本播报窗口 ${win.label}（导入于 ${(st.imported.importedAt || '').slice(0, 10)}，覆盖 ${st.imported.days || '?'}）`);
+    }
+    members = importService.mergeMembers(members, importService.deriveMembers(records));
+  } else {
+    if (!members.length) {
+      throw new Error('成员名单为空（config/members.json）：先用 POST /api/attendance/members 添加，或放好种子文件重启');
+    }
+    records = await wecom.getCheckinData(win.start / 1000, win.end / 1000, members.map((m) => m.userid));
+  }
   const aggregated = report.aggregate(records, members);
   const markdown = report.renderMarkdownV2(win, aggregated);
   const csv = report.renderCsv(win, aggregated);

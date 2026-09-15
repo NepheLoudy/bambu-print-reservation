@@ -14,6 +14,7 @@ const wecom = require('./wecom');
 const feishu = require('./feishu');
 const report = require('./report');
 const scheduler = require('./scheduler');
+const importService = require('./importService');
 
 const app = express();
 app.use(cors());
@@ -82,6 +83,8 @@ app.get('/api/attendance/policy', (req, res) => {
       apiDocs: '播报走飞书群自定义机器人 webhook（与 duty-bot 看板卡同款链路）；机器人开了签名校验需配 FEISHU_WEBHOOK_SECRET；CSV 经现有应用 im API 发文件需 FEISHU_APP_ID/SECRET + FEISHU_CSV_CHAT_ID',
     },
     members: { file: config.membersFile, count: members.length, list: members },
+    dataSource: config.dataSource,
+    imported: (() => { try { const st = store.loadState(); const { records, ...meta } = st.imported || {}; return Object.keys(meta).length ? { ...meta, records: records.length } : null; } catch { return null; } })(),
     state: store.loadState(),
     apiTokenLocked: !config.apiToken,
   });
@@ -93,6 +96,28 @@ app.post('/api/attendance/members', requireApiToken, (req, res) => {
   const { list, error } = store.applyMembersChange({ action, userid, name });
   if (error) return res.status(400).json({ error });
   res.json({ ok: true, count: list.length, list });
+});
+
+// ---- 打卡报表导入（方案4：POST {dataBase64, filename?}，X-API-Token；名单自动合并落盘） ----
+app.post('/api/attendance/import', requireApiToken, (req, res) => {
+  const { dataBase64, filename } = req.body || {};
+  if (!dataBase64) return res.status(400).json({ error: '缺少 dataBase64（打卡明细文件字节流的 base64）' });
+  let buf;
+  try { buf = Buffer.from(String(dataBase64), 'base64'); } catch { return res.status(400).json({ error: 'dataBase64 非法 base64' }); }
+  try {
+    const parsed = importService.parseWorkbook(buf);
+    const merged = importService.mergeMembers(store.loadMembers(), parsed.members);
+    store.saveMembers(merged);
+    const state = store.loadState();
+    const days = [...new Set(parsed.records.map((r) => new Date(r.checkin_time * 1000).toISOString().slice(0, 10)))].sort();
+    state.imported = { records: parsed.records, importedAt: new Date().toISOString(), sourceFile: String(filename || ''), count: parsed.records.length, days: `${days[0]} ~ ${days[days.length - 1]}` };
+    store.saveState(state);
+    console.log(`[考勤] 导入打卡明细: ${parsed.records.length} 条（${state.imported.days}），名单 ${merged.length} 人`);
+    res.json({ ok: true, count: parsed.records.length, days: state.imported.days, members: merged.length, columnsMatched: parsed.matched, skipped: parsed.skipped });
+  } catch (err) {
+    console.error('[考勤] 导入解析失败:', err.message);
+    res.status(400).json({ error: err.message });
+  }
 });
 
 // ---- 预览：只拉数渲染不发送（只读，未配置企微凭据时明确报错） ----

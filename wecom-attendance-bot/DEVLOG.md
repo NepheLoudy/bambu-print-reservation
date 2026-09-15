@@ -40,3 +40,12 @@
 - auth.js 废除 ?token= 查询串传参（R10②）：X-API-Token 头为唯一通道，防 token 进访问日志。
 - push.js 重启步骤改 delete + 应用目录内 start（R13①）：pm2 进程首启的 cwd/环境快照会随 restart 永久保留（本服务首启曾挂在用户目录），delete 清快照、cd 应用目录修正 cwd。
 - 注：本批部署因本机随用户离站（校园网，家庭 LAN 不可达）暂缓，代码已推 GitHub，回站后 npm run push 补部署。
+
+### v5 · 2026-09-15 · 随本提交落地 · feat
+
+**方案4：数据源改打卡报表人肉周导（可信IP门槛不可行的落地替代）**
+
+- 企微自建应用配置可信 IP 被强制门槛拦截（须先有可信域名或接收消息回调 URL，均需公网可达——家里 NAT 形态无解，用户拍板走方案4）。凭据本身有效：gettoken 实测通过；打卡接口当前 48002 forbidden（from ip 正确），API 链路整体保留，`ATTENDANCE_DATA_SOURCE=api` 一键切回（届时只差可信IP 配置）。
+- 新增 src/importService + POST /api/attendance/import（X-API-Token，body {dataBase64, filename}）：xlsx/csv 报表解析为 getcheckindata 同构记录流，表头模糊匹配（姓名/账号/打卡时间/类型/异常/地点/规则），时间统一按上海时区换算（字符串/Date/Excel 序列号三态）；解析即名单自动合并落盘（userid 取「账号」列，无则姓名兜底）——**名单不再需要手工维护**。
+- runWeekly 增数据源分支：import 模式按播报窗口过滤已导入记录，窗口未覆盖时给出明确错误（09:30 cron 未导入时走失败告警，负责人群可见）；名单=名册∪导入衍生。
+- 依赖新增 xlsx（SheetJS）；新增 stub-test-import 15 断言（列识别/时区三态/名单合并/窗口过滤/缺列报错/聚合兼容），七套桩全过。

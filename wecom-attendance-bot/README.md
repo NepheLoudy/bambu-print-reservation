@@ -11,6 +11,9 @@
 - CSV 明细：企微通道随卡附件；飞书通道经**现有应用** im API 发文件（需
   `FEISHU_APP_ID/SECRET` + `FEISHU_CSV_CHAT_ID`），未配置则仅落盘 exports 目录。
 
+
+> **数据源（2026-09-16 起，方案4）**：`ATTENDANCE_DATA_SOURCE=import`——企微「可信IP」强制门槛（需公网回调/可信域名）在本部署形态无解，打卡数据改**人肉周导**：企微管理后台 → 打卡应用 → 报表 → 打卡记录明细 导出 xlsx → `POST /api/attendance/import`（X-API-Token，body `{dataBase64, filename}`）→ 解析入库+名单自动合并。企微 API 链路（getcheckindata）保留未删，`ATTENDANCE_DATA_SOURCE=api` 可切回（凭据已配，仅差可信IP）。
+
 ## 架构位置（与飞书项目群的关系）
 
 - **数据源在企微、播报在飞书**：拉数走企微打卡 API（自建应用+授权+可信IP）；
