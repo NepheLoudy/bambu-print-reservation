@@ -614,10 +614,19 @@ function watchdogWebhook() {
   } catch { return ''; }
 }
 function watchdogInQuietHours(now = Date.now()) {
-  // 上海时间 = UTC+8 恒定偏移；窗口 [02:00, 09:00)
+  // 上海时间 = UTC+8 恒定偏移；默认窗口 [23:00, 09:00)（跨午夜；比播报静默更宽——
+  // 2026-09-16 00:41 教训：运维告警不该在成员群里半夜响）
+  const parse = (v, dflt) => {
+    const m = new RegExp('^(\d{1,2}):(\d{2})$').exec(String(v || ''));
+    if (!m) return dflt;
+    return Number(m[1]) * 60 + Number(m[2]);
+  };
+  const start = parse(process.env.WATCHDOG_QUIET_START, 23 * 60);
+  const end = parse(process.env.WATCHDOG_QUIET_END, 9 * 60);
   const d = new Date(now + 8 * 3600 * 1000);
   const m = d.getUTCHours() * 60 + d.getUTCMinutes();
-  return m >= 120 && m < 540;
+  if (start <= end) return m >= start && m < end;
+  return m >= start || m < end;
 }
 async function watchdogSend(text) {
   const url = watchdogWebhook();
@@ -634,6 +643,14 @@ async function watchdogSend(text) {
 }
 async function watchdogCheck() {
   WATCHDOG.lastRun = new Date().toISOString();
+  // 分层探测（2026-09-16 误报修正）：先探家庭网关——本机离站（连路由器都不通）时
+  // SSH 必然失败，那不是「目标机挂了」而是「我看不见」，登记 offsite 不告警；
+  // 路由器可达而目标不可达才是真故障，正常走 2 连击告警
+  const routerUp = await tcpProbe('192.168.31.1', 80, 3000);
+  if (!routerUp) {
+    WATCHDOG.results = [{ key: 'host', name: '部署目标(SSH)', ok: false, detail: '本机不在家庭网络（离站），巡检挂起不告警', offsite: true }];
+    return;
+  }
   let out = '';
   try {
     const ports = registry.projects.filter((p) => p.pm2Name).map((p) => p.port);

@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v73**（2026-09-16，fb9abd7）。
+当前最新：**v74**（2026-09-16，随本提交落地）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -583,3 +583,11 @@
 - wecom v5：新增 importService（xlsx/csv 报表解析，表头模糊匹配+上海时区三态换算）+ POST /api/attendance/import（X-API-Token，base64 上传；**解析即名单自动合并落盘——名单不再需要手工维护**）+ runWeekly 数据源分支（按播报窗口过滤，未导入/窗口未覆盖时给明确错误，cron 未导入走失败告警群内可见）；`ATTENDANCE_DATA_SOURCE=import` 已切。
 - stub-test-import 15 断言（七套全过）；wecom 桩测试凭据隔离（真实凭据入 .env 后不再依赖"env 为空"前提）。
 - registry 标注 import 端点；AGENTS/README 数据源口径更新。
+
+## v74 · 2026-09-16 · 随本提交落地 · fix
+
+**值日私信链补强（duty v25）+ 运维台看门狗误报修正（R14 v2）**
+
+- duty v25（取证驱动）：09-15 六个定时任务全部正常触发、无发送失败，但 3 名成员全天零响应被收口未做完——缺口在触达频次与收口告知。新增 **21:00 临门提醒**（收口前 1 小时私信未完结队员，分态引导：已传照片只需打卡/未传引导照片+打卡/做不完告之后果）；**收口私信未做完者本人**（missNotices：补偿预告+值日助手引导；photoOnly 保留兼容）。stub-test-flow +8 断言；cron 任务 5→6。
+- dashboard 看门狗 v2：修复 09-16 00:41 误报（本机随用户离站，SSH 失败被当成目标机故障，半夜告警进群）——**分层探测**：先探家庭网关 192.168.31.1，路由器不可达=本机离站，巡检挂起不告警；告警静默窗口加宽 02:00–09:00 → **23:00–09:00**（WATCHDOG_QUIET_START/END 可配）。附带清理：stub-test-board 退出竞态加固（libuv handle closing 崩溃致闸门闪失败）；运维台旧实例已重启换新代码。
+- 运维持意：pm2-logrotate 轮转后 pm2 daemon 日志句柄不重开（新日志写进轮转文件、新文件 0 字节）——`pm2 reloadLogs` 重开，已执行；duty-bot 同批重启恢复正常日志。
