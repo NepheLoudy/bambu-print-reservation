@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v75**（2026-09-16，随本提交落地）。
+当前最新：**v75**（2026-09-16，05d9226）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -592,7 +592,7 @@
 - dashboard 看门狗 v2：修复 09-16 00:41 误报（本机随用户离站，SSH 失败被当成目标机故障，半夜告警进群）——**分层探测**：先探家庭网关 192.168.31.1，路由器不可达=本机离站，巡检挂起不告警；告警静默窗口加宽 02:00–09:00 → **23:00–09:00**（WATCHDOG_QUIET_START/END 可配）。附带清理：stub-test-board 退出竞态加固（libuv handle closing 崩溃致闸门闪失败）；运维台旧实例已重启换新代码。
 - 运维持意：pm2-logrotate 轮转后 pm2 daemon 日志句柄不重开（新日志写进轮转文件、新文件 0 字节）——`pm2 reloadLogs` 重开，已执行；duty-bot 同批重启恢复正常日志。
 
-## v75 · 2026-09-16 · 随本提交落地 · feat
+## v75 · 2026-09-16 · 05d9226 · feat
 
 **运维台改名「曼波大模型」+ 网络拓扑真图 + 路由器在线设备发现**
 
