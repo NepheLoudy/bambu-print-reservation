@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v76**（2026-09-16，8a877cc）。
+当前最新：**v77**（2026-09-16，随本提交落地）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -609,3 +609,11 @@
 - 两路并行代理复查今晚新代码，确认缺陷当晚全修：gateway deliverTo 重构（R11 重试失败误入传输 catch 致三连投递+failed 计数污染，改为统一按尝试计数）；wecom 导入防呆（≥2 时间列判定日报/统计模板直接报错、空姓名+空账号行跳过防幽灵用户）；duty 临门提醒会话补建（防打卡无人认领误记未做完）+ missNotices 幂等守卫（双跑私信不重发）+ 管理摘要标注未绑定未通知 + test-lastcall 端点；dashboard LAN 声明补齐（首屏 ReferenceError）、lanScan 错误缓存 TTL（防 30s 轮询重扫）、看门狗发送风暴守卫、Host 校验补 [::1]、shellSafe 剥 %。
 - 遗留观察项（低危，详见桌面《设计意图待定项》）：xlsx 0.18.5 已知 CVE（输入面受控）、LAN 网段前缀硬编码、恢复通告静默丢弃、smoke-test 未附 token 失效等。
 - 另发现并记录：昨晚消费方先上 token 而网关未注入的窗口期（约 23:40–00:45）转发事件会被 403 拒收——已自愈（网关 v26 注入验证 ✓），后续部署顺序应先网关后消费方。
+
+## v77 · 2026-09-16 · 随本提交落地 · fix
+
+**运维台全交互审计修复：hub 快捷部署 cwd 错误（用户上报）**
+
+- 用户从运维台点 hub「npm push 部署」报 Missing script "push"：registry hub.dir 指到 server/ 子目录（无 push 脚本）。修正 dir=项目根 + localRun.script=server/src/index.js + test-duty 动作 cwd=server（脚本在 server/scripts，依赖 server/src 相对路径）。
+- 全交互审计：registry 全项目动作静态核验（push/install/test 脚本与 cwd 逐项存在性）+ 全部 HTTP 端点动态探测（overview/stats/activity/windows/network/lan/watchdog/egress-ip/action-log/nas-log + SSH 代理直达六服务 policy 与 hub 规则 CRUD 路由）全部 200；动作链以 hub test-duty 真实跑通（exit 0）。
+- 目标机补 pm2 reloadLogs（logrotate 轮转后 daemon 日志句柄残留问题波及 wecom，已恢复）。

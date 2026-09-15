@@ -37,7 +37,7 @@ module.exports = {
       id: 'hub',
       name: 'project-management-robot',
       label: '爆米花机-对话型（对话枢纽 + 项目管理）',
-      dir: 'ticket-pm/project-management-robot/server',
+      dir: 'ticket-pm/project-management-robot', // 项目根：push.js/package.json 所在（server/ 无 push 脚本，2026-09-16 运维台交互审计修复）
       repo: 'own',
       port: 3000,
       pm2Name: 'knowledge-tracker',
@@ -75,10 +75,10 @@ module.exports = {
         '私聊基础指令白名单 P2P_COMMAND_OPEN_IDS / P2P_COMMAND_CHAT_IDS（值日指令不限）',
         '抽奖：@机器人 发「/工作表名」即抽一次（抽奖配置表.xlsx 一个工作表=一个指令=一个奖池，复制表改名即新抽奖；值日管辖群可用；审批群不开放；私聊按指令白名单口径）；LOTTERY_CHAT_IDS 可收窄；动态进 /help',
       ],
-      localRun: { script: 'src/index.js', cwd: '', env: {} },
+      localRun: { script: 'server/src/index.js', cwd: '', env: {} },
       quickActions: [
         { id: 'install', label: 'npm install', cmd: 'npm install', cwd: '' },
-        { id: 'test-duty', label: '值日分支 stub 测试', cmd: 'node scripts/stub-test-duty-branch.js', cwd: '' },
+        { id: 'test-duty', label: '值日分支 stub 测试', cmd: 'node scripts/stub-test-duty-branch.js', cwd: 'server' }, // 脚本在 server/scripts（依赖 server/src 相对路径）
       ],
       notes: '关键词自动回答表 .local.json 私有覆盖（真实回答不上传 git）；抽奖配置 .local.json 同口径守卫；2026-09-14 起 /help 不展示运维指令（/status /test-ddl /keywords /autoreply /history 仍可用）；DDL 播报事件写入动态广场（机器人项目看板）',
     },
