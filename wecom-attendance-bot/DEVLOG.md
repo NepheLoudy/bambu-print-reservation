@@ -32,3 +32,11 @@
 - 调度器改**每通道独立投递水位**（`state.delivery`，duty「重试只补失败群」模式）：重试只补未送达通道；CSV 附件独立水位尽力而为；失败告警向所有配置通道发（保留 v2 静默闸门与 manual 豁免；告警去重改 `alertedWeekKey`——v2 的 lastError 去重在 lastError 已前移到 runWeekly 记录后失效）；health/policy 增加通道布尔；
 - 连通性已真发验证（测试卡 code:0 成功入群，该机器人无签名/关键词限制，FEISHU_WEBHOOK_SECRET 留空）；企微侧 WECOM_* 三键仍待用户建应用回填；
 - 新增 stub-test-feishu（18 断言，签名/门控/卡片/截断/错误码），六套桩全过；修异常明细行日期重复（`day`+`time` 拼出「2026-09-08 09-08 09:41」，两渲染统一只用含日期的 `time`）与飞书空周报判定（按 totals.punches 而非 users.length）。
+
+### v4 · 2026-09-15 · 随本提交落地 · fix
+
+**R10/R13 收尾批**
+
+- auth.js 废除 ?token= 查询串传参（R10②）：X-API-Token 头为唯一通道，防 token 进访问日志。
+- push.js 重启步骤改 delete + 应用目录内 start（R13①）：pm2 进程首启的 cwd/环境快照会随 restart 永久保留（本服务首启曾挂在用户目录），delete 清快照、cd 应用目录修正 cwd。
+- 注：本批部署因本机随用户离站（校园网，家庭 LAN 不可达）暂缓，代码已推 GitHub，回站后 npm run push 补部署。

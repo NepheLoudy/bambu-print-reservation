@@ -329,8 +329,10 @@ function restart() {
   console.log('\n========== [4/4] 重启服务 ==========');
   // 只收出站 API/webhook + 本机回环 HTTP 窗口，无需开放防火墙端口
   // PATH 显式带 node 目录：小电脑 SSH 非交互 shell 默认 PATH 不含 node/pm2（同 npmInstall）
+  // delete+start（而非 restart）：pm2 进程首次启动的环境快照/cwd 会随 restart 永久保留——
+  // 首启曾挂在用户目录导致 cwd 异常（R13①）；应用目录内启动修正 cwd，并清掉旧环境快照
   const cmd = 'export PATH=/c/tools/node-v22.10.0-win-x64:/mingw64/bin:/usr/local/bin:/usr/bin:/bin:$PATH; '
-    + 'pm2 restart ' + PM2_NAME + ' --update-env 2>/dev/null || pm2 start ' + REMOTE_DIR + '/src/index.js --name ' + PM2_NAME + '; pm2 save';
+    + 'pm2 delete ' + PM2_NAME + ' 2>/dev/null; cd ' + REMOTE_DIR + ' && pm2 start src/index.js --name ' + PM2_NAME + ' && pm2 save';
   exec(cmd, () => {
     console.log('\n✅ 部署完成，服务状态：');
     conn.exec('export PATH=/c/tools/node-v22.10.0-win-x64:$PATH; pm2 list', (err, stream) => {
