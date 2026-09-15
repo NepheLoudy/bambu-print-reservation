@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v72**（2026-09-15，随本提交落地）。
+当前最新：**v72**（2026-09-15，8f8a4f9）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -562,7 +562,7 @@
 - 用户提供飞书负责人群自定义机器人 webhook，播报主通道切到飞书群机器人（数据源仍=企微打卡 API）：新增 `src/feishu.js`（webhook 卡片+签名，对齐 duty-bot webhook.js；CSV 经现有应用 im API 可选）；调度器改每通道独立投递水位（重试只补未送达通道）；失败告警双通道；health/policy 增通道布尔。通道连通性已真发验证（code:0 入群成功）。
 - 新增 stub-test-feishu（18 断言）六套全过；修异常明细行日期重复渲染。registry/项目 AGENTS/README/用户指南 HTML 同批改口径。
 
-## v72 · 2026-09-15 · 随本提交落地 · feat
+## v72 · 2026-09-15 · 8f8a4f9 · feat
 
 **R8~R14 建设推荐全量落地批（接 v70 审查批；R13 运维项与 4 项部署待回站补做）**
 

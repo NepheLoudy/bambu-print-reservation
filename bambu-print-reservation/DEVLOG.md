@@ -186,7 +186,7 @@
 - .gitignore 增补 .dispatch-state.json（本地不配 DISPATCH_STATE_FILE 跑一次就会在项目根生成，顶层 git add -A 易误扫入库——wecom v68 前车之鉴）。
 - DEVLOG 头部指针修正 v26 → v28（v27 时漏更，该指针历史上已漏过一次）。
 
-### v29 · 2026-09-15 · 随本提交落地 · fix
+### v29 · 2026-09-15 · 顶层归档 8f8a4f9 · fix
 
 **R8 分发可靠性包（全项目审查推荐落地批）**
 
