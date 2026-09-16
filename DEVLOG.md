@@ -641,3 +641,10 @@
 - 拓扑卡片改统一栅格（auto-fill 176px 等宽、等高裁剪、端口芯片超出折叠 +N），消除大小不一；样式与暗色主题统一。
 - 未识别设备新增「踢出/封禁/解封」：走小米路由器管理 API（router-xiaomi.js，社区公开登录算法：key→nonce→sha1 链→stok；设备列表 devicelist；禁用上网按固件候选端点尝试并带回原始响应）。封禁名单持久化 .banned-devices.json（离线也展示、解封恢复），凭据=approval-bot/.env 的 ROUTER_PASSWORD（未配置时按钮返回明确引导，不发路由器）。GET /api/router/status。
 - 已实测：登录算法需真实密码验证（待用户提供 ROUTER_PASSWORD 后联调端点命中情况）。
+
+## v81 · 2026-09-16 · 随本提交落地 · docs
+
+**duty-bot v28 锚点归档：照片凭证下载接口修复**
+
+- duty-bot v28（随本提交归档）：照片收录「传不上去」根因修复——旧下载接口 `im/v1/images/{key}` 只能下机器人自传图，用户图片一律 234001（功能上线以来零成功）；换消息资源接口 `im/v1/messages/{id}/resources/{key}?type=image`。取证→线上实弹验证（旧接口复现基线/新接口形状被接受/drive 上传权限已具备）→五套桩测试全过→部署重启全绿。
+- 本批仅 duty-bot 单仓行为变更，顶层无代码改动，纯锚点归档。
