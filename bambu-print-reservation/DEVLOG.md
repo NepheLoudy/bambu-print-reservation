@@ -197,7 +197,7 @@
 - .env：FEISHU_VERIFICATION_TOKEN 补配共享密钥（/api/feishu/event 此前零校验，LAN 可伪造事件驱动分发）；DISPATCH_STATE_FILE POSIX 路径显式化 C:/home。
 - dispatcher-persist-test 新增 6 断言（givenUp 往返/重排/让位/落盘恢复），四套测试全过。
 
-### v30 · 2026-09-17 · 随本提交落地 · fix
+### v30 · 2026-09-17 · 顶层归档 cc97019 · fix
 
 **全量 debug 批：分发引擎三处修复 + 超时与配置收口**
 
