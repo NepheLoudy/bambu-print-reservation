@@ -5,13 +5,15 @@
 // - 补发：每小时整点对表——若已过本周发送时刻而水位(lastSentWeekKey)没跟上，
 //   说明发送时段进程不在线（重启/宕机），立即补发该周。补发同时天然承担
 //   失败重试（拉数/发送失败不改水位，下个整点自动再试），无需独立重试队列。
-// - 静默口径：周播 cron 默认发送时刻 09:30 在晚间静默窗口（02:00–09:00）之外；
-//   补发看门狗与失败告警属自动播报，命中静默窗口整轮跳过（utils/quietHours），
-//   窗口后下一个整点 tick 按最新状态重查补发/告警——本任务是可重扫型，无需积压落盘。
+// - 静默口径：自动播报全过闸（utils/quietHours）——周播 cron 本体命中静默窗口
+//   （02:00–09:00，默认 09:30 在窗外）整轮跳过；补发看门狗与失败告警同样命中即跳过。
+//   窗口后下一个整点 tick 按最新状态重查补发/补播——本任务是可重扫型，无需积压落盘。
 // - 首启保护：水位为空（从未成功播报过）不补发，避免部署即广播；
 //   可用 POST /api/attendance/test-broadcast 手动触发验证。
 // ============================================================
 const cron = require('node-cron');
+const fs = require('fs');
+const path = require('path');
 const config = require('./config');
 const report = require('./report');
 const store = require('./store');
@@ -59,6 +61,14 @@ async function runWeekly({ offset = 0, dryRun = false, trigger = 'cron' } = {}) 
 
   if (dryRun) {
     return { window: win, markdown, csv, filename, sent: false, totals: aggregated.totals };
+  }
+
+  // CSV 明细始终落盘 exports（本地留档：发送通道全挂也有底档；失败仅 warn 不阻塞播报）
+  try {
+    fs.mkdirSync(config.exportsDir, { recursive: true });
+    fs.writeFileSync(path.join(config.exportsDir, filename), csv);
+  } catch (e) {
+    console.warn('[考勤] CSV 落盘 exports 失败（不影响播报）:', e.message);
   }
 
   // 每通道独立水位（duty「重试只补失败群」模式）：重试只补未送达通道，不重复轰炸已收到的群
@@ -188,6 +198,12 @@ function start(onRun) {
     throw new Error(`ATTENDANCE_BROADCAST_CRON 非法: ${config.cron}`);
   }
   cronTask = cron.schedule(config.cron, () => {
+    // 晚间静默闸门：cron 被配进静默窗口（02:00–09:00）时整轮跳过，
+    // 窗口后整点 watchdog tick 天然按最新状态补跑（可重扫型，无需积压）
+    if (quietHours.inQuietHours()) {
+      console.log('[考勤] 静默窗口内，周播本轮跳过（窗口后看门狗整点补跑）');
+      return;
+    }
     onRun({ trigger: 'cron' }).catch(() => {}); // 失败已在 guardedRun 内告警
   }, { timezone: config.timezone });
 

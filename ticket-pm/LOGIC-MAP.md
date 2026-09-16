@@ -188,12 +188,13 @@ p2p 消息：  ① DDL逾期确认(handleP2PReply) → handled? 终止
 - 回复：**来源必须匹配**——p2p 发的确认只能私聊回；解析只认整句确认/否认词（是/是的/确认/完成/做完了/好/没问题/done/ok… ↔ 否/不/不是/没完成/还没/not yet…），**不做 contains 宽松匹配**（防"你是谁""是的（附和别人）"误改项目状态）。
 - 回复"是" → 项目状态写 `completed`（失败回滚待确认记录并告知）；"否" → 状态不变；未识别 → 私聊引导（群聊静默）。
 - 指令消息（`/` 开头）不进确认流程。
+- **值日打卡让位（R9，2026-09-15 hub v92）**：存在未过期确认时，值日主词「打卡/打卡了」及口语变体让位给 duty-bot（转发出站，hub 不当项目确认处理）；「打卡」加入确认直通词表。
 
 ### 2.4 对话与指令分发（`server/src/services/chatService.js`）
 
 - 群聊需 @机器人（`isMentionedBot` 兼容 mentioned_type app/bot/self/名称）；私聊白名单同 ticket-bot 同套环境变量。
-- 本项目指令：`/help` `/status` `/test-ddl` `/keywords` `/autoreply` `/history`；`/print-*` → 转发 bambu `POST /api/chat/command`；**审批群**（`APPROVAL_CHAT_ID`）内 `/help` 与其余指令整体切换为 `/approval-*` → 转发 approval-bot，其它指令提示"本群仅财务指令"。
-- 值日管辖群值日分支先于一切能力（`handleDutyBranch` + `dutyPolicyService`）：**管辖范畴/生效范畴以 duty-bot `GET /api/duty/policy` 下发为准**（`DUTY_GROUP_CHAT_IDS`、看板触发词、基础指令关闭开关、引导语、p2p 指令清单；hub 60s 短缓存，duty-bot 失联时按本仓 `DUTY_CHAT_ID` 兜底；groupChatIds 空=不限制。关键词回答放行开关与值日域保留词校验已移除——2026-09-13 口径：值日助手仅 @ 与私聊触发、未@/@ 关键词回答全群统一，与值日部件无撞车面）。p2p 值日指令/图片按策略直转 duty-bot（带 messageId，duty-bot 侧消息级幂等生效；duty-bot 未接管如无会话口语变体→落回常规流程）；管辖群内 @消息：看板触发词（带不带 `/` 均可）出看板（载荷带 messageId）、@+纯图片静默吞掉、抽奖动态指令（/抽奖）先于基础指令关闭的引导语（2026-09-14）、关键词命中照常回答（同款 `buildMentionReplyForText`），其余回策略引导语；**非管辖群** @ 值日指令（p2pCommands 精确词）回办理路径提示；未@消息照常走管道③（关键词回答全群统一，无值日群特殊放行开关）。已知边界（记录在案）：gateway `contains:'接单'` 全局抢占、`isMentionedBot` 把 @任何 app/bot 都算 @本机器人（共用应用妥协）、群看板限流命中静默。
+- 本项目指令：`/help` `/status` `/test-ddl` `/keywords` `/autoreply` `/history` `/lottery`（看奖池）；`/print-*` → 转发 bambu `POST /api/chat/command`；**审批群**（`APPROVAL_CHAT_ID`）内 `/help` 与其余指令整体切换为 `/approval-*` → 转发 approval-bot，其它指令提示"本群仅财务指令"。
+- 值日管辖群值日分支先于一切能力（`handleDutyBranch` + `dutyPolicyService`）：**管辖范畴/生效范畴以 duty-bot `GET /api/duty/policy` 下发为准**（`DUTY_GROUP_CHAT_IDS`、看板触发词、基础指令关闭开关、引导语、p2p 指令清单；hub 60s 短缓存，duty-bot 失联时按本仓 `DUTY_CHAT_ID` 兜底；groupChatIds 空=不限制。关键词回答放行开关与值日域保留词校验已移除——2026-09-13 口径：值日助手仅 @ 与私聊触发、未@/@ 关键词回答全群统一，与值日部件无撞车面）。p2p 值日指令/图片按策略直转 duty-bot（带 messageId，duty-bot 侧消息级幂等生效；duty-bot 未接管如无会话口语变体→落回常规流程）；管辖群内 @消息：看板触发词（带不带 `/` 均可）出看板（载荷带 messageId）、群内指令子集+取件词形（2026-09-17 快递助手：策略 `groupCommands`=`值日助手/快递助手/快递/查询当前快递` 裸词与带 `/` 双形态 + `p2pCommandPatterns`=`已取n/全部已取`，转发 duty-bot；开窗→群发非@取件码/照片经 `maybeForwardExpressObserve` 观察转发进「快递」表，每小时整点未取播报过静默闸门）、@+纯图片窗口期转 duty-bot 登记（无窗口静默）、抽奖动态指令（/抽奖）先于基础指令关闭的引导语（2026-09-14）、关键词命中照常回答（同款 `buildMentionReplyForText`），其余回策略引导语；**非管辖群** @ 值日指令（`groupCommands` 指令子集，2026-09-17 修复——此前吃整份 p2pCommands 把「是/好/完成」口语词也拦成值日提示）回办理路径提示；未@消息照常走管道③（关键词回答全群统一，无值日群特殊放行开关）。已知边界（记录在案）：gateway `contains:'接单'` 全局抢占、`isMentionedBot` 把 @任何 app/bot 都算 @本机器人（共用应用妥协）、群看板限流命中静默。
 - 关键词自动回复分流（非指令）：群里 @我 → `buildMentionReplyForText`（先「@触发回答」表，命中即止；未命中回落「关键词回答」表）；私聊命中任一表 → 只回"仅面向群聊开放"提示，不返回答案。指令优先于自动回复。
 - `/test-ddl` 守卫：非播报群的群聊里拒绝执行（防止测试卡经 owner webhook 兜底跨群打到 owner 群）；私聊管理员保留 owner 群兜底。
 - 普通对话：审批群回财务引导文案，其余回 popcorn 引导文案；回复用 message reply，失败降级 chat_id 直发。
@@ -207,7 +208,7 @@ p2p 消息：  ① DDL逾期确认(handleP2PReply) → handled? 终止
   - 「关键词回答」→ `autoReplies.json`：未@群消息路径（管道③）命中即回，`AUTO_REPLY_CHAT_IDS` 可收窄（留空/`*`=全群）；同时是 @我 时的回落表。
   - 「@触发回答」→ `autoRepliesMention.json`：只在群里 @机器人 时参与，优先级高于上表；两表都未命中才回欢迎语。跨表不合并（先命中的表胜出），表内多命中才合并。
   - 两表都属对话回路，不受晚间静默限制；改动 JSON 即时生效（每条消息重读）。
-- 会议提醒（`meetingReminderService`）：所有群仅识别会议卡片（share_chat / share_calendar / calendar_event / video_chat / interactive 卡片特征），5 分钟窗口去重后 @所有人提醒。
+- 会议提醒（`meetingReminderService`）：所有群仅识别会议卡片（share_calendar / calendar_event / video_chat / interactive 卡片特征；**share_chat 群聊分享卡片明确排除**，README 口径为准），5 分钟窗口去重后 @所有人提醒。
 
 ---
 

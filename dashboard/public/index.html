@@ -589,7 +589,7 @@ function closeWinFloat() {
 }
 
 function renderWinPanel(p) {
-  const rows = p.windows.map((w) => {
+  const rows = p.windows.map((w, wi) => {
     if (w.kind === 'whitelist') {
       return `<div class="win-row">☰ ${w.d}：<span id="wlNames-${p.id}">加载中…</span></div>
         <div class="win-row">
@@ -614,8 +614,27 @@ function renderWinPanel(p) {
         <div class="win-row" id="dutyGroupsNow"></div>`;
     }
     if (w.kind === 'action') {
-      return `<div class="win-row">· ${w.d} <span class="badge method">${w.m}</span>
-        <button onclick="rosterRefresh(${p.port}, this)">立即执行</button></div>`;
+      // 名册刷新保留专属交互（同步人数 + 联动重拉名册/白名单）；其余按窗口定义的
+      // method/path/params 渲染通用表单提交（此前硬编码 rosterRefresh，wecom 的 action 窗口必 404）
+      if (w.p === '/api/duty/roster/refresh') {
+        return `<div class="win-row">· ${w.d} <span class="badge method">${w.m}</span>
+          <button onclick="rosterRefresh(${p.port}, this)">立即执行</button></div>`;
+      }
+      const fid = `act-${p.id}-${wi}`;
+      const fields = (w.params || []).map((pa) => {
+        const iid = `${fid}-${pa.key}`;
+        if (pa.type === 'checkbox') return `<label class="nas" style="white-space:nowrap;"><input type="checkbox" id="${iid}"> ${esc(pa.d || pa.key)}</label>`;
+        if (pa.type === 'select') return `<select id="${iid}">${(pa.options || []).map((o) => `<option>${esc(o)}</option>`).join('')}</select>`;
+        if (pa.type === 'number') return `<input type="number" id="${iid}" placeholder="${esc(pa.d || pa.key)}" style="width:76px;">`;
+        return `<input id="${iid}" placeholder="${esc(pa.d || pa.key)}" size="12">`;
+      }).join(' ');
+      return `<div class="win-row">· ${w.d} <span class="badge method">${w.m}</span> <span class="nas">${esc(w.p)}</span></div>
+        <div class="win-row">${fields}
+          <button class="primary" onclick="winActionSubmit('${p.id}', ${wi}, this)">执行</button></div>`;
+    }
+    if (w.kind === 'note') {
+      // 仅标注说明的窗口（如 base64 文件上传类），不渲染按钮
+      return `<div class="win-row">· ${w.d} <span class="badge method">${w.m}</span> <span class="nas">${esc(w.p)}</span></div>`;
     }
     return `<div class="win-row">· ${w.d} <span class="badge method">${w.m}</span>
       <button onclick="winView(${p.port}, '${w.p}', '${w.d}')">查看</button>
@@ -667,6 +686,30 @@ async function rosterRefresh(port, btn) {
   }
 }
 
+// —— 通用 action 窗口提交：按 registry 窗口定义的 params 收集表单值，POST 到窗口 path ——
+async function winActionSubmit(pid, winIdx, btn) {
+  const proj = ((DATA && DATA.projects) || []).find((x) => x.id === pid);
+  const w = proj && (proj.windows || [])[Number(winIdx)];
+  if (!proj || !w) return toast('窗口定义未找到，请收起面板后重试');
+  const prefix = `act-${pid}-${winIdx}`;
+  const body = {};
+  for (const pa of w.params || []) {
+    const el = document.getElementById(`${prefix}-${pa.key}`);
+    if (!el) continue;
+    if (pa.type === 'checkbox') body[pa.key] = el.checked;
+    else if (pa.type === 'number') { if (String(el.value).trim() !== '') body[pa.key] = Number(el.value); }
+    else if (String(el.value || '').trim() !== '') body[pa.key] = el.value.trim();
+  }
+  if (btn) { btn.disabled = true; btn.textContent = '执行中…'; }
+  try {
+    const data = await nasApi(proj.port, w.m || 'POST', w.p, body);
+    if (data && (data.ok || data.success)) toast(`${w.d} ✓`);
+    else toast((data && data.error) || '失败');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '执行'; }
+  }
+}
+
 async function loadDutyGroups(port) {
   const data = await nasApi(port, 'GET', '/api/duty/policy');
   const input = document.getElementById('dutyGroups');
@@ -682,39 +725,74 @@ async function saveDutyGroups(port) {
   else toast(data.error || '失败');
 }
 
-// —— hub 关键词回答表编辑器 ——
+// —— hub 关键词回答表 / 抽奖配置编辑器 ——
 let ruleTableSel = 'group';
+
+// 编辑器端点路由：autoreplies 两张表走 /api/autoreplies/rules*（带 table 参数）；
+// lottery 必须走独立的 /api/lottery/rules* 系列——hub 侧 normTable 会把
+// /api/autoreplies/rules?table=lottery 归一化成 group，编辑器会静默改错「群关键词回答表」
+function rulesApi(table) {
+  if (table === 'lottery') {
+    return {
+      list: '/api/lottery/rules',
+      save: '/api/lottery/rules',
+      del: '/api/lottery/rules/delete',
+      toggle: '/api/lottery/enabled',
+      toggleBody: (enabled) => ({ enabled }),
+      saveBody: (rule) => rule,
+      delBody: (keywords) => ({ keywords }),
+      kwHint: '触发词（逗号分隔别名，群里发 /触发词 即抽奖）',
+      ansHint: '每行一条奖品：奖品文字|概率（概率可省，默认 1；0 = 永不抽中）',
+    };
+  }
+  return {
+    list: `/api/autoreplies/rules?table=${table}`,
+    save: '/api/autoreplies/rules',
+    del: '/api/autoreplies/rules/delete',
+    toggle: '/api/autoreplies/enabled',
+    toggleBody: (enabled) => ({ table, enabled }),
+    saveBody: (rule) => ({ table, rule }),
+    delBody: (keywords) => ({ table, keywords }),
+    kwHint: '关键词（逗号分隔同义词）',
+    ansHint: '每行一条候选回答：回答内容|权重（权重可省，默认 1）',
+  };
+}
 
 async function openRulesEditor(table) {
   ruleTableSel = table || ruleTableSel;
   const el = document.getElementById('rulesEditor');
   if (!el) return toast('编辑器容器未就绪，请收起后重新展开面板');
+  const api = rulesApi(ruleTableSel);
   el.innerHTML = '加载中…';
-  const data = await nasApi(3000, 'GET', `/api/autoreplies/rules?table=${ruleTableSel}`);
+  const data = await nasApi(3000, 'GET', api.list);
   const rules = (data.replies || []).map((r) => {
     const kw = encodeURIComponent(JSON.stringify(r.keywords));
     const answers = r.answers.map((a) => esc(a.text) + (a.weight > 1 ? ` <span class="nas">(w${a.weight})</span>` : '')).join(' ／ ');
     return `<div>· <b>${esc(r.keywords.join('/'))}</b> → ${answers}
       <button onclick="delRule('${ruleTableSel}', this.dataset.kw)" data-kw="${kw}">删</button></div>`;
   }).join('');
+  const switchBtn = ruleTableSel === 'lottery'
+    ? `<button onclick="openRulesEditor('group')">切到群关键词表</button>`
+    : `<button onclick="openRulesEditor('${ruleTableSel === 'group' ? 'mention' : 'group'}')">切到${ruleTableSel === 'group' ? '@触发表' : '群消息表'}</button>`;
   el.innerHTML = `
     <div>当前生效文件：<code>${esc(data.file)}</code> · ${data.enabled ? '<span class="badge ok">已启用</span>' : '<span class="badge err">已停用</span>'}
       <button onclick="toggleRules('${ruleTableSel}', ${!data.enabled})">${data.enabled ? '停用整表' : '启用整表'}</button>
-      <button onclick="openRulesEditor('${ruleTableSel === 'group' ? 'mention' : 'group'}')">切到${ruleTableSel === 'group' ? '@触发表' : '群消息表'}</button>
+      ${switchBtn}
       <span class="nas">改动写主机 .local.json 即时生效；npm push 会用本地 xlsx 版覆盖</span></div>
     <div class="win-list">${rules || '（空表）'}</div>
     <div class="win-row">
-      <input id="ruleKw" placeholder="关键词（逗号分隔同义词）" size="30">
+      <input id="ruleKw" placeholder="${api.kwHint}" size="30">
       <button class="primary" onclick="saveRule('${ruleTableSel}')">保存规则（同关键词组覆盖）</button>
     </div>
-    <div class="win-row"><textarea id="ruleAns" rows="3" placeholder="每行一条候选回答：回答内容|权重（权重可省，默认 1）"></textarea></div>`;
+    <div class="win-row"><textarea id="ruleAns" rows="3" placeholder="${api.ansHint}"></textarea></div>`;
 }
 
 async function saveRule(table) {
   const keywords = (document.getElementById('ruleKw').value || '').split(/[,，、]/).map((s) => s.trim()).filter(Boolean);
   const answersText = document.getElementById('ruleAns').value || '';
   if (!keywords.length || !answersText.trim()) return toast('关键词与回答都不能为空');
-  const data = await nasApi(3000, 'POST', '/api/autoreplies/rules', { table, rule: { keywords, answersText } });
+  const api = rulesApi(table);
+  const data = await nasApi(3000, 'POST', api.save, api.saveBody({ keywords, answersText }));
   if (data.ok) { toast('规则已保存 ✓（即时生效）'); openRulesEditor(table); }
   else toast(data.error || '失败');
 }
@@ -722,13 +800,15 @@ async function saveRule(table) {
 async function delRule(table, kwJson) {
   if (!confirm('确认删除这条规则？')) return;
   const keywords = JSON.parse(decodeURIComponent(kwJson));
-  const data = await nasApi(3000, 'POST', '/api/autoreplies/rules/delete', { table, keywords });
+  const api = rulesApi(table);
+  const data = await nasApi(3000, 'POST', api.del, api.delBody(keywords));
   if (data.ok) { toast('已删除 ✓'); openRulesEditor(table); }
   else toast(data.error || '失败');
 }
 
 async function toggleRules(table, enabled) {
-  const data = await nasApi(3000, 'POST', '/api/autoreplies/enabled', { table, enabled });
+  const api = rulesApi(table);
+  const data = await nasApi(3000, 'POST', api.toggle, api.toggleBody(enabled));
   if (data.ok) { toast(enabled ? '已启用 ✓' : '已停用 ✓'); openRulesEditor(table); }
   else toast(data.error || '失败');
 }
@@ -804,7 +884,9 @@ async function devAction(action, ip, mac, name) {
   if (!confirm(`确认对 ${name || ip}（${mac}）执行「${labels[action]}」？`)) return;
   const res = await fetch(`/api/network/lan/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ip, mac, name }) });
   const data = await res.json().catch(() => ({}));
-  toast(data.ok ? labels[action] + ' ✓' : (data.error || '失败'));
+  // 路由器侧失败时后端带 warning（如解封：名单已移除但设备可能仍被拦截），结果提示追加 ⚠ 文案
+  const warn = data.warning ? ` ⚠ ${data.warning}` : '';
+  toast(data.ok ? labels[action] + ' ✓' + warn : (data.error || '失败'));
   refreshLan();
 }
 

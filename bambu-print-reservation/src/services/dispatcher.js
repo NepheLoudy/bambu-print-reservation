@@ -98,18 +98,20 @@ class Dispatcher {
     if (config.approval.enabled) {
       // 审批直连主通道：事件秒级且可靠，镜像表对账只会造成重复入队，关闭
       console.log('[分发] 审批直连主通道，表格对账已关闭');
-      this.bindPrinterEvents();
-      return;
+    } else {
+      // 对账兜底：网关事件丢失时分钟级补漏（审批表「已通过」未入队的记录）
+      this.timer = setInterval(() => {
+        this.reconcile().catch((err) =>
+          console.error('[分发] 对账失败:', err.message)
+        );
+      }, Math.max(config.dispatch.reconcileMinutes, 1) * 60 * 1000);
+      this.reconcile().catch(() => {});
+      console.log(`[分发] 引擎已启动（对账间隔 ${config.dispatch.reconcileMinutes} 分钟）`);
     }
-    // 对账兜底：网关事件丢失时分钟级补漏（审批表「已通过」未入队的记录）
-    this.timer = setInterval(() => {
-      this.reconcile().catch((err) =>
-        console.error('[分发] 对账失败:', err.message)
-      );
-    }, Math.max(config.dispatch.reconcileMinutes, 1) * 60 * 1000);
-    this.reconcile().catch(() => {});
     this.bindPrinterEvents();
-    console.log(`[分发] 引擎已启动（对账间隔 ${config.dispatch.reconcileMinutes} 分钟）`);
+    // 启动即匹配一轮（2026-09-17）：审批直连分支此前提前 return，重启恢复的队列
+    // 滞留不触发匹配；matching 串行闸防重入，重复触发幂等
+    this.trigger('restore');
   }
 
   bindPrinterEvents() {
@@ -619,6 +621,7 @@ class Dispatcher {
   async sweepStalePrinting() {
     const STALE_MULT = 2;
     const BASE_HOURS = 6;
+    let released = false;
     for (const [printerId, task] of [...this.printing.entries()]) {
       if (!task.startedAt) continue;
       const ageMs = Date.now() - task.startedAt;
@@ -638,8 +641,13 @@ class Dispatcher {
         }
         announce(`完成卡 ${task.recordId}`, require('../feishu/bot').buildJobFinishCard(task, state), () => {});
         plaza.append({ event: '打印完成', title: `${task.applicationNo || task.recordId} @ ${state.name || printerId}（巡检补记）` });
+        released = true;
       }
     }
+    // 收尾必须落盘（2026-09-17）：不落盘则崩溃后幽灵 printing 从状态文件复活，重复补发完成卡；
+    // 释放出的打印机立即补一轮匹配让队列任务顶上（matching 串行闸防重入，幂等）
+    this.persistState();
+    if (released) this.trigger('stale-sweep');
   }
 
   getPrintingSnapshot() {

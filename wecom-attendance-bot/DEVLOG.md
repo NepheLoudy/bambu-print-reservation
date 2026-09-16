@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次 git 提交 + 一次部署）。本项目无独立远端（repo:top 模式），push.js 只暂存 `wecom-attendance-bot/` 路径提交进顶层 monorepo——版本即顶层仓库中触碰本路径的提交。此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v3**（2026-09-15，随本提交落地）。
+当前最新：**v7**（2026-09-17，随本提交落地）。
 
 ### v1 · 2026-09-15 · 随本提交落地 · feat
 **项目诞生：企业微信考勤周报机器人——每周打卡数据聚合播报（markdown_v2 周报卡 + CSV 明细附件）**
@@ -56,3 +56,19 @@
 
 - 识别到 ≥2 个时间列时直接报错（提示导「打卡记录明细」模板）：此前误传「打卡日报/统计」模板（上下班时间分列）会静默只取第一列时间，下班打卡整周丢失、全员假异常的周报无报错播进群。
 - 有打卡时间但姓名与账号全空的行跳过（合并单元格导出的续行），防产生空名幽灵用户。
+
+### v7 · 2026-09-17 · 随本提交落地 · fix
+
+**全量 debug 批：导入崩溃修复 + 名册守卫盲区 + 九处审查修复（09-21 首播前收口）**
+
+- importService 对 const 赋值崩溃修复：数据行「姓名空+账号非空」（xlsx 合并单元格续行形态）触发 TypeError 整单导入失败，改 let 并补桩回归（此前该分支零覆盖）。
+- push.js 私有名册守卫盲区：本地缺 members.json 时 planPrivate/applyPrivate 直接跳过该文件，rm -rf 后远端名册无人恢复——照 duty-bot 同款改迭代完整清单：本地缺文件→备份+远端回填本地+跳过上传。
+- CSV 落盘 exports 兑现：runWeekly 生成后写 `config.exportsDir`（此前四处文案承诺、实际无处可取）；失败仅 warn。
+- 周播 cron 回调过 `inQuietHours()` 闸门（此前只有 watchdog 过闸，cron 改时刻会绕过晚间静默）。
+- `/api/attendance/policy` 不再整包返回 `imported.records` 全量打卡明细（个人信息泄露面，改摘要；坏状态文件不再 500）。
+- 导入覆盖天数 +8h 口径（上海 00:00–07:59 打卡此前少记一天，与 report.toWall 单源）。
+- 企微侧四条 fetch（getToken/callQyapi/sendWebhook/upload_media）补 15s 超时（挂起占住 guardedRun 锁、后续轮次全跳过）。
+- quietHours 解析器兼容纯小时数字与 HH:mm（与 duty-bot 同名键跨仓同值不再静默回落；越界/解析失败 warn 回落默认）。
+- .env.example 补 ATTENDANCE_DATA_SOURCE（import 语义注释）与 QUIET_HOURS_* 三键。
+- 测试：七套桩全过（import 18 项含新回归、quiethours 23 项含新格式断言）。
+- 备注：头部指针此前滞留 v3（v4~v6 期间未同步），本批一并修正 v3→v7。

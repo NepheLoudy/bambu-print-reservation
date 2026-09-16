@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v80**（2026-09-16，08bd733）。
+当前最新：**v82**（2026-09-17，随本提交落地）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -648,3 +648,20 @@
 
 - duty-bot v28（随本提交归档）：照片收录「传不上去」根因修复——旧下载接口 `im/v1/images/{key}` 只能下机器人自传图，用户图片一律 234001（功能上线以来零成功）；换消息资源接口 `im/v1/messages/{id}/resources/{key}?type=image`。取证→线上实弹验证（旧接口复现基线/新接口形状被接受/drive 上传权限已具备）→五套桩测试全过→部署重启全绿。
 - 本批仅 duty-bot 单仓行为变更，顶层无代码改动，纯锚点归档。
+
+## v82 · 2026-09-17 · 随本提交落地 · feat
+
+**全量 debug 批（七仓联动）+ duty-bot v29 快递助手上线**
+
+五路并行代码审查（gateway+hub / ticket / duty+wecom / approval+bambu / dashboard+文档）→ 修复实现 → 各仓 stub 全绿（duty 6 套含新 express 29 项 / ticket 24+12 / wecom 7 套 / approval v39 扩充 / bambu 4 套 / gateway）。要点：
+
+- **duty-bot v29 快递助手**（新功能）：快递申领群 @「/快递」开 5 分钟登记窗口（群内非@取件码/照片经 hub 观察转发收集，架构铁律不破），写「机器人项目看板」base「快递」表（用户手工建表+脚本补 登记时间/取件时间/消息ID）；每小时整点未取播报（过静默闸门）；「已取n/全部已取」确认回写；「查询当前快递」；词形/指令子集经 duty policy 下发 hub 消费。
+- **hub v94**：值日分支④误拦口语词修复（groupCommands 拆分）；快递助手路由+观察转发+duty 转发 8s 超时；P0 修复 .gitignore/*.local.json 通配 + push 私有清单补 mention 表（真实姓名不再进 git）；plaza appToken 死配置修活；auth 废 query token；权重 0 语义；broadcast-state 可外迁；.env.example NAS 收口。
+- **ticket-bot v73**：广场文案 undefined 修复；搬运不再打回 priority 编辑；reconcile 防重入+broadcast per-record 锁（双播关闭）；webhook URL 脱敏；审批反查翻页；event fail-closed；字段名接 config；push 远端 node 探测；DEVLOG 指针 v69→v73 + 三版哈希回填。
+- **approval-bot v40（含 v39 工作区批收口上线）**：催发票 parseDeferDays 复合中文数字/间隔闸日历日比较/当日新增关注不再吞卡 三处逻辑 bug；桩扩到 ×16+48h 边界。
+- **bambu v30**：审批直连重启 trigger('restore')；sweepStalePrinting 落盘；approval_task 失败可重试；webhook 超时；配置收口。
+- **wecom v7**：import const 崩溃修复（09-21 首播前关键）；push 名册守卫补「本地缺文件→远端回填」；CSV 落盘兑现；cron 过静默闸；policy 不漏打卡明细；+8h 口径；fetch 超时；quietHours 双格式。
+- **dashboard/registry**：抽奖编辑器错表 P1 修复；wecom action 窗口 registry 驱动；ROUTER_PASSWORD 闭环；router-xiaomi AbortSignal；看门狗恢复过闸+host 键回写；registry 漂移修正+快递助手登记。
+- **文档**：桌面《机器人总成使用指南.html》+《使用指南.md》同步（七大口径、duty 21:00/快递助手、approval v39 节奏、快递播报卡/快递表、定制中心 wecom/抽奖行）；ticket-pm/LOGIC-MAP 四处修正；AGENTS.md 值日 bullet+职能总表加快递助手。
+- **运维发现（待拍板，见桌面意图文档 #5）**：「动态广场」表已不在 base（TableIdNotFound + 重建重名=回收站占名），各仓广场事件写入自删除起静默失败；建表脚本已加容错+大声告警。桌面《qianli-设计意图待定项.md》新增本批落地清单（八）与建设推荐 R15~R24（九）。
+- 部署顺序：duty → hub → ticket → approval → bambu → wecom → 顶层。

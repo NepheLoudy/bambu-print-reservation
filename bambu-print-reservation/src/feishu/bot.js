@@ -18,6 +18,7 @@ async function sendMessage(cardContent) {
       msg_type: 'interactive',
       card: cardContent,
     }),
+    signal: AbortSignal.timeout(15000), // 裸 fetch 无超时会卡死静默冲刷/播报链
   });
 
   const data = await res.json();
@@ -48,6 +49,7 @@ async function sendTextMessage(text) {
         text: text,
       },
     }),
+    signal: AbortSignal.timeout(15000), // 裸 fetch 无超时会卡死静默冲刷/播报链
   });
 
   const data = await res.json();

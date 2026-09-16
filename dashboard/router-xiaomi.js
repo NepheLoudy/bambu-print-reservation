@@ -42,7 +42,7 @@ async function fetchWithCookies(url, options = {}) {
  */
 async function login({ host, password, mac = '' }) {
   if (!password) throw Object.assign(new Error('未配置路由器管理密码（ROUTER_PASSWORD）'), { code: 'NO_CONFIG' });
-  const web = await fetchWithCookies(`http://${host}/cgi-bin/luci/web`, { timeout: 8000 });
+  const web = await fetchWithCookies(`http://${host}/cgi-bin/luci/web`, { signal: AbortSignal.timeout(8000) });
   const key = extractKey(typeof web.body === 'string' ? web.body : JSON.stringify(web.body));
   if (!key) throw new Error('路由器登录页解析失败（未找到 key）——确认是小米路由器管理界面');
 
@@ -50,7 +50,7 @@ async function login({ host, password, mac = '' }) {
   const pwd = sha1(nonce + sha1(password + key));
   const qs = new URLSearchParams({ logtype: '2', username: 'admin', password: pwd, nonce });
   const r = await fetchWithCookies(`http://${host}/cgi-bin/luci/api/xqsystem/login?${qs}`, {
-    method: 'POST', cookie: web.cookie, timeout: 8000,
+    method: 'POST', cookie: web.cookie, signal: AbortSignal.timeout(8000),
   });
   const token = r.body && (r.body.token || (r.body.data && r.body.data.token));
   if (!token) {
@@ -63,7 +63,7 @@ async function login({ host, password, mac = '' }) {
 /** 在线设备列表（含 mac/ip/name） */
 async function deviceList({ host, stok, cookie }) {
   const r = await fetchWithCookies(`http://${host}/cgi-bin/luci/;stok=${stok}/api/misystem/devicelist`, {
-    cookie, timeout: 8000,
+    cookie, signal: AbortSignal.timeout(8000),
   });
   const b = r.body;
   if (!b || (b.code !== 0 && !b.list)) throw new Error(`设备列表失败：${JSON.stringify(b).slice(0, 160)}`);
@@ -84,7 +84,7 @@ async function setMacFilter({ host, stok, cookie }, mac, wantBlock) {
       method: 'POST', cookie,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(c.body),
-      timeout: 8000,
+      signal: AbortSignal.timeout(8000),
     });
     if (r.body && (r.body.code === 0 || r.body.StatusCode === 0)) return { ok: true, via: c.path };
     attempts.push(`${c.path} → ${JSON.stringify(r.body).slice(0, 80)}`);

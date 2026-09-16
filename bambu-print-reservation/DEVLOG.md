@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次部署）。本项目 push.js 为纯 SFTP 直传、无 git 步骤，**版本锚点取顶层 monorepo 中触碰本路径的归档提交**——两次归档之间的个别部署可能无版本记录。v1~v14 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v28**（2026-09-15，顶层归档 7c836f9）。
+当前最新：**v30**（2026-09-17，随本提交落地）。
 
 ## 阶段五 · 审批事件字段对齐与分发健壮化（2026-09-05）
 
@@ -196,3 +196,14 @@
 - config：FEISHU_USE_LONG_CONNECTION 缺省翻转为 false（长连接模式在本仓是空壳只打日志，误配即静默收不到全部事件；网关转发模式才是真实链路）。
 - .env：FEISHU_VERIFICATION_TOKEN 补配共享密钥（/api/feishu/event 此前零校验，LAN 可伪造事件驱动分发）；DISPATCH_STATE_FILE POSIX 路径显式化 C:/home。
 - dispatcher-persist-test 新增 6 断言（givenUp 往返/重排/让位/落盘恢复），四套测试全过。
+
+### v30 · 2026-09-17 · 随本提交落地 · fix
+
+**全量 debug 批：分发引擎三处修复 + 超时与配置收口**
+
+- start() 审批直连分支恢复队列后统一 `trigger('restore')`（此前提前 return，重启后恢复的队列+空闲打印机无人点火，任务可无限期滞留）。
+- sweepStalePrinting 补完成后 `persistState()`（释放过打印机再 trigger）——防 300ms 防抖窗口外崩溃后幽灵 printing 复活、重复发完成卡/重复计完成数。
+- approval_task 自动审批去重改拉详情成功后登记（旧逻辑先登记后拉取，失败即永久丢失且不进重试）。
+- webhook 发送（sendMessage/sendTextMessage）补 15s 超时（裸 fetch 挂起会卡死晚间静默冲刷循环）。
+- .env.example：QUIET_BACKLOG_FILE 注释态改显式项目外路径（与 DISPATCH_STATE_FILE 同待遇）；NAS 三键迁小电脑实值；README givenUp「保留在内存」改已落盘口径（v29 遗留）。
+- 测试：approval/dispatcher/dispatcher-persist/dispatcher-manual-race 四套全过。

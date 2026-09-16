@@ -229,14 +229,15 @@ function npmInstall(plan) {
 }
 
 // 阶段一（rm -rf 之前）：读现网私有配置 → 有内容且与本地不同先备份 → 判断本地种子是否过期。
-// plan 形如 { 'config/members.json': { action: 'upload'|'restore', remoteContent } }
+// plan 形如 { 'config/members.json': { action: 'upload'|'restore', remoteContent? } }；
+// 迭代完整 PRIVATE_CONFIG_FILES（不要求本地存在，duty-bot 同款）：本地缺文件而远端有条目时
+// localCount=0 → 备份 + 远端内容回填本地 + restore（否则远端名册被 rm -rf 后无人恢复）
 function planPrivateConfig(i, plan, done) {
-  const files = PRIVATE_CONFIG_FILES.filter((f) => fs.existsSync(path.join(__dirname, f)));
-  if (i >= files.length) {
+  if (i >= PRIVATE_CONFIG_FILES.length) {
     console.log('✓ 私有配置现网状态盘点完毕（备份/守卫判定前置于代码目录替换）');
     return done(plan);
   }
-  const f = files[i];
+  const f = PRIVATE_CONFIG_FILES[i];
   conn.sftp((err, sftp) => {
     if (err) {
       console.error('SFTP 失败:', err.message);
@@ -245,12 +246,17 @@ function planPrivateConfig(i, plan, done) {
     }
     const remotePath = REMOTE_DIR_WIN + '/' + f;
     sftp.readFile(remotePath, 'utf8', (readErr, remoteContent) => {
-      const localContent = fs.readFileSync(path.join(__dirname, f), 'utf8');
+      const hasLocal = fs.existsSync(path.join(__dirname, f));
+      const localContent = hasLocal ? fs.readFileSync(path.join(__dirname, f), 'utf8') : '';
       const remoteCount = readErr ? 0 : countEntries(remoteContent);
       const localCount = countEntries(localContent);
 
+      if (readErr && !hasLocal) {
+        // 远端没有、本地也没有：无事可做
+        return planPrivateConfig(i + 1, plan, done);
+      }
       if (remoteCount > localCount && process.env.PUSH_FORCE_PRIVATE !== '1') {
-        // 本地种子过期：跳过上传，且把现网内容回填本地 + 记入 plan 待 rm 后回写远端（防 rm 丢失）
+        // 本地种子过期（含本地缺文件）：跳过上传，且把现网内容回填本地 + 记入 plan 待 rm 后回写远端（防 rm 丢失）
         console.warn(`⚠ [私有配置保护] 将跳过 ${f} 上传：本地 ${localCount} 条 < 现网 ${remoteCount} 条（本地种子过期，权威在部署目标侧）。`);
         console.warn('  确认要用本地覆盖请设 PUSH_FORCE_PRIVATE=1 重跑；现网内容已回填本地以防丢失。');
         fs.writeFileSync(path.join(__dirname, f), remoteContent);
@@ -272,23 +278,24 @@ function planPrivateConfig(i, plan, done) {
       };
 
       backupThen(() => {
-        plan[f] = { action: 'upload' };
-        planPrivateConfig(i + 1, plan, done);
+        plan[f] = { action: hasLocal ? 'upload' : 'restore', remoteContent: hasLocal ? undefined : remoteContent };
+        return planPrivateConfig(i + 1, plan, done);
       });
     });
   });
 }
 
 // 阶段二（解压之后）：按 plan 执行——upload 传本地种子；restore 把盘点到的现网内容写回去
-// （代码目录被 rm -rf 全量替换过，跳过上传的文件必须显式恢复，否则现网权威数据丢失）
+// （代码目录被 rm -rf 全量替换过，跳过上传的文件必须显式恢复，否则现网权威数据丢失）。
+// 同样迭代完整清单：plan 里没有的条目（远端本地都没有）直接跳过
 function applyPrivateConfig(i, plan, done) {
-  const files = PRIVATE_CONFIG_FILES.filter((f) => fs.existsSync(path.join(__dirname, f)));
-  if (i >= files.length) {
+  if (i >= PRIVATE_CONFIG_FILES.length) {
     console.log('✓ 私有配置处理完毕（成员名单权威在部署目标侧，push 仅在种子不落后时上传）');
     return done();
   }
-  const f = files[i];
-  const entry = plan[f] || { action: 'upload' };
+  const f = PRIVATE_CONFIG_FILES[i];
+  const entry = plan[f];
+  if (!entry) return applyPrivateConfig(i + 1, plan, done);
   conn.sftp((err, sftp) => {
     if (err) {
       console.error('SFTP 失败:', err.message);

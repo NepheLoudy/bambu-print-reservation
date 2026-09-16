@@ -94,7 +94,7 @@ module.exports = {
       deploy: 'npm run push（纯 SFTP，无 git 步骤）',
       role: '打印预约域：/print-* 指令、预约审批、打印机控制；打印审批联动（审批事件）。',
       listening: ['不消费消息事件（hub 转发 /api/chat/command）', '审批事件（gateway 转发）', 'GET /api/print/policy（定制窗口：打印机/审批/分发参数全景只读）'],
-      commands: ['/print-help /print-status /print-list /print-pending 等'],
+      commands: ['/print-help /print-status /print-list /print-pending /print-ams /print-dispatch'],
       permissions: ['被动指令服务：仅接受 hub 转发'],
       localRun: { script: 'src/index.js', cwd: '', env: {} },
       quickActions: [
@@ -121,7 +121,7 @@ module.exports = {
       windows: [
         { m: 'GET', p: '/api/approval/policy', d: '审批流程/审批人白名单/催办参数全景' },
       ],
-      permissions: ['仅服务审批群（BOT_CHAT_ID）', '定时任务：周报 / 每日提醒 / 催发票私聊（均过静默闸门）'],
+      permissions: ['仅服务审批群（BOT_CHAT_ID）', '定时任务：周报周一 18:00 / 每日待审批提醒 09:00 / 催发票私聊每日 10:30（宽限 14 天、每 2 天一催、上限 5 次、回复「延期 N 天/无法提交」；均过静默闸门）'],
       localRun: { script: 'src/index.js', cwd: '', env: {} },
       quickActions: [
         { id: 'install', label: 'npm install', cmd: 'npm install', cwd: '' },
@@ -167,6 +167,7 @@ module.exports = {
         '值日助手（p2p 用法 / group 看板带不带 / 均可，1h 限流）',
         '我要请假 / 查询我的下一次值日 / 绑定 姓名 / 打卡 / 打卡了（完成打卡主词，2026-09-13 起）/ 否 / 生成排班表；「是」及口语变体（是的/好了/完成了/做完了/搞定 等）兼容保留，有当日询问会话时等同打卡',
         '生成排班表（名册 admin 专用）',
+        '快递助手 / 快递（开 5 分钟登记窗口）/ 查询当前快递 / 已取n（多件必带编号）/ 全部已取——快递申领群 @ 或私聊（2026-09-17 快递助手，「快递」表）',
       ],
       windows: [
         { m: 'GET', p: '/api/duty/policy', d: '值日域管辖策略（可在线改写管辖群）' },
@@ -179,8 +180,8 @@ module.exports = {
       ],
       permissions: [
         '排班生成权限：名册 admin:true（或 DUTY_ADMIN_OPEN_IDS）',
-        '定时任务：D-1 20:00 / 当日 12:00 值日看板播报（今日+昨日战报）/ 18:30 询问 / 22:00 收口（写表不延迟）/ 00:30 对账（均过静默闸门）',
-        '值日域管辖：DUTY_GROUP_CHAT_IDS 管辖群经 /api/duty/policy 下发，hub 群内闸门照此执行',
+        '定时任务：D-1 20:00 / 当日 12:00 值日看板播报（今日+昨日战报）/ 18:30 询问 / 21:00 收口前临门提醒（私信未完结者）/ 22:00 收口（写表不延迟）/ 00:30 对账 / 每小时整点快递未取播报（EXPRESS_BROADCAST_SCHEDULE，无未取不发）（均过静默闸门）',
+        '值日域管辖：DUTY_GROUP_CHAT_IDS 管辖群经 /api/duty/policy 下发，hub 群内闸门照此执行（含快递助手群内指令/取件词形/非@观察转发，2026-09-17）',
         '名册自动同步：启动/生成排班前/手动 refresh 读通讯录全员（open_id 直取），whitelist.json 为排除名单',
         '真实名册 config/members.json、whitelist.json 不进 git（push.js 显式 SFTP 上部署目标）',
       ],
@@ -191,7 +192,7 @@ module.exports = {
         { id: 'table-check', label: '表格字段校验', cmd: 'npm run table:check', cwd: '' },
         { id: 'plaza-tables', label: '动态广场建表（幂等）', cmd: 'node scripts/create-plaza-tables.js', cwd: '' },
       ],
-      notes: '表格已接线（机器人项目看板库·值日看板表，字段经 DUTY_FIELD_* 映射）；名册自动读通讯录（64 人全员入册，open_id 直取，whitelist.json 为排除名单——权威在部署目标侧，push 有备份+守卫，见顶层 AGENTS「运行时数据保护」）；值日完成/请假事件写入动态广场；接口 GET /api/duty/brief、GET /api/duty/policy、GET /api/duty/roster、GET|POST /api/duty/whitelist、POST /api/chat/command（转发载荷带 messageId，消息级幂等全路径生效；返回 {reply, handled}）、/api/bot/test-*',
+      notes: '表格已接线（机器人项目看板库·值日看板表，字段经 DUTY_FIELD_* 映射）；名册自动读通讯录（64 人全员入册，open_id 直取，whitelist.json 为排除名单——权威在部署目标侧，push 有备份+守卫，见顶层 AGENTS「运行时数据保护」）；值日完成/请假事件写入动态广场；接口 GET /api/duty/brief、GET /api/duty/policy、GET /api/duty/roster、GET|POST /api/duty/whitelist、POST /api/chat/command（转发载荷带 messageId，消息级幂等全路径生效；返回 {reply}）、/api/bot/test-*',
     },
     {
       id: 'wecom-attendance',
@@ -206,6 +207,7 @@ module.exports = {
       role: '企业微信考勤域：负责人群每周播报考勤打卡数据（周报卡 + CSV 明细），拉企微打卡 API 聚合，不碰考勤机硬件；播报主通道=飞书群机器人 webhook（v3），企微通道可选双发。',
       listening: [
         '不消费任何消息事件（飞书/企微都不收，纯定时任务）',
+        '仅回环 127.0.0.1 监听，LAN 拓扑探测恒 ✗ 属正常（运维台拓扑图不列该端口）',
         '出站：企微 gettoken + checkin/getcheckindata（受自建应用可信 IP 限制）',
         '出站：企微群机器人 webhook/send + upload_media（key 即凭证，不走可信 IP）',
         '出站：飞书群自定义机器人 webhook 卡片（FEISHU_WEBHOOK_URL，签名可选；duty 看板卡同款链路）+ 可选经现有应用 im API 发 CSV 文件',
@@ -215,8 +217,19 @@ module.exports = {
       permissions: ['定时播报：ATTENDANCE_BROADCAST_CRON（默认周一 09:30 上海时间，白天发送不落静默窗口）', '成员名单 config/members.json 不进 git（push 备份+守卫，权威在部署目标侧）'],
       windows: [
         { m: 'GET', p: '/api/attendance/policy', d: '播报参数/企微配置布尔/名单/水位全景（只读）' },
-        { m: 'POST', p: '/api/attendance/members', d: '播报名单增删（add/remove）', kind: 'action' },
-        { m: 'POST', p: '/api/attendance/test-broadcast', d: '手动播报（支持 dryRun 与周偏移）', kind: 'action' },
+        { m: 'POST', p: '/api/attendance/members', d: '播报名单增删（add/remove）', kind: 'action',
+          params: [
+            { key: 'action', type: 'select', options: ['add', 'remove'], d: '动作' },
+            { key: 'name', type: 'text', d: '姓名' },
+            { key: 'userid', type: 'text', d: '企微 userid' },
+          ] },
+        { m: 'POST', p: '/api/attendance/test-broadcast', d: '手动播报（支持 dryRun 与周偏移）', kind: 'action',
+          params: [
+            { key: 'dryRun', type: 'checkbox', d: 'dryRun（只渲染不真发）' },
+            { key: 'weekOffset', type: 'number', d: '周偏移(0=本周)' },
+          ] },
+        { m: 'GET', p: '/api/attendance/preview', d: '干跑预览（拉数渲染不发送，weekOffset 查询参数可选）' },
+        { m: 'POST', p: '/api/attendance/import', d: '打卡报表导入（POST {dataBase64, filename?}，X-API-Token；kind 标注：运维台窗口不实现 base64 上传，走 SSH/curl）', kind: 'note' },
       ],
       localRun: { script: 'src/index.js', cwd: '', env: {} },
       quickActions: [

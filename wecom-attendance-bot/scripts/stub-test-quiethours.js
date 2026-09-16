@@ -40,4 +40,17 @@ assert.strictEqual(qh.inQuietHours(SH('2026-09-15T03:00:00+08:00')), false, '关
 qh = reload({ QUIET_HOURS_START: 'bad', QUIET_HOURS_END: '25:00' });
 assert.strictEqual(qh.getStatus().window, '02:00–09:00', '非法值回退默认窗口');
 
-console.log('✓ stub-test-quiethours 全部通过（15 组断言）');
+// 5) 纯小时数字（duty-bot 同名键口径，跨仓同值不再静默回落）
+qh = reload({ QUIET_HOURS_START: '22', QUIET_HOURS_END: '6' });
+assert.strictEqual(qh.getStatus().window, '22:00–06:00', '纯小时数字按整点解析');
+assert.strictEqual(qh.inQuietHours(SH('2026-09-15T23:00:00+08:00')), true, '纯小时：23:00 在窗');
+assert.strictEqual(qh.inQuietHours(SH('2026-09-15T21:59:00+08:00')), false, '纯小时：21:59 未入窗');
+assert.strictEqual(qh.inQuietHours(SH('2026-09-16T06:00:00+08:00')), false, '纯小时：06:00 出窗（右开）');
+
+// 6) HH:mm 带分钟 → floor 到整点并生效（跨仓小时粒度对齐）
+qh = reload({ QUIET_HOURS_START: '22:30', QUIET_HOURS_END: '06:30' });
+assert.strictEqual(qh.getStatus().window, '22:00–06:00', '带分钟 HH:mm floor 到整点');
+assert.strictEqual(qh.inQuietHours(SH('2026-09-15T22:15:00+08:00')), true, 'floor 后 22:15 已入窗（窗口提前到 22:00）');
+assert.strictEqual(qh.inQuietHours(SH('2026-09-15T22:30:00+08:00')), true, 'floor 后 22:30 在窗');
+
+console.log('✓ stub-test-quiethours 全部通过（23 组断言）');

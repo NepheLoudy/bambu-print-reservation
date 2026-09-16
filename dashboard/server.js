@@ -37,7 +37,7 @@ function readNasConfig() {
   try {
     const text = fs.readFileSync(path.join(ROOT, 'approval-bot', '.env'), 'utf-8');
     const get = (k) => (text.match(new RegExp(`^${k}=(.*)$`, 'm')) || [])[1] || '';
-    return { host: get('NAS_HOST').trim(), port: Number(get('NAS_PORT').trim() || 22), username: get('NAS_USER').trim(), password: get('NAS_PASSWORD').trim(), apiToken: (get('API_TOKEN') || get('QIANLI_API_TOKEN') || '').trim() };
+    return { host: get('NAS_HOST').trim(), port: Number(get('NAS_PORT').trim() || 22), username: get('NAS_USER').trim(), password: get('NAS_PASSWORD').trim(), apiToken: (get('API_TOKEN') || get('QIANLI_API_TOKEN') || '').trim(), routerPassword: get('ROUTER_PASSWORD').trim() };
   } catch (err) {
     return null;
   }
@@ -440,7 +440,9 @@ app.post('/api/action/:id', (req, res) => {
   let entry;
   if (actionId) {
     entry = (proj.quickActions || []).find((a) => a.id === actionId);
-    if (actionId === 'push') entry = { cmd: 'npm', args: ['run', 'push'], cwd: proj.dir };
+    // cwd 相对 proj.dir（runAction 里统一 path.join(proj.dir, entry.cwd)），这里必须留空——
+    // 填 proj.dir 会拼成 <root>/<proj>/<proj> 必 ENOENT
+    if (actionId === 'push') entry = { cmd: 'npm', args: ['run', 'push'], cwd: '' };
   } else if (cmd === 'push') {
     // push 快捷指令：npm run push "<提交说明>"（cwd 相对 proj.dir，默认项目根）
     entry = { cmd: 'npm', args: ['run', 'push', ...(req.body.message ? [String(req.body.message)] : [])], cwd: cwd || '' };
@@ -604,7 +606,8 @@ async function lanScan() {
     await Promise.all(ips.slice(i, i + 64).map(lanPingOne));
   }
   const arp = execFileSync('arp', ['-a'], { encoding: 'utf8', windowsHide: true });
-  const re = new RegExp('^\\s*(' + base + '\\.(\\d{1,3}))\\s+([0-9a-fA-F:-]{17})\\s', 'm');
+  const baseRe = base.replace(/\./g, '\\.'); // 网段里的点号是字面量，不转义会被当正则任意字符
+  const re = new RegExp('^\\s*(' + baseRe + '\\.(\\d{1,3}))\\s+([0-9a-fA-F:-]{17})\\s', 'm');
   const seen = new Map();
   for (const line of arp.split(/\r?\n/)) {
     const m = re.exec(line);
@@ -670,8 +673,14 @@ app.post('/api/network/lan/unban', (req, res) => {
   if (!bans[macClean]) return res.json({ ok: true, note: '不在封禁名单' });
   delete bans[macClean];
   saveBans(bans);
-  withRouter((ctx) => xiaomi.setMacFilter(ctx, macClean, false)).catch((e) => console.error('[设备] 路由器解封失败:', e.message));
-  res.json({ ok: true });
+  // 路由器侧解封失败不能只进 console：名单已移除但设备可能仍被路由器拦截，
+  // 响应带 warning 让 UI 在结果提示里追加 ⚠ 文案
+  withRouter((ctx) => xiaomi.setMacFilter(ctx, macClean, false))
+    .then(() => res.json({ ok: true }))
+    .catch((e) => {
+      console.error('[设备] 路由器解封失败:', e.message);
+      res.json({ ok: true, warning: `本地名单已移除，但路由器侧解封失败：${e.message}` });
+    });
 });
 app.get('/api/router/status', (req, res) => {
   res.json({ configured: Boolean((readNasConfig() || {}).routerPassword || process.env.ROUTER_PASSWORD), bans: Object.keys(loadBans()).length });
@@ -798,6 +807,8 @@ async function watchdogCheck() {
     watchdogEvaluate('host', '部署目标(SSH)', false, `SSH 不可达：${err.message}`);
     return;
   }
+  // SSH 恢复回写：host 键此前只在失败时登记，恢复后无人置 ok，恢复通告永远不发
+  watchdogEvaluate('host', '部署目标(SSH)', true, 'SSH 可达');
   const rows = [];
   for (const p of registry.projects.filter((x) => x.pm2Name)) {
     const m = new RegExp(`^${p.port}:(.*)$`, 'm').exec(out || '');
@@ -811,11 +822,25 @@ async function watchdogCheck() {
 function watchdogEvaluate(key, name, ok, detail) {
   const now = Date.now();
   const prev = WATCHDOG.state.get(key);
+  const quiet = watchdogInQuietHours(now);
   if (ok) {
-    if (prev && prev.degraded && !watchdogInQuietHours(now)) {
-      watchdogSend(`✅ qianli 服务恢复：${name} 已恢复正常（${WATCHDOG.lastRun}）`);
+    if (prev && prev.degraded) {
+      // 故障 → 恢复：恢复通告与故障共用 pending 闸门——静默窗口内不直接发，登记待补发，
+      // 窗口后首个巡检点补发（此前静默期恢复通告被直接丢弃，永远发不出去；
+      // 若此前还有未发出的故障 pending，一并被恢复通告取代——已恢复就不再补报故障）
+      if (quiet) {
+        WATCHDOG.state.set(key, { degraded: false, since: now, lastAlertAt: prev.lastAlertAt || 0, pending: false, pendingRecover: true, recoverName: name });
+      } else {
+        WATCHDOG.state.set(key, { degraded: false, since: now, lastAlertAt: 0, pending: false, pendingRecover: false });
+        watchdogSend(`✅ qianli 服务恢复：${name} 已恢复正常（${WATCHDOG.lastRun}）`);
+      }
+      return;
     }
-    WATCHDOG.state.set(key, { degraded: false, since: now, lastAlertAt: 0, pending: false });
+    if (prev && prev.pendingRecover && !quiet) {
+      // 静默结束后的首个健康巡检点：补发静默期错过的恢复通告
+      WATCHDOG.state.set(key, { ...prev, pendingRecover: false });
+      watchdogSend(`✅ qianli 服务恢复：${prev.recoverName || name} 已恢复正常（${WATCHDOG.lastRun}）`);
+    }
     return;
   }
   if (!prev || !prev.degraded) {

@@ -61,7 +61,25 @@ let msg = '';
 try { parseWorkbook(buf2); } catch (e) { msg = e.message; }
 check('缺姓名/时间列报错并列出全部表头', msg.includes('报表缺关键列') && msg.includes('foo'), msg);
 
-// ---------- 5. 聚合链路兼容（records 直接进 report.aggregate） ----------
+// ---------- 5. 姓名空+账号非空 → 取账号为姓名，不崩 ----------
+// 2026-09-17 回归：曾因 const name 复赋值抛 TypeError 使整单导入崩溃
+console.log('\n== 5. 姓名空+账号非空（回归） ==');
+const rows3 = [
+  ['姓名', '账号', '打卡时间'],
+  ['', 'zhaoliu', '2026/9/8 8:55'],
+  ['', '', '2026/9/8 18:02'], // 姓名账号全空：合并单元格续行，应跳过不崩
+];
+const ws3 = XLSX.utils.aoa_to_sheet(rows3);
+const wb3 = XLSX.utils.book_new();
+XLSX.utils.book_append_sheet(wb3, ws3, '打卡明细');
+const buf3 = XLSX.write(wb3, { type: 'buffer', bookType: 'xlsx' });
+const parsed3 = parseWorkbook(buf3);
+check('有效记录数=1（全空行被跳过）', parsed3.records.length === 1 && parsed3.skipped === 1, JSON.stringify({ n: parsed3.records.length, skipped: parsed3.skipped }));
+check('姓名空+账号非空 → 姓名取账号', parsed3.records[0]._name === 'zhaoliu' && parsed3.records[0].userid === 'zhaoliu', JSON.stringify(parsed3.records[0]));
+check('派生名单姓名=账号', deriveMembers(parsed3.records)[0].name === 'zhaoliu', JSON.stringify(deriveMembers(parsed3.records)));
+
+// ---------- 6. 聚合链路兼容（records 直接进 report.aggregate） ----------
+console.log('\n== 6. 聚合链路兼容 ==');
 const agg = report.aggregate(filterByWindow(parsed.records, win), mergeMembers([], derived));
 check('聚合 totals.users=3（张三/李四/王五，王五窗口外不计数）', agg.totals.users === 3, JSON.stringify(agg.totals));
 check('张三异常 1 条进入明细', agg.exceptionLines.some((e) => e.name === '张三' && e.type === '时间异常'));

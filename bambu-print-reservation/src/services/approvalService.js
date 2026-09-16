@@ -187,11 +187,6 @@ async function handleApprovalTaskEvent(event) {
   const taskId = evt.task_id;
   if (!instanceId || !taskId) return;
   if (handledTasks.has(taskId)) return;
-  handledTasks.add(taskId);
-  if (handledTasks.size > 500) {
-    const first = handledTasks.values().next().value;
-    handledTasks.delete(first);
-  }
 
   const configuredCode = config.approval.approvalCode;
   if (configuredCode && evt.approval_code && evt.approval_code !== configuredCode) return;
@@ -201,7 +196,14 @@ async function handleApprovalTaskEvent(event) {
     instance = await getInstanceDetail(instanceId);
   } catch (err) {
     console.error(`[自动审批] 拉取实例详情失败 ${instanceId}:`, err.message);
-    return;
+    return; // 不登记 handledTasks：下轮事件/对账仍可重试，避免自动审批静默丢失
+  }
+  // 详情拉取成功后才登记已处理（2026-09-17）：此前先登记后拉取，拉取失败该任务
+  // 的自动审批被当作已处理静默丢弃
+  handledTasks.add(taskId);
+  if (handledTasks.size > 500) {
+    const first = handledTasks.values().next().value;
+    handledTasks.delete(first);
   }
   if (!instance || String(instance.status || '').toUpperCase() !== 'PENDING') return;
 

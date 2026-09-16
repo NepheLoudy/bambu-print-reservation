@@ -84,7 +84,7 @@
 | approval-bot | 财务审批域：审批群 `/approval-*`、催办周报（发票/报销单/转账）、每日待审批提醒 | 审批、发票、报销、转账、财务、采购 |
 | project-management-robot | 对话枢纽+项目管理：各群 @对话与指令分发、关键词、抽奖（一个工作表=一个指令=一个奖池，2026-09-14）、DDL 播报与逾期确认、会议提醒、项目表 | DDL、逾期、项目表、对话、关键词、抽奖（/指令）、会议、语录 |
 | bambu-print-reservation | 打印预约域：`/print-*`、预约审批、打印机控制 | 打印、预约、打印机、Bambu |
-| duty-bot | 值日域：排班生成与轮转/缺勤补偿、值日私信提醒与收口、照片凭证写表、值日助手（私信说明/群看板）、值日数据接口 | 值日、排班表、轮岗、值日请假、总负责/工位区/装配区、值日照片凭证、值日看板、昨日值日播报 |
+| duty-bot | 值日域：排班生成与轮转/缺勤补偿、值日私信提醒与收口、照片凭证写表、值日助手（私信说明/群看板）、值日数据接口、快递助手（登记窗口/未取播报/取件确认） | 值日、排班表、轮岗、值日请假、总负责/工位区/装配区、值日照片凭证、值日看板、昨日值日播报、快递、取件码、未取/已取 |
 | feishu-gateway | 事件接入层：唯一长连接、消息路由规则、表格事件广播、消费者登记 | 事件被抢、指令没到、@无响应（跨项目）、接入新机器人 |
 | wecom-attendance-bot | 企业微信考勤域：负责人群每周播报考勤打卡数据（周报卡+CSV 明细；飞书群 webhook 主通道/企微可选）、打卡数据拉取聚合、播报名单窗口 | 考勤、打卡周报、考勤机数据（企业微信侧） |
 | qianli 顶层 | 跨项目：部署链路 push.js、架构、工作区整理、多项目联调 | 部署、推送、架构、整理 |
@@ -97,7 +97,7 @@
 - 工单×项目管理联动：DDL 分栏取数是 pm-robot 调 ticket-bot 的 HTTP API（`unclosed-by-group`），改出入参两边同批；两项目同住 `ticket-pm/`，联动契约见 `ticket-pm/AGENTS.md`；
 - approval_instance / approval_task 审批事件"收不到/重复" → 先查 feishu-gateway 的 EVENT_TYPES 订阅与消费者登记（同"指令时灵时不灵"规则）；
 - 值日域需求（排班/轮岗/值日请假/值日照片/值日看板）→ duty-bot；「昨日值日播报」已落地为 duty-bot 自身看板卡的「昨日战报」段（12:00 与手动看板同卡，值日群播报；原 pm-robot 方案作废，hub 的 `DUTY_WEBHOOK_URL`/`DUTY_BROADCAST_SCHEDULE` 降级为预留未接线键）；**请假当日补位**（从较远排班抽调，duty-bot v15 起）同为 duty-bot 域；
-- 值日专用群（快递申领群）：hub 基础指令关闭，看板「值日助手」**仅 @ 或私聊触发**（未@不出看板）；关键词回答全群统一（未@也生效，不再经值日策略放行，2026-09-13）。**管辖范畴/生效范畴以 duty-bot `GET /api/duty/policy` 下发为准，群变更只改 duty-bot `.env` 的 `DUTY_GROUP_CHAT_IDS`**（hub 的 `DUTY_CHAT_ID` 仅失联兜底）；
+- 值日专用群（快递申领群）：hub 基础指令关闭，看板「值日助手」**仅 @ 或私聊触发**（未@不出看板）；关键词回答全群统一（未@也生效，不再经值日策略放行，2026-09-13）。**管辖范畴/生效范畴以 duty-bot `GET /api/duty/policy` 下发为准，群变更只改 duty-bot `.env` 的 `DUTY_GROUP_CHAT_IDS`**（hub 的 `DUTY_CHAT_ID` 仅失联兜底）；**快递助手（2026-09-17 起）同为 duty-bot 域**：「/快递」开 5 分钟登记窗口、每小时整点未取播报（过静默闸门）、「已取n/全部已取」确认写「机器人项目看板」base 的「快递」表——窗口内**非@**登记素材由 hub 观察转发（`maybeForwardExpressObserve`）收集，duty-bot 仍不消费消息事件；词形放行清单（groupCommands/p2pCommandPatterns）由 duty policy 下发、hub 消费；
 - 各机器人权能/指令/监听/权限全景与端口：看 `dashboard/registry.js`（单一事实来源，改权能须同步）与本地运维台；
 - **部署目标（2026-09-14 起从旧 NAS 10.253.33.233:8500 迁移）＝小电脑 DESKTOP-FE1MIGI（192.168.31.57，SSH 22，用户 mechax，Windows + PortableGit + pm2，ssh 默认 shell = git-bash）**。各文档与配置键中的「NAS」字样（`NAS_HOST/NAS_PORT/NAS_USER/NAS_PASSWORD`、`/api/nas/*` 端点、运维台「NAS 重启」按钮等）均为**历史命名，语义=部署目标**，勿再新造 NAS 称呼；旧 NAS 已停用（备件位，pm2 单元 `pm2-qianli` 已停）。
 - 部署一律 `npm run push`（见 `.agents/skills/qianli-deploy/SKILL.md`），部署失败排查放顶层会话。

@@ -13,6 +13,7 @@ const config = require('./config');
 
 const QYAPI = 'https://qyapi.weixin.qq.com/cgi-bin';
 const USER_BATCH = 100;
+const FETCH_TIMEOUT_MS = 15000; // 所有出站请求统一 15s 超时（挂死不占住播报链路）
 
 let tokenCache = { token: '', expiresAt: 0 };
 
@@ -37,6 +38,7 @@ async function callQyapi(pathName, body, { tokenRetry = true } = {}) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   const j = await res.json();
   if (j.errcode && j.errcode !== 0) {
@@ -57,7 +59,9 @@ async function getToken() {
     throw err;
   }
   if (tokenCache.token && Date.now() < tokenCache.expiresAt - 5 * 60 * 1000) return tokenCache.token;
-  const res = await fetch(`${QYAPI}/gettoken?corpid=${encodeURIComponent(config.corpId)}&corpsecret=${encodeURIComponent(config.secret)}`);
+  const res = await fetch(`${QYAPI}/gettoken?corpid=${encodeURIComponent(config.corpId)}&corpsecret=${encodeURIComponent(config.secret)}`, {
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
   const j = await res.json();
   if (!j.access_token) throw wecomError(j.errcode || 'NO_TOKEN', j.errmsg);
   tokenCache = { token: j.access_token, expiresAt: Date.now() + (j.expires_in || 7200) * 1000 };
@@ -92,6 +96,7 @@ async function sendWebhook(payload) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   const j = await res.json();
   if (j.errcode && j.errcode !== 0) throw wecomError(j.errcode, j.errmsg);
@@ -114,6 +119,7 @@ async function sendFile(buffer, filename) {
   const res = await fetch(`${QYAPI}/webhook/upload_media?key=${encodeURIComponent(config.webhookKey)}&type=file`, {
     method: 'POST',
     body: fd,
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   const j = await res.json();
   if (!j.media_id) throw wecomError(j.errcode || 'NO_MEDIA', j.errmsg);

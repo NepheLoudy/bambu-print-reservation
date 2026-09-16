@@ -18,6 +18,13 @@ if (!FINANCE_CHAT_ID) {
   process.exit(1);
 }
 
+// R10 后 /api/dispatch fail-closed：不带 token 必 403（2026-09-17 补）
+const API_TOKEN = process.env.GATEWAY_API_TOKEN || '';
+if (!API_TOKEN) {
+  console.error('缺少 GATEWAY_API_TOKEN（gateway .env），/api/dispatch 会 403，拒绝执行');
+  process.exit(1);
+}
+
 const realMention = {
   key: '@_user_1',
   id: { open_id: 'ou_e2e_test', union_id: 'on_e2e_test', user_id: '' },
@@ -80,9 +87,9 @@ conn.on('ready', () => {
       const cmds = [
         'pm2 restart knowledge-tracker 2>&1 | grep -e knowledge-tracker -e ✓ | head -3',
         'sleep 4',
-        `curl -s -X POST http://localhost:3010/api/dispatch -H 'Content-Type: application/json' -d '${dq(JSON.stringify(msgA))}'`,
+        `curl -s -X POST http://localhost:3010/api/dispatch -H 'Content-Type: application/json' -H 'X-API-Token: ${API_TOKEN}' -d '${dq(JSON.stringify(msgA))}'`,
         'echo',
-        `curl -s -X POST http://localhost:3010/api/dispatch -H 'Content-Type: application/json' -d '${dq(JSON.stringify(msgB))}'`,
+        `curl -s -X POST http://localhost:3010/api/dispatch -H 'Content-Type: application/json' -H 'X-API-Token: ${API_TOKEN}' -d '${dq(JSON.stringify(msgB))}'`,
         'echo',
         'sleep 5',
         'echo "===== 网关日志 ====="',

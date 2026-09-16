@@ -66,6 +66,21 @@ app.get('/api/health', (req, res) => {
 app.get('/api/attendance/policy', (req, res) => {
   const members = store.loadMembers();
   const win = report.weekWindow(0, Date.now(), config.cronParts.dow == null ? 1 : config.cronParts.dow);
+  // state 只出摘要：imported.records 是全量打卡明细（个人信息），不能整包出只读窗口
+  let imported = null;
+  let stateSummary = {};
+  try {
+    const st = store.loadState();
+    const { records, ...meta } = st.imported || {};
+    imported = Object.keys(meta).length ? { ...meta, records: (records || []).length } : null;
+    stateSummary = {
+      lastSentWeekKey: st.lastSentWeekKey || null,
+      lastSentAt: st.lastSentAt || null,
+      lastError: st.lastError || null,
+      delivery: st.delivery || null,
+      imported, // 元数据同款摘要口径（records 只留条数）
+    };
+  } catch { /* 状态文件损坏时窗口仍可用（与 /api/health 同口径），摘要留空 */ }
   res.json({
     domain: '企业微信考勤周报',
     broadcast: { cron: config.cron, timezone: config.timezone, windowLabel: win.label, windowKey: win.key },
@@ -84,8 +99,8 @@ app.get('/api/attendance/policy', (req, res) => {
     },
     members: { file: config.membersFile, count: members.length, list: members },
     dataSource: config.dataSource,
-    imported: (() => { try { const st = store.loadState(); const { records, ...meta } = st.imported || {}; return Object.keys(meta).length ? { ...meta, records: records.length } : null; } catch { return null; } })(),
-    state: store.loadState(),
+    imported,
+    state: stateSummary,
     apiTokenLocked: !config.apiToken,
   });
 });
@@ -109,7 +124,8 @@ app.post('/api/attendance/import', requireApiToken, (req, res) => {
     const merged = importService.mergeMembers(store.loadMembers(), parsed.members);
     store.saveMembers(merged);
     const state = store.loadState();
-    const days = [...new Set(parsed.records.map((r) => new Date(r.checkin_time * 1000).toISOString().slice(0, 10)))].sort();
+    // 覆盖天数按上海挂钟日（report.js toWall 口径）：UTC 直取会把上海 00:00–07:59 的打卡算到前一天
+    const days = [...new Set(parsed.records.map((r) => new Date(r.checkin_time * 1000 + report.SHANGHAI_OFFSET_MS).toISOString().slice(0, 10)))].sort();
     state.imported = { records: parsed.records, importedAt: new Date().toISOString(), sourceFile: String(filename || ''), count: parsed.records.length, days: `${days[0]} ~ ${days[days.length - 1]}` };
     store.saveState(state);
     console.log(`[考勤] 导入打卡明细: ${parsed.records.length} 条（${state.imported.days}），名单 ${merged.length} 人`);

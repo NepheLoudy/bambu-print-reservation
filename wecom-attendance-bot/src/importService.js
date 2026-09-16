@@ -91,7 +91,7 @@ function parseWorkbook(buf) {
   for (const row of rows.slice(headerIdx + 1)) {
     if (!row || !row.some((c) => String(c).trim() !== '')) continue;
     const ms = toShanghaiMs(row[map.time]);
-    const name = map.name != null ? String(row[map.name] || '').trim() : '';
+    let name = map.name != null ? String(row[map.name] || '').trim() : '';
     const useridCell = map.userid != null ? String(row[map.userid] || '').trim() : '';
     if (!ms || (!name && !useridCell)) { skipped += 1; continue; } // 有时间但姓名账号全空：合并单元格续行，跳过防幽灵用户
     if (!name && useridCell) { name = useridCell; }
