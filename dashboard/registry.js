@@ -180,7 +180,7 @@ module.exports = {
       ],
       permissions: [
         '排班生成权限：名册 admin:true（或 DUTY_ADMIN_OPEN_IDS）',
-        '定时任务：D-1 20:00 / 当日 12:00 值日看板播报（今日+昨日战报）/ 18:30 询问 / 21:00 收口前临门提醒（私信未完结者）/ 22:00 收口（写表不延迟）/ 00:30 对账 / 每小时整点快递未取播报（EXPRESS_BROADCAST_SCHEDULE，无未取不发）（均过静默闸门）',
+        '定时任务：D-1 20:00 / 当日 12:00 值日看板播报（今日+昨日战报）/ 18:30 询问 / 23:00 收口前临门提醒（私信未完结者）/ 24:00 收口（写表不延迟；2026-09-17 起 22:00→24:00）/ 00:30 对账 / 每小时整点快递未取播报（EXPRESS_BROADCAST_SCHEDULE，无未取不发）（均过静默闸门）',
         '值日域管辖：DUTY_GROUP_CHAT_IDS 管辖群经 /api/duty/policy 下发，hub 群内闸门照此执行（含快递助手群内指令/取件词形/非@观察转发，2026-09-17）',
         '名册自动同步：启动/生成排班前/手动 refresh 读通讯录全员（open_id 直取），whitelist.json 为排除名单',
         '真实名册 config/members.json、whitelist.json 不进 git（push.js 显式 SFTP 上部署目标）',
