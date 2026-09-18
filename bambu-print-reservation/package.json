@@ -7,7 +7,7 @@
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "deploy": "node push.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node test/dispatcher-test.js && node test/dispatcher-persist-test.js && node test/dispatcher-manual-race-test.js && node test/approval-test.js",
     "push": "node push.js"
   },
   "keywords": [

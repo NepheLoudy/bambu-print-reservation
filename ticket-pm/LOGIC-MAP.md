@@ -169,7 +169,7 @@ p2p 消息：  ① DDL逾期确认(handleP2PReply) → handled? 终止
 
 每一环 handled 即终止管道；DDL 确认"未识别回复"在群聊静默放行给后续环节；③ 自动回复命中也不终止（发言记录照常往下走）。
 
-### 2.2 DDL 每日播报（`server/src/cron/index.js` `runDDLBroadcast`，默认每天 12:00）
+### 2.2 DDL 每日播报（`server/src/cron/index.js` `runDDLBroadcast`，默认每天 12:05；2026-09-19 起 12:00→12:05 与 duty-bot 12:00 值日播报错峰，防 bitable 读限频互踢）
 
 1. 防重：`.broadcast-state.json` 记 `lastBroadcastDate`，同日跳过。**标记在至少一群送达后才落盘**——全败当天可 `/test-broadcast` 重跑；部分成功用各群 `/test-ddl` 补发（它不受标记限制）。
 2. 频控错误指数退避重试 ≤3 次；`deliveredGroups` 跨重试持久，重试只补失败群；同 webhook / 同 chatId 去重防一卡多发。
@@ -186,7 +186,7 @@ p2p 消息：  ① DDL逾期确认(handleP2PReply) → handled? 终止
 
 ### 2.3 DDL 逾期确认（`server/src/services/ddlConfirmService.js`）
 
-- 发送：仅私聊（`sentMode: 'p2p'`）；每 owner 每项目一条待确认记录；**确认时效 12 小时**（`DDL_CONFIRM_WINDOW_HOURS` 可配）——时效内回复「是/否」才认，超时记录清除、项目保持原状态、次日 12:00 播报重新询问；重复发送去重只对未过期记录生效；230013（离队/未激活）/230053（拒收）安静跳过，**不再群聊降级**。
+- 发送：仅私聊（`sentMode: 'p2p'`）；每 owner 每项目一条待确认记录；**确认时效 12 小时**（`DDL_CONFIRM_WINDOW_HOURS` 可配）——时效内回复「是/否」才认，超时记录清除、项目保持原状态、次日 12:05 播报重新询问；重复发送去重只对未过期记录生效；230013（离队/未激活）/230053（拒收）安静跳过，**不再群聊降级**。
 - 回复：**来源必须匹配**——p2p 发的确认只能私聊回；解析只认整句确认/否认词（是/是的/确认/完成/做完了/好/没问题/done/ok… ↔ 否/不/不是/没完成/还没/not yet…），**不做 contains 宽松匹配**（防"你是谁""是的（附和别人）"误改项目状态）。
 - 回复"是" → 项目状态写 `completed`（失败回滚待确认记录并告知）；"否" → 状态不变；未识别 → 私聊引导（群聊静默）。
 - 指令消息（`/` 开头）不进确认流程。

@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次部署）。本项目 push.js 为纯 SFTP 直传、无 git 步骤，**版本锚点取顶层 monorepo 中触碰本路径的归档提交**——两次归档之间的个别部署可能无版本记录。v1~v14 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v30**（2026-09-17，随本提交落地）。
+当前最新：**v31**（2026-09-19，随本提交落地）。
 
 ## 阶段五 · 审批事件字段对齐与分发健壮化（2026-09-05）
 
@@ -207,3 +207,10 @@
 - webhook 发送（sendMessage/sendTextMessage）补 15s 超时（裸 fetch 挂起会卡死晚间静默冲刷循环）。
 - .env.example：QUIET_BACKLOG_FILE 注释态改显式项目外路径（与 DISPATCH_STATE_FILE 同待遇）；NAS 三键迁小电脑实值；README givenUp「保留在内存」改已落盘口径（v29 遗留）。
 - 测试：approval/dispatcher/dispatcher-persist/dispatcher-manual-race 四套全过。
+
+### v31 · 2026-09-19 · 顶层归档随批 · chore
+
+**npm test 与 push.js 闸门同源（R27）**
+
+- package.json `test` 由 `echo "Error: no test specified"` 占位符改为与 push.js 测试闸门完全相同的四套清单（dispatcher/dispatcher-persist/dispatcher-manual-race/approval）——此前直接 `npm test` 得到误导输出（09-18 全量 debug 批观察项 R27）。
+- 纯元数据批，无行为改动；npm test 实跑验证全过。版本锚点=顶层归档提交。
