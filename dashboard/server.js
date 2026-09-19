@@ -523,14 +523,29 @@ const net = require('net');
 const os = require('os');
 const xiaomi = require('./router-xiaomi');
 
-// 拓扑节点定义：kind = cloud(云端依赖) / net(网关) / host(本地设备)
+// 拓扑节点定义：kind = cloud(云端依赖) / net(网关) / host(本地设备)；icmp=true 时用 ping 探活（无 ports）
 const NET_TARGETS = [
   { id: 'internet', name: '互联网', kind: 'cloud', host: '223.5.5.5', ports: [443] },
   { id: 'feishu', name: '飞书云(API/长连接)', kind: 'cloud', host: 'open.feishu.cn', ports: [443] },
   { id: 'router', name: '主路由', kind: 'net', host: '192.168.31.1', ports: [80] },
   { id: 'pc', name: '小电脑(生产)', kind: 'host', host: '192.168.31.57', ports: [22, 3010, 3000, 3001, 3002, 3003, 3006] }, // 3007 回环专用，LAN 探测恒 ✗ 不列
-  { id: 'oldnas', name: '旧NAS(备件存储)', kind: 'host', host: '192.168.31.151', ports: [2222, 3923] },
+  { id: 'oldnas', name: '旧NAS(备件存储)', kind: 'host', host: '192.168.31.153', ports: [2222, 3923] }, // 2026-09-20 挪入交换机后 DHCP 从 .151 重分配为 .153；建议主网关 UI 按 MAC 绑静态杜绝再漂
+  // 裁判系统路由器（第三网段 192.168.3.1/24，物理机器人+裁判端专用）：wan 侧管理口被其防火墙挡（设计如此），
+  // TCP 探测恒红属预期，故用 ICMP 探活；跨区互通见小电脑防火墙 Referee-Zone 规则与《网关拓扑文档.md》§四。
+  { id: 'referee', name: '裁判系统路由器', kind: 'net', host: '192.168.31.80', icmp: true, note: 'ICMP 探活（wan 侧 TCP 管理口被防火墙挡，属预期）' },
 ];
+
+function icmpProbe(host, timeoutMs = 2500) {
+  return new Promise((resolve) => {
+    const t0 = Date.now();
+    const p = spawn('ping', ['-n', '1', '-w', String(timeoutMs), host], { windowsHide: true });
+    let out = '';
+    const timer = setTimeout(() => p.kill(), timeoutMs + 2000);
+    p.stdout.on('data', (d) => { out += d.toString(); });
+    p.on('close', () => { clearTimeout(timer); resolve(/TTL/i.test(out) ? Date.now() - t0 : null); });
+    p.on('error', () => { clearTimeout(timer); resolve(null); });
+  });
+}
 
 function tcpProbe(host, port, timeoutMs = 2500) {
   return new Promise((resolve) => {
@@ -708,6 +723,10 @@ app.get('/api/network', async (req, res) => {
   const t0 = Date.now();
   const probes = [];
   for (const t of NET_TARGETS) {
+    if (t.icmp) {
+      probes.push(icmpProbe(t.host).then((latency) => ({ id: t.id, port: 'icmp', ok: latency !== null, latency })));
+      continue;
+    }
     for (const p of t.ports) {
       probes.push(tcpProbe(t.host, p).then((latency) => ({ id: t.id, port: p, ok: latency !== null, latency })));
     }
@@ -717,7 +736,7 @@ app.get('/api/network', async (req, res) => {
     const ports = results.filter((r) => r.id === t.id).map((r) => ({ port: r.port, ok: r.ok, latencyMs: r.latency }));
     const okPorts = ports.filter((x) => x.ok);
     return {
-      id: t.id, name: t.name, kind: t.kind, host: t.host,
+      id: t.id, name: t.name, kind: t.kind, host: t.host, note: t.note || undefined,
       up: okPorts.length > 0,
       latencyMs: okPorts.length ? Math.min(...okPorts.map((x) => x.latencyMs)) : null,
       ports,
