@@ -66,9 +66,11 @@ module.exports = {
   },
   // 长连接订阅的事件类型（逗号分隔），接入新事件类型在这里加
   // approval_instance = 审批实例状态变更；approval_task = 审批任务状态变更（自动审批依据）
+  // drive.file.bitable_field_changed_v1 = 多维表格字段【结构】变更（应用控制台订阅层送来，
+  //   无消费方——不注册 handler 时 SDK 会对每条刷 `no ... handle` warn，注册后在 dispatch 静默忽略）
   eventTypes: envEventTypes.length
     ? envEventTypes
-    : ['im.message.receive_v1', 'drive.file.bitable_record_changed_v1', 'approval_instance', 'approval_task'],
+    : ['im.message.receive_v1', 'drive.file.bitable_record_changed_v1', 'approval_instance', 'approval_task', 'drive.file.bitable_field_changed_v1'],
   verificationToken: process.env.FEISHU_VERIFICATION_TOKEN || '',
   consumers: envConsumers.length ? envConsumers : parseConsumers(DEFAULT_CONSUMERS.join(';')),
   messageRoutes: parseJsonArray(process.env.MESSAGE_ROUTES, DEFAULT_MESSAGE_ROUTES),

@@ -363,6 +363,11 @@ async function dispatchFrame(eventType, data) {
   if (type === 'approval_instance' || type === 'approval_task') {
     return fanoutApproval(frame);
   }
+  if (type === 'drive.file.bitable_field_changed_v1') {
+    // 字段【结构】变更：应用控制台订阅层送来，无消费方——静默忽略（v28 前未注册
+    // handler 时 SDK 对每条刷 `no ... handle` warn，曾淹没 error 日志）
+    return { ok: true, ignored: true };
+  }
   console.log(`[网关] 未配置分发逻辑的事件类型: ${type}，已忽略`);
   return { ok: true, ignored: true };
 }

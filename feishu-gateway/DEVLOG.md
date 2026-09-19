@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次 git 提交 + 一次部署）。本项目无独立远端，push.js 只暂存 `feishu-gateway/` 路径提交进顶层 monorepo——版本即顶层仓库中触碰本路径的提交。v1~v8 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v25**（2026-09-15，随本提交落地）。
+当前最新：**v28**（2026-09-20，随本提交落地）。
 
 ## 阶段五 · 开发历史建档（2026-09-04）
 
@@ -188,3 +188,11 @@
 **全量 debug 回归批：deliverTo 重试/计数重构**
 
 - 修复 v26 R11 实现的计数污染与三连投递：重试失败的 throw 落进外层传输异常 catch 再重试第 3 次，且外层成功路径不检查 ok 就计 ok——一次事件失败会投递 3 次、failed 计 3~4 次。重构为统一口径：事件模式 HTTP 失败重试一次（重试成功=ok+retried；最终失败=failed 计 1 次即返回，不抛不重入）；command 模式单次尝试只计 failed；传输异常路径保持原 R3 语义（重试成功 ok+retried，最终失败 failed 计清）。
+
+### v28 · 2026-09-20 · 随本提交落地 · fix
+
+**全量 debug 批：字段结构变更事件静默 + 部署悬空收口 + 指针漂移修正**
+
+- `drive.file.bitable_field_changed_v1`（多维表格字段结构变更，应用控制台订阅层送来）此前不在 EVENT_TYPES、dispatch 无分支，SDK 对每条刷 `[warn] no ... handle`，error 日志被噪音淹没。现在 config 默认清单与 .env/.env.example EVENT_TYPES 补注册，dispatchFrame 显式静默忽略。
+- **部署悬空收口**：v82 批（09-17）对 gateway 的改动（nas-e2e-test.js 补 X-API-Token、auth.js/push.js 注释口径）只进了顶层归档、未跑 gateway push，部署目标自 09-16 起落后本地（内容级 diff 核实：仅注释/测试脚本差异，运行时行为一致）。本次 push 对齐。
+- DEVLOG 头部「当前最新」指针 v25 → v27 漂移修正（v26/v27 条目存在但指针漏更，全局工程规则点名的高频复发项第 N 次），本批后指向 v28。
