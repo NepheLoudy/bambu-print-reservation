@@ -85,3 +85,18 @@ description: qianli 实验室/家庭网络拓扑、设备接入与断网排查�
 - 拓扑探测端点：`dashboard/server.js` `GET /api/network`（NET_TARGETS 定义处即拓扑清单，改拓扑先改它）+ 前端 `public/index.html` 渲染；
 - 旧 NAS 关停/验收脚本模板：曾用 `shutdown-old-nas.js`（已删，模式：SSH→pm2 ls→kill→systemctl disable→复核）；
 - 部署链路：见 qianli-deploy skill（本 skill 不覆盖部署步骤）。
+
+## 九、4A 打印机隔离区路由器（OpenWrt，2026-09-20 改造完成）
+
+小米 4A 千兆版 v2，**已刷 OpenWrt 23.05.2**（原厂 miwifi 固件不存在，`192.168.31.1` 上的"小米路由器"页面是主网关的）。定位=打印机隔离区：LAN `192.168.2.1/24`（DHCP .100-.249），wan=DHCP 客户端待插入主网 LAN；SSID `Printer`（2.4G，WPA2，`ap_isolate=1` 客户端隔离）已启用，`Printer-5G` 保持禁用。
+
+- **访问方式**（IPv4 网段不同时 IPv6 必可达）：有线插它 LAN 口后走 `http://[fe80::d6da:21ff:fe0d:e285]/`（链路本地）或 `http://[fd2c:8424:6a43::1]/`（ULA）；LuCI 与 SSH（dropbear 22）root 密码=主网关管理密码（不写入 git，需要时问用户）。**插网线认准白色 LAN 口**（蓝色 WAN 口防火墙全挡，症状=收得到 RA 广播、发出去全无回音）。
+- **防火墙三规则**（2026-09-20 定稿，按现实 31.x 编址）：① `Allow-Mgmt-MainLAN`：192.168.31.0/24 → 本机 22/80/443；② 主网→打印区：31.0/24 → 192.168.2.0/24 全放行（PC 管打印机）；③ 打印区→小电脑：2.x → 仅 192.168.31.57（打印机主动回推）。lan zone 无出向转发目标（打印区→外网/其余主网主机全拒绝）。**新主网关（SuperQianLi/192.168.31.1，RD08，管理密码同 4A root）就是"平行"上级**；拓扑设计文档里的 192.168.1.x 编址未落地，一切按 31.x 现状。
+- **2026-09-20 清理记录**（改前全量备份在桌面 `qianli-backups/4a-openwrt-backup-20260920.tar.gz`）：删校园网保活脚本 `/root/ping/ping.sh`+其 cron（内含两个硬编码学号，若与主路由同账号会互顶号）、卸载 acme/adblock/socat（socat 是 acme 依赖连带装的）、清 5 条 192.168.1.x 错位租约与 6 条旧 DNAT 端口转发；`/root/test.clc` 遗留文件未动待用户定性。
+- **待办**：4A wan 插入主网 LAN 后验证拿到 31.x 租约 → 小电脑端到端测试（ping 打印机 / MQTT 8883 / 打印分发）；打印机入网后按 MAC 配静态租约并把 `bambu-print-reservation` 的 `PRINTER_HOSTS` 换成 192.168.2.x 地址；有线打印机超 2 台需加小交换机（4A 只有 lan1/lan2）。**入网后同步**：运维台 `server.js` `NET_TARGETS` 补 4A 条目（现拓扑看板无 192.168.2.x 探测，2026-09-20 核对确认）。
+
+## 十、本机（运维笔记本）双网卡与 SSH 源 IP 现象（2026-09-20 记录，待定性）
+
+- **双网卡同网段**：笔记本同时有 WLAN（192.168.31.182，网关 192.168.31.1）和「以太网 3」（192.168.31.2，**无网关**，疑似 USB 转接/底板口）。两块网卡同挂 31.0/24 时 Windows 按接口度量选路，SSH/HTTP 的实际出口可能漂移——排查连通性时先 `ipconfig` + `route print 192.168.31` 确认走的是哪块网卡；不用有线建议禁用，避免路由选择漂移。
+- **SSH 登录小电脑时 sshd 侧来源显示 192.168.31.1（主路由）而非本机地址**：说明包被主路由 hairpin NAT 过了一道（路径未按本机直连预期走）。功能无损，但两个后果：①基于源 IP 的 allowlist/日志溯源会把运维操作记成主路由；②证实「SSH_CLIENT=192.168.31.1」不代表是小电脑自己连自己。待定性：是否与双网卡选路有关，收敛网卡后复测。
+- 部署目标侧核对记录（2026-09-20 全量 debug 批）：pm2 实际目录 `C:\qianli\opt\<项目>`（git-bash 内不可用 `/opt/...` 短路径，PortableGit 根在 `C:\tools\PortableGit`，EXEPATH 可证）；hub/wecom 的 `.env` 在部署目录下 `server/` 子层，与本地一致。

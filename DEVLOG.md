@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v82**（2026-09-17，随本提交落地）。
+当前最新：**v83**（2026-09-20，随本提交落地）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -677,3 +677,20 @@
 - **运维事件：日志基建回归**——意图文档六.5 已判「不可用」的 pm2-logrotate 模块实际仍在跑（09-16 15:50 起 uptime 2.78 天），retain:7+高频轮转把 09-18 白天前的全部日志吃光（qianli-log-truncate 的 archive 归档因轮到它时日志已被清空而恒空）；已 `pm2 delete pm2-logrotate`+save，qianli-log-truncate（每小时 14 分，归档 14 天）为唯一轮转通道，日志恢复积累。教训：模块卸载后需复核进程表。
 - 文档：hub README/LOGIC-MAP §2.2/指南 MD/桌面 HTML DDL 播报时刻 12:00→12:05；duty README 补偿/对账节；意图文档 R25~R27 落地标注。
 - 部署顺序：duty → hub → approval → bambu → 顶层。
+
+## v83 · 2026-09-20 · 随本提交落地 · fix
+
+**全量 debug 批（六仓联动）：两处 P1 生产 bug 根因修复 + 限频/写放大治本 + 网关部署悬空收口**
+
+五路并行代码审查（四路子代理分仓 + 网关本地深审）+ 部署目标实机盘点（pm2/健康/日志/文件指纹/七仓 .env 键名比对），修复全部过桩测试后按 gateway→hub→ticket→duty→approval→wecom 顺序部署。
+
+- **P1 · approval-bot v42**：催发票回复轮询 230001 根因——`start_time` 毫秒误用（接口收秒级）+ `end_time` 缺失，凡私聊催过的用户回复轮询必失败、「延期/无法提交」永不识别（上线以来即病，v40 修的是同模块别处、桩未覆盖该路径故漏网）；另补会话消息/通讯录部门翻页。桩新增 230001 回归锁。
+- **P1 · hub v101**：关键词监听图片转存仍用旧 `im/v1/images` 接口（用户图一律 234001，生产 error 刷屏、发言表图片静默丢），换消息资源接口（duty v28 同款）；快递观察转发富文本图文分离（v97 透传实为无操作，图全丢）改先文后图借 duty 配对逻辑补挂；DDL 卡 week 桶修复（此前 `daysLeft<=7` 全进 urgent，「7日内」栏恒空、降级链路错标加急）；approval/print/webhook 三处转发补 15s 超时。
+- **ticket-bot v77**：每分钟对账无条件重写目标行的写放大加 diff 门控（`unchanged` 跳写，治理共享应用配额压力——duty 1254290 与查父项目超时同源）；缺行修补扩展「缺 parentId」双条件；过滤公式值转义（项目名含引号致永久缺挂）。
+- **duty-bot v33**：快递表读取 1254290 短退避重试（读幂等，写路径维持不重试）；cron 状态计数失真修复（快递任务加入后 7 任务判 ===6，`running` 恒 false）。
+- **wecom v8**（09-21 首播前收尾）：feishu.js fetch 补 15s 超时（防占死 guardedRun 锁）；发送失败告警文案修正（首启无水位不自动补发，补手动 test-broadcast 提示）。
+- **gateway v28**：字段结构变更事件（`bitable_field_changed_v1`）补注册+静默忽略（SDK warn 曾淹没 error 日志）；**v82 批 gateway 改动未部署的悬空收口**（内容级 diff 核实仅注释/测试脚本差异，运行时行为一致）；DEVLOG 指针 v25→v27 漂移修正。
+- **实机盘点结论**：七进程全绿、网关 ws running、投递 2506/0 失败；ticket v76/bambu v31/wecom v7 部署与本地逐字节一致（bambu 仅 package-lock、wecom 仅 DEVLOG 差异）；七仓本地 vs 目标 .env 键名集合全对齐。
+- **运维发现（记桌面意图文档）**：桌面《qianli-设计意图待定项.md》与《机器人总成使用指南.html》双双丢失（桌面/回收站均无，不可本地恢复）——意图文档本批重建，HTML 待用户定性后重建；bambu `APPROVAL_CODE` 未配（审批对账②腿窗口兜底不生效，需用户从审批后台取定义 code）；运维笔记本双网卡同网段+SSH 源 IP 显示主路由（hairpin NAT）现象记入 qianli-lab-network skill §十；4A OpenWrt 入网后需补运维台 NET_TARGETS。
+- 测试：duty 六套 / hub 三套 / ticket 24+18+16 / wecom 七套 / approval（含新回归锁）/ bambu 四套全绿。遗留：`.agents/skills/qianli-lab-network/SKILL.md` 上会话 4A 拓扑改动随本批入库并补 §十（双网卡/SSH 源 IP/部署目录路径核实）。
+- 部署顺序：gateway → hub → ticket → duty → approval → wecom → 顶层。
