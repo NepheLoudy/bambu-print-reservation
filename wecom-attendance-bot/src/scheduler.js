@@ -148,7 +148,7 @@ async function alertFailure(err, win, { manual = false } = {}) {
   const hint = err.hint ? `\n> 处理提示：${err.hint}` : '';
   if (config.webhookKey) {
     try {
-      await wecom.sendMarkdownV2(`## ⚠ 考勤周报发送失败\n> 窗口：${win.label}\n> 原因：${err.message}${hint}\n> 每小时自动重试，成功后补发本周报`);
+      await wecom.sendMarkdownV2(`## ⚠ 考勤周报发送失败\n> 窗口：${win.label}\n> 原因：${err.message}${hint}\n> 每小时自动重试，成功后补发本周报（首次成功前无水位不自动补发，可 POST /api/attendance/test-broadcast 手动补）`);
     } catch (e) {
       console.error('企微告警也发不出去:', e.message, e.hint || '');
     }
@@ -158,7 +158,7 @@ async function alertFailure(err, win, { manual = false } = {}) {
       await feishu.sendCardToWebhook(config.feishuWebhookUrl, config.feishuWebhookSecret, {
         config: { wide_screen_mode: true },
         header: { template: 'red', title: { content: '⚠ 考勤周报发送失败', tag: 'plain_text' } },
-        elements: [{ tag: 'markdown', content: `**窗口：**${win.label}\n**原因：**${err.message}${err.hint ? `\n**处理提示：**${err.hint}` : ''}\n每小时自动重试，成功后补发本周报` }],
+        elements: [{ tag: 'markdown', content: `**窗口：**${win.label}\n**原因：**${err.message}${err.hint ? `\n**处理提示：**${err.hint}` : ''}\n每小时自动重试，成功后补发本周报（首次成功前无水位不自动补发，可 POST /api/attendance/test-broadcast 手动补）` }],
       });
     } catch (e) {
       console.error('飞书告警也发不出去:', e.message, e.hint || '');

@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次 git 提交 + 一次部署）。本项目无独立远端（repo:top 模式），push.js 只暂存 `wecom-attendance-bot/` 路径提交进顶层 monorepo——版本即顶层仓库中触碰本路径的提交。此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v7**（2026-09-17，随本提交落地）。
+当前最新：**v8**（2026-09-20，随本提交落地）。
 
 ### v1 · 2026-09-15 · 随本提交落地 · feat
 **项目诞生：企业微信考勤周报机器人——每周打卡数据聚合播报（markdown_v2 周报卡 + CSV 明细附件）**
@@ -72,3 +72,11 @@
 - .env.example 补 ATTENDANCE_DATA_SOURCE（import 语义注释）与 QUIET_HOURS_* 三键。
 - 测试：七套桩全过（import 18 项含新回归、quiethours 23 项含新格式断言）。
 - 备注：头部指针此前滞留 v3（v4~v6 期间未同步），本批一并修正 v3→v7。
+
+## v8 · 2026-09-20 · 随本提交落地 · fix
+
+**全量 debug 批：飞书 API fetch 补 15s 超时 + 发送失败告警文案修正（09-21 首播前收尾）**
+
+- `src/feishu.js` 的 `getTenantToken`/`feishuApi` fetch 此前无 AbortSignal——挂起会占住 guardedRun 锁拖死整轮任务（`wecom.js` 同批已补、此处漏）。补 15s 超时。当前 FEISHU_CSV_CHAT_ID 为空该路径未激活，属潜伏问题预防性修复。
+- 发送失败告警文案「每小时自动重试，成功后补发本周报」与首启保护矛盾：首次成功前无水位、watchdog 不会自动重试（`catchupNeeded` 首启直接返回）。企微/飞书两处告警文案补「首次成功前无水位不自动补发，可 POST /api/attendance/test-broadcast 手动补」，避免首播失败时误以为会自动恢复。
+- 测试：七套桩全过（npm test 链式全绿）。

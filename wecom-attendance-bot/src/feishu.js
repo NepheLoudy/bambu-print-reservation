@@ -132,6 +132,7 @@ async function getTenantToken() {
   if (tenantCache.token && Date.now() < tenantCache.expiresAt - 5 * 60 * 1000) return tenantCache.token;
   const res = await fetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
     method: 'POST',
+    signal: AbortSignal.timeout(15000), // 挂起会占住 guardedRun 锁（wecom.js 同批口径）
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ app_id: config.feishuAppId, app_secret: config.feishuAppSecret }),
   });
@@ -145,6 +146,7 @@ async function feishuApi(pathName, body) {
   const token = await getTenantToken();
   const res = await fetch(`https://open.feishu.cn/open-apis/${pathName}`, {
     method: 'POST',
+    signal: AbortSignal.timeout(15000),
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify(body),
   });
