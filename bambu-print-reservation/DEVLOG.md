@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次部署）。本项目 push.js 为纯 SFTP 直传、无 git 步骤，**版本锚点取顶层 monorepo 中触碰本路径的归档提交**——两次归档之间的个别部署可能无版本记录。v1~v14 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v31**（2026-09-19，随本提交落地）。
+当前最新：**v32**（2026-09-20，随本提交落地）。
 
 ## 阶段五 · 审批事件字段对齐与分发健壮化（2026-09-05）
 
@@ -214,3 +214,19 @@
 
 - package.json `test` 由 `echo "Error: no test specified"` 占位符改为与 push.js 测试闸门完全相同的四套清单（dispatcher/dispatcher-persist/dispatcher-manual-race/approval）——此前直接 `npm test` 得到误导输出（09-18 全量 debug 批观察项 R27）。
 - 纯元数据批，无行为改动；npm test 实跑验证全过。版本锚点=顶层归档提交。
+
+### v32 · 2026-09-20 · 顶层归档随批 · chore
+
+**用户拍板：动态广场机器人停写（PLAZA_ENABLED 开关）**
+
+- 2026-09-20 用户拍板：动态广场相关功能由用户自维护，机器人只对各自现有业务看板负责。plaza.js `enabled()` 加 `PLAZA_ENABLED` 开关（默认关，显式设 `1` 才恢复写入）；打印生命周期（排队/开始/完成/失败）四处广场钩子保留代码不动，仅由开关关断。
+- `.env.example` 补注释；npm test 四套全过。版本锚点=顶层归档提交。
+
+## v84 · 2026-09-20 · 随本提交落地 · chore
+
+**用户拍板批：动态广场机器人停写（四仓 PLAZA_ENABLED）**
+
+- 2026-09-20 用户拍板：**动态广场相关功能由用户自维护，机器人只对各自现有业务看板负责**。duty-bot v34 / hub v102 / ticket-bot v78 / bambu v32 四仓 `src/services/plaza.js` 统一加 `PLAZA_ENABLED` 停写开关（代码默认关，显式设 `1` 才恢复机器人写入），事件钩子保留、fire-and-forget 语义不变；「动态广场」表（在回收站）的恢复/重建由用户自理，机器人不再参与。
+- 附带效果：表在回收站期间各仓持续刷的 `TableIdNotFound` warn 终结；用户日后恢复/重建广场表也不会被机器人自动灌数据。
+- gateway 的「网关日活跃」upsert 是另一张在役表，不在停写范围。`.env.example` 四仓补注释；顶层 AGENTS「机器人项目看板」节改口径；桌面意图文档待拍板 #1 销项并记入已定口径。
+- 测试：duty flow+express / ticket 三套 / hub duty-branch / bambu 四套全过。部署顺序：duty → hub → ticket → bambu（SFTP）→ 顶层。

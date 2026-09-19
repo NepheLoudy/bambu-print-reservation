@@ -33,7 +33,7 @@
 
 **「机器人项目看板」（app_token `ZlVZbXDkRayUzSsFRiycznmZn5b`）是跨机器人的量化数据底座**，动态广场看板（仪表盘）与其联动表都在这里：
 
-- **动态广场**（`tbld1zHXkTzko20p`）：各机器人关键业务事件流。写入约定：各仓统一走 `src/services/plaza.js`（hub/ticket-bot/bambu 为 `bitableApi.createRecord`，duty-bot 走 requestAPI），**失败仅 warn 绝不阻塞主流程**；来源机器人/事件类型用表内单选项，新增事件类型先改建表脚本再加钩子；
+- **动态广场**（`tbld1zHXkTzko20p`）：**2026-09-20 用户拍板——动态广场相关功能由用户自维护，机器人只对各自现有业务看板负责**。各仓 `src/services/plaza.js` 已加 `PLAZA_ENABLED` 停写开关（默认关，设 `1` 才恢复机器人写入），事件钩子代码保留、fire-and-forget 语义不变；「动态广场」表现不在 base（回收站），恢复/重建与后续维护都是用户操作，机器人不参与、也不得在无开关的情况下写入。表在回收站期间的 TableIdNotFound warn 已随停写终结。（历史写入约定备查：统一走 plaza.js，hub/ticket-bot/bambu 为 `bitableApi.createRecord`，duty-bot 走 requestAPI；失败仅 warn 绝不阻塞主流程；新增事件类型先改建表脚本再加钩子。）
 - **网关日活跃**（唯一活跃表；**口径=机器人交互**：显式路由命中/私聊/@机器人，群内未 @ 闲聊不计）：gateway `src/bitable-sync.js` 每 30 分钟按日期签名 upsert（数据没变不写表），`POST /api/usage-sync/run?force=1` 手动补数（管理端点，需 `X-API-Token` 头，token 在 gateway `.env`）；「网关功能使用/网关队员活跃」两表已下线（2026-09-13 用户拍板监听只留机器人交互强相关，建表脚本同步移除，勿重建）；
 - **建表/改表**：一律改 `duty-bot/scripts/create-plaza-tables.js`（幂等，可重复执行；主键改名走 **PUT**——飞书更新字段接口不是 PATCH），禁止手改线上表结构不同步脚本；
 - **仪表盘**：图表无法用开放 API 创建，搭建/调整按顶层《动态广场看板搭建指南.md》逐图表点选；既有业务表（工单系统/项目表/值日看板/tbl_keyword）可直接作为图表数据源；
