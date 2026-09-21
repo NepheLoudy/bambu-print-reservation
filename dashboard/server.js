@@ -819,7 +819,15 @@ async function watchdogCheck() {
   try {
     const ports = registry.projects.filter((p) => p.pm2Name).map((p) => p.port);
     const list = ports.join(' ');
-    out = await sshExec(`for p in ${list}; do printf "%s:" "$p"; curl -s -m 5 -o /dev/null -w "%{http_code}" http://localhost:$p/api/health 2>/dev/null; echo; done`, 30000);
+    const cmd = `for p in ${list}; do printf "%s:" "$p"; curl -s -m 5 -o /dev/null -w "%{http_code}" http://localhost:$p/api/health 2>/dev/null; echo; done`;
+    try {
+      out = await sshExec(cmd, 30000);
+    } catch (err) {
+      // 链路抖动误报修正（2026-09-21 18:38 教训：单次 SSH 握手超时把整机误标异常，
+      // 实际目标机健康、机器人全活）——隔 15s 重试一次，两连败才走下方整机失联判死
+      await new Promise((r) => setTimeout(r, 15000));
+      out = await sshExec(cmd, 30000);
+    }
   } catch (err) {
     // SSH 不可达：整机视角处理（部署目标失联/网络被踢）
     WATCHDOG.results = [{ key: 'host', name: '部署目标(SSH)', ok: false, detail: err.message }];
