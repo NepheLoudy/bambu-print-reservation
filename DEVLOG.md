@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v89**（2026-09-21，随本提交落地）。
+当前最新：**v90**（2026-09-21，随本提交落地）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -732,3 +732,10 @@
 - 事故背景：2026-09-21 中午校园网链路劣化窗口（网关 self-signed certificate 指纹、飞书 API 面性超时）致 hub 12:05 DDL 播报超时丢失（补播与 hub 侧重试修复见 project-management-robot v103）；当晚 18:38 看门狗单轮 SSH 握手超时（`Timed out while waiting for handshake`）把「部署目标(SSH)」误标 degraded——实际目标机健康、7 进程全在线，用户侧表现为"很多机器人状态死了"。
 - 修复：`dashboard/server.js` `watchdogCheck` 的 SSH 巡检失败后隔 15s 重试一次，两连败才判整机失联（此后各端口 health 巡检与 2 连击告警逻辑不变）。
 - 同批运维动作（不入库）：12:05 丢失的 DDL 播报已于 19:02 经 hub `/api/bot/test-broadcast` 补播（4 群卡 + 6 逾期确认私聊全送达）；wecom-attendance 09:30 播报失败为企微打卡明细未导入（人工流程，待用户补数）。
+
+## v90 · 2026-09-21 · 随本提交落地 · docs
+
+**《机器人总成使用指南.md》同步 DDL 逾期确认编号定向回复口径**
+
+- 随 project-management-robot v104（45a75db）的成员可感知改动同批：确认私信带确认编号、多项目回复「编号+是/否」定向确认（如 `2 是`）、裸回「是/否」多项目时引导定向、单项目不变。
+- 勘误记录：桌面版《机器人总成使用指南.html》本次维护时发现不存在（AGENTS 约定的 `C:\Users\0d00\Desktop\机器人总成使用指南.html` 缺失），待用户定性后补建/恢复；本轮用户侧口径先行落 MD 维护者手册。
