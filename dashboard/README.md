@@ -23,6 +23,13 @@ npm start        # http://127.0.0.1:3100
 注意 `autostart.bat` 必须保持纯 ASCII——bat 里的 UTF-8 中文注释会被 GBK 代码页的 cmd
 吞行解析成乱码命令（2026-09-13 踩过）。
 
+**保活**：计划任务 `qianli-dashboard-keepalive` 每 10 分钟隐藏运行本目录 `keepalive.vbs`
+→ 复用 `autostart.bat`（幂等：3100 已监听即退出）——进程被静默杀死后最迟 10 分钟自动复活
+（2026-09-22 上线，当日实测杀进程→任务触发→HTTP 复活闭环通过；起因：当日进程曾无任何
+stderr/事件日志地静默死亡）。Startup 里另有 `qianli-ops-console-autostart.vbs` 直起 node
+的历史冗余路径，与保活不冲突、未清理（2026-09-22 报备）。移除保活：
+`schtasks /delete /tn qianli-dashboard-keepalive /f`。
+
 ## 能看什么
 
 | 区块 | 内容 |
