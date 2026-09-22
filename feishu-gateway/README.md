@@ -90,11 +90,20 @@ qianli 项目群的所有机器人共用同一个飞书自建应用（`cli_aac7e
 ## 使用统计（运维台活跃看板数据源）
 
 - **口径=机器人交互**：显式路由命中（/ticket-*、接单等专用能力）、私聊、群内 @机器人 才计数；群内未 @ 落默认目标的普通闲聊不计（hub 本就不会响应）；
-- 消息事件命中路由目标后顺带计数（只观察不改路由）：**谁**（open_id，经共用应用查通讯录解析成姓名并永久缓存）在用**什么功能**（`/` 开头取首个 token 精确到指令；工单接单监听说的是「接单」这两个字，单独成桶；其余按私聊对话/@群对话计）；
+- 消息事件命中路由目标后顺带计数（只观察不改路由）：**谁**（open_id，经共用应用查通讯录解析成姓名并永久缓存）在用**什么功能**（`/` 开头取首个 token 精确到指令；工单接单监听说的是「接单」这两个字，单独成桶；其余按私聊对话/@群对话计）；2026-09-22 起按人功能归因落进日桶 `users[id].f`，作为活跃口径双轨的剔除依据；
+- **活跃口径双轨（2026-09-22）**：`activeUsers`=机器人交互全量（网关日活跃表同口径，不变）；`seriousActiveUsers`/`seriousUsers`=**正经使用**（剔娱乐功能——运维台「队员活跃」看板消费此口径）。娱乐清单=静态（`src/usage.js` `STATIC_FUN_FEATURES`：抽奖/关键词回答//lottery）+ 上报自学习（fun 标记学功能名、learn 学 `/触发词` 形态，随 stats 持久化）；旧数据（无按人归因）按全量正经处理不回溯剔除。规则见顶层 AGENTS「队员活跃口径=正经使用」；
 - 按天分桶保留 30 天，落盘 `<数据目录>/usage-stats.json`（60s 兜底刷新 + SIGINT 落盘，重启不丢）；
-- 查询：`GET /api/usage?days=N`（默认 1，最大 30），返回 `users`（含姓名）/`features`/`daily` 聚合；运维台「使用活跃」看板即消费此接口；
-- `POST /api/usage/report`（X-API-Token）——各机器人在功能命中点回传 `{openId, feature}`，供队员活跃/功能统计归因（hub 关键词回答、DDL 确认等网关看不见的内部命中靠此上报）
+- 查询：`GET /api/usage?days=N`（默认 1，最大 30），返回 `users`/`seriousUsers`（含姓名）/`features`/`daily` 聚合；运维台「队员活跃」看板即消费此接口；
+- `POST /api/usage/report`（X-API-Token）——各机器人在功能命中点回传 `{openId, feature}`，供队员活跃/功能统计归因（hub 关键词回答、DDL 确认等网关看不见的内部命中靠此上报）；**娱乐功能须带 `fun: true`**（抽奖另带 `learn: 触发词数组`，把路由层记成正经指令的 `/触发词` 学进娱乐清单）；
 - 落多维表格：`PLAZA_BITABLE_APP_TOKEN` + `PLAZA_BITABLE_DAILY_TABLE` 配置后每 30 分钟按日期签名 upsert 到「网关日活跃」单表（动态广场看板数据源；分功能/分队员的两张明细表已于 2026-09-13 下线），`POST /api/usage-sync/run?force=1` 手动补数（**管理端点鉴权**：需带 `X-API-Token: $GATEWAY_API_TOKEN` 头，token 在本仓 `.env`；`/api/dispatch` 同样受控，未配置 token 时两端点锁定）。
+
+### 测试
+
+```bash
+node scripts/stub-test-usage-sync.js    # 网关日活跃单表同步 stub（全量 create/签名跳过/变化 update/未配置跳过）
+node scripts/stub-test-usage-serious.js # 正经活跃口径 stub（娱乐剔除/学习清单/静态清单/旧数据兼容/双口径并存）
+```
+
 
 ## 部署与切换步骤
 

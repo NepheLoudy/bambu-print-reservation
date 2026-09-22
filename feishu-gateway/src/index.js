@@ -44,11 +44,18 @@ app.get('/api/usage', (req, res) => {
 });
 
 // 消费方归因上报（2026-09-13 统计覆盖规则）：hub 等服务把路由层看不见的功能命中
-// 回报为队员/功能统计（不计 total 防双算）。规则见顶层 AGENTS「全局工程规则」
+// 回报为队员/功能统计（不计 total 防双算）。规则见顶层 AGENTS「队员/功能统计上报规则」。
+// 2026-09-22 活跃口径修正：娱乐功能上报须带 fun:1（不计入队员活跃），
+// 抽奖另带 learn:[触发词] 供网关把 '/触发词' 路由记录学进娱乐清单
 app.post('/api/usage/report', requireApiToken, (req, res) => {
-  const { openId, feature } = req.body || {};
+  const { openId, feature, fun, learn } = req.body || {};
   if (!openId || !feature) return res.status(400).json({ error: '缺少 openId/feature' });
-  recordFeature({ senderId: openId, feature: String(feature).slice(0, 40) });
+  recordFeature({
+    senderId: openId,
+    feature: String(feature).slice(0, 40),
+    fun: fun ? 1 : 0,
+    learn: Array.isArray(learn) ? learn : null,
+  });
   res.json({ ok: true });
 });
 

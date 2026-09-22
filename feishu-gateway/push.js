@@ -25,7 +25,7 @@ function runTestGate() {
     return true;
   }
   const { spawnSync } = require('child_process');
-  const cmd = 'node scripts/stub-test-usage-sync.js';
+  const cmd = 'node scripts/stub-test-usage-sync.js && node scripts/stub-test-usage-serious.js';
   if (!cmd) { console.log('[测试闸门] 无测试命令，跳过'); return true; }
   console.log('[测试闸门] 运行:', cmd);
   const r = spawnSync(cmd, { shell: true, stdio: 'inherit', cwd: __dirname });

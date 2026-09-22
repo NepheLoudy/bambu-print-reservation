@@ -7,7 +7,12 @@ const config = require('./config');
 // - 只计数不改路由：dispatch 在消息命中目标后顺带记录，故障时静默自愈
 // - 口径=机器人交互：显式路由命中/私聊/群内 @机器人；群内未 @ 的普通消息不计
 //   （按天分桶的明细 feats/users 仅服务运维台与日活跃汇总，不再落多维表格分表）
-// - 按天分桶：每日 { total, users: {open_id: {c, last}}, feats: {功能: 次数} }，保留 30 天
+// - 按天分桶：每日 { total, users: {open_id: {c, last, f: {功能: 次数}}}, feats: {功能: 次数} }，保留 30 天
+//   （f=按人功能归因，2026-09-22 起记录；此前的旧数据无 f，聚合时按全量正经处理不回溯剔除）
+// - 活跃口径双轨（2026-09-22 修正）：activeUsers=机器人交互全量（网关日活跃表同口径，
+//   不变）；seriousActiveUsers=正经使用（剔娱乐功能）。娱乐清单=静态（抽奖/关键词回答//lottery）
+//   + 自学习（归因上报带 fun:1 学功能名、learn:[触发词] 学 '/触发词' 形态），均持久化。
+//   规则见顶层 AGENTS「队员/功能统计上报规则」
 // - 落盘目录必须在项目外：部署 tar 会清空 /opt/feishu-gateway，
 //   默认 /home/qianli/feishu-gateway-data（与 approval-bot-data 惯例一致），可 GATEWAY_DATA_DIR 覆盖
 // - 成员名用共用应用凭证查通讯录并永久缓存（查不到则回退展示 open_id 尾号）
@@ -22,7 +27,7 @@ try {
 }
 const FILE = path.join(dataDir, 'usage-stats.json');
 
-let stats = { v: 1, names: {}, days: {} };
+let stats = { v: 1, names: {}, days: {}, funFeats: {}, funCmds: {} };
 try {
   stats = Object.assign(stats, JSON.parse(fs.readFileSync(FILE, 'utf-8')));
 } catch (err) { /* 首次运行空表起步 */ }
@@ -53,12 +58,35 @@ function prune() {
   while (keys.length > KEEP_DAYS) delete stats.days[keys.shift()];
 }
 
+// ---------- 娱乐功能清单（2026-09-22 活跃口径修正：队员活跃只算正经使用） ----------
+// 静态清单覆盖已知娱乐功能名（hub 归因上报）与娱乐指令；动态部分靠上报自学习：
+// fun:1 → 功能名进 funFeats；learn:[触发词] → 归一化为 '/触发词' 进 funCmds，
+// 盖住抽奖动态触发词在路由层被记成正经 '/指令' 的漏洞。均随 stats 持久化，重启不丢。
+// 新增娱乐类功能时按规则上报（见顶层 AGENTS），静态清单同步补一行。
+const STATIC_FUN_FEATURES = new Set(['抽奖', '关键词回答', '/lottery']);
+
+function isFunFeature(feat) {
+  return STATIC_FUN_FEATURES.has(feat) || stats.funFeats[feat] === 1 || stats.funCmds[feat] === 1;
+}
+
+function learnFunTokens(tokens) {
+  for (const kw of tokens) {
+    const token = '/' + String(kw || '').trim().toLowerCase().split(/\s+/)[0];
+    if (token !== '/' && stats.funCmds[token] !== 1) {
+      stats.funCmds[token] = 1;
+      dirty = true;
+    }
+  }
+}
+
 function recordMessage({ senderId, feature }) {
   try {
     if (!senderId) return;
     const day = stats.days[today()] || (stats.days[today()] = { total: 0, users: {}, feats: {} });
     day.total += 1;
-    const u = day.users[senderId] || (day.users[senderId] = { c: 0, last: 0 });
+    const u = day.users[senderId] || (day.users[senderId] = { c: 0, last: 0, f: {} });
+    if (!u.f) u.f = {};
+    u.f[feature] = (u.f[feature] || 0) + 1;
     u.c += 1;
     u.last = Date.now();
     day.feats[feature] = (day.feats[feature] || 0) + 1;
@@ -72,12 +100,21 @@ function recordMessage({ senderId, feature }) {
 
 // 消费方归因上报（2026-09-13 统计覆盖规则）：hub 等服务把网关路由层看不见的
 // 功能命中（关键词回答/DDL 确认/专项指令等）回报到这里——只加用户与功能计数，
-// 不加 total（total 口径仍是网关路由层交互次数，避免双算）
-function recordFeature({ senderId, feature }) {
+// 不加 total（total 口径仍是网关路由层交互次数，避免双算）。
+// 2026-09-22 起支持 fun:1（娱乐功能标记，功能名进 funFeats）与
+// learn:[触发词]（抽奖触发词进 funCmds，供聚合时把 '/触发词' 路由记录归为娱乐）
+function recordFeature({ senderId, feature, fun, learn }) {
   try {
     if (!senderId || !feature) return;
+    if (fun && stats.funFeats[feature] !== 1) {
+      stats.funFeats[feature] = 1;
+      dirty = true;
+    }
+    if (Array.isArray(learn) && learn.length) learnFunTokens(learn.slice(0, 50));
     const day = stats.days[today()] || (stats.days[today()] = { total: 0, users: {}, feats: {} });
-    const u = day.users[senderId] || (day.users[senderId] = { c: 0, last: 0 });
+    const u = day.users[senderId] || (day.users[senderId] = { c: 0, last: 0, f: {} });
+    if (!u.f) u.f = {};
+    u.f[feature] = (u.f[feature] || 0) + 1;
     u.c += 1;
     u.last = Date.now();
     day.feats[feature] = (day.feats[feature] || 0) + 1;
@@ -151,14 +188,20 @@ function aggregate(daysN = 1) {
     total += day.total || 0;
     daily.push({ date: d, count: day.total || 0 });
     for (const [id, u] of Object.entries(day.users || {})) {
-      const x = users[id] || (users[id] = { count: 0, last: 0 });
+      const x = users[id] || (users[id] = { count: 0, last: 0, fun: 0 });
       x.count += u.c;
       x.last = Math.max(x.last, u.last || 0);
+      if (u.f) for (const [f, c] of Object.entries(u.f)) if (isFunFeature(f)) x.fun += c;
     }
     for (const [f, c] of Object.entries(day.feats || {})) feats[f] = (feats[f] || 0) + c;
   }
   const userList = Object.entries(users)
-    .map(([id, x]) => ({ id, name: stats.names[id] || '', count: x.count, last: x.last }))
+    .map(([id, x]) => ({ id, name: stats.names[id] || '', count: x.count, seriousCount: Math.max(0, x.count - x.fun), last: x.last }))
+    .sort((a, b) => b.count - a.count);
+  // 正经活跃（2026-09-22 口径）：剔娱乐命中；旧数据无按人归因（f 缺失）按全量正经处理，不回溯剔除
+  const seriousUsers = userList
+    .filter((u) => u.seriousCount > 0)
+    .map(({ id, name, seriousCount, last }) => ({ id, name, count: seriousCount, last }))
     .sort((a, b) => b.count - a.count);
   const featList = Object.entries(feats)
     .map(([feat, count]) => ({ feat, count }))
@@ -168,7 +211,9 @@ function aggregate(daysN = 1) {
     to: dates[dates.length - 1] || null,
     total,
     activeUsers: userList.length,
+    seriousActiveUsers: seriousUsers.length,
     users: userList,
+    seriousUsers,
     features: featList,
     daily,
   };
