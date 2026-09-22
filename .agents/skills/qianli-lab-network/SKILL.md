@@ -93,7 +93,7 @@ description: qianli 实验室/家庭网络拓扑、设备接入与断网排查�
 
 - **访问方式**（IPv4 网段不同时 IPv6 必可达）：有线插它 LAN 口后走 `http://[fe80::d6da:21ff:fe0d:e285]/`（链路本地）或 `http://[fd2c:8424:6a43::1]/`（ULA）；LuCI 与 SSH（dropbear 22）root 密码=主网关管理密码（不写入 git，需要时问用户）。**插网线认准白色 LAN 口**（蓝色 WAN 口防火墙全挡，症状=收得到 RA 广播、发出去全无回音）。
 - **防火墙三规则**（2026-09-20 定稿，按现实 31.x 编址）：① `Allow-Mgmt-MainLAN`：192.168.31.0/24 → 本机 22/80/443；② 主网→打印区：31.0/24 → 192.168.2.0/24 全放行（PC 管打印机）；③ 打印区→小电脑：2.x → 仅 192.168.31.57（打印机主动回推）。lan zone 无出向转发目标（打印区→外网/其余主网主机全拒绝）。**新主网关（SuperQianLi/192.168.31.1，RD08，管理密码同 4A root）就是"平行"上级**；拓扑设计文档里的 192.168.1.x 编址未落地，一切按 31.x 现状。
-- **2026-09-20 清理记录**（改前全量备份在桌面 `qianli-backups/4a-openwrt-backup-20260920.tar.gz`）：删校园网保活脚本 `/root/ping/ping.sh`+其 cron（内含两个硬编码学号，若与主路由同账号会互顶号）、卸载 acme/adblock/socat（socat 是 acme 依赖连带装的）、清 5 条 192.168.1.x 错位租约与 6 条旧 DNAT 端口转发；`/root/test.clc` 遗留文件未动待用户定性。
+- **2026-09-20 清理记录**（改前全量备份在桌面 `qianli-backups/4a-openwrt-backup-20260920.tar.gz`）：删校园网保活脚本 `/root/ping/ping.sh`+其 cron（内含两个硬编码学号，若与主路由同账号会互顶号）、卸载 acme/adblock/socat（socat 是 acme 依赖连带装的）、清 5 条 192.168.1.x 错位租约与 6 条旧 DNAT 端口转发；`/root/test.clc` 已删（2026-09-22 定性=Clutch 云游戏数据残留——前用户曾拿此路由当游戏服务器装过 `.clutch-server/`+`snake.sh` 贪吃蛇，历史见其 `.bash_history`；用户批准删除，原件归档桌面 `qianli-backups/4a-test-clc-archive-20260922.bin`）。
 - **状态（2026-09-22 已入网）**：wan 静态 `192.168.31.98`（主网 LAN2 千兆交换机下；到小电脑/外网 0% 丢包实测，管理口 22/80/443 对 31.x 开放=Allow-Mgmt 规则生效）；运维台 `NET_TARGETS` 已加 `print4a` 条目（22/80/443 TCP 探测）。剩余：打印机入区（屏幕局域网模式 + 抄 IP/Access Code/SN）→ 4A 按 MAC 配静态租约 → `bambu-print-reservation` 的 `PRINTER_HOSTS` 填 2.x 地址 → 端到端打印分发；有线打印机超 2 台需加小交换机（4A 只有 lan1/lan2）。
 
 ## 十、本机（运维笔记本）双网卡与 SSH 源 IP 现象（2026-09-20 记录，待定性）
