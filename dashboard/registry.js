@@ -43,7 +43,7 @@ module.exports = {
       pm2Name: 'knowledge-tracker',
       nasDir: '/c/qianli/opt/knowledge-tracker/server',
       deploy: 'npm run push（根目录）',
-      role: '所有对话/指令的唯一入口：@对话、基础指令、关键词监听与自动回答、抽奖（一个工作表=一个指令=一个奖池）、DDL 播报与逾期确认、会议提醒、项目表；专项指令转发各服务。',
+      role: '所有对话/指令的唯一入口：@对话、基础指令、关键词监听与自动回答、抽奖（一个工作表=一个指令=一个奖池）、DDL 播报与逾期确认（含负责人群整合播报：逾期+临期跨群汇总 @章子赫，2026-09-22）、会议提醒、项目表；专项指令转发各服务。',
       listening: [
         '全部消息事件（gateway 转发）；群聊需 @机器人，私聊直接对话',
         'p2p：DDL 逾期确认回复（12 小时时效，超时次日播报重问）→ 值日分支（指令/图片，duty-bot 未接管时落回常规流）→ 基础指令（白名单）→ 对话',
@@ -79,8 +79,9 @@ module.exports = {
       quickActions: [
         { id: 'install', label: 'npm install', cmd: 'npm install', cwd: '' },
         { id: 'test-duty', label: '值日分支 stub 测试', cmd: 'node scripts/stub-test-duty-branch.js', cwd: 'server' }, // 脚本在 server/scripts（依赖 server/src 相对路径）
+        { id: 'test-ddl-leader', label: '负责人群整合播报 stub 测试', cmd: 'node scripts/stub-test-ddl-leader.js', cwd: 'server' },
       ],
-      notes: '关键词自动回答表 .local.json 私有覆盖（真实回答不上传 git）；抽奖配置 .local.json 同口径守卫；2026-09-14 起 /help 不展示运维指令（/status /test-ddl /keywords /autoreply /history 仍可用）；DDL 播报事件写入动态广场（机器人项目看板）',
+      notes: '关键词自动回答表 .local.json 私有覆盖（真实回答不上传 git）；抽奖配置 .local.json 同口径守卫；2026-09-14 起 /help 不展示运维指令（/status /test-ddl /keywords /autoreply /history 仍可用）；DDL 播报事件写入动态广场（机器人项目看板）；2026-09-22 起每日 12:05 各群播报后负责人群补发「逾期+临期」整合卡（LEADER_WEBHOOK_URL/LEADER_CHAT_ID + 卡头 @章子赫，全空当日不发，webhook 只出布尔不出原文）',
     },
     {
       id: 'bambu',

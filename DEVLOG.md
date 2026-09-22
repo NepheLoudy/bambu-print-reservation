@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v91**（2026-09-21，`67f7dc3` 后续批次）。
+当前最新：**v92**（2026-09-22，随本提交落地）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -747,3 +747,12 @@
 - MD：hub 节新增「远程状态查看」（/status 舰队健康快照，随 pm-robot v105 / `8b743af`，**部署挂起**——提交已推 GitHub，但用户已携笔记本离站（当前 CQU_WiFi，31.x 不可达），回实验室后任意一次 `npm run push` 自动补部署，push.js 空提交跳过逻辑已核对）；手册头部补 HTML 重建记录。
 - 桌面版《机器人总成使用指南.html》已按本手册成员向内容重建（工作区外，不入 git）——v90 的「HTML 缺失待定性」就此销项。
 - 运维插曲：19:5x 起笔记本离开 31.x，运维台/watchdog 依设计进入「离站」状态不告警；小电脑最后一次全量检查（19:47）7 进程全在线。
+
+## v92 · 2026-09-22 · 随本提交落地 · docs
+
+**hub v106 负责人群整合播报上线（含挂起的 v105 补部署）+ 使用指南双端同步**
+
+- 主改动随 project-management-robot v106（`211ce96`）：DDL 每日播报在各群常规卡之后，把「逾期 + 临期 2 天内」跨播报群汇总（各人员字段并集，filter=all）再发负责人群，卡头 @章子赫（open_id 经通讯录接口核验姓名/在职，另真发测试卡 code 0 验证卡片 @ 语法）；只含逾期/临期两栏，全空当日不发；与各群同轮重试去重，目标与播报群重复自动跳过；policy 窗口与 /status 同步暴露。v105（8b743af）的部署挂起就此销项——本次部署目标 git 同步 45a75db→211ce96 一次带上。
+- 部署后验证：health 200、pm2 knowledge-tracker online、cron 下次执行 2026-09-23 12:05、/api/hub/policy 线上 leaderGroup 配置正确（webhook 只出 hasWebhook 布尔不泄漏原文）。
+- 同批文档：`机器人总成使用指南.md` hub 节定时任务补负责人群整合播报口径；桌面版《机器人总成使用指南.html》DDL 卡片同步（成员向一句话，工作区外不入 git）；`dashboard/registry.js` hub 条目 role/notes 更新 + 负责人群 stub 测试快捷按钮。
+- hub push.js 测试闸门补齐全量六套桩（v104/v105 两套此前漏挂，一并入闸）；新增 stub-test-ddl-leader 30 断言全过。
