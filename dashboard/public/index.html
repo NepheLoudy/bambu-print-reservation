@@ -846,15 +846,19 @@ function renderNetwork() {
     const rest = ports.length - 4;
     return shown + (rest > 0 ? `<span class="net-port">+${rest}</span>` : '');
   };
-  const card = (n, sub) => `<div class="net-node"><div class="nname">${n.up === false ? '<span class="dot bad"></span>' : '<span class="dot ok"></span>'}${n.name}</div><div class="nhost">${n.host}</div><div class="nports">${chipCap(n)}</div>${sub || ''}</div>`;
+  const card = (n, sub) => `<div class="net-node"><div class="nname">${n.up === false ? '<span class="dot bad"></span>' : (n.up === null ? '<span class="dot" style="background:var(--dim);opacity:.55"></span>' : '<span class="dot ok"></span>')}${n.name}</div><div class="nhost">${n.host}</div><div class="nports">${chipCap(n)}</div>${sub || ''}</div>`;
   const rail = (n) => `<div class="net-rail" style="--n:${n}"></div>`;
   const cloudCard = (id) => (byId[id] ? `<div class="net-drop">${netNodeHtml(byId[id])}</div>` : '');
   const clouds = ['feishu', 'internet'].filter((id) => byId[id]);
   const lanNodes = [
     branch(card({ name: '笔记本 · 曼波大模型', host: '本机 127.0.0.1', up: true, ports: [{ port: 3100, ok: true, latencyMs: 0 }] }, '<div class="nhost">运维台 · 你在这里</div>')),
-    byId.pc ? branch(card(byId.pc, '<div class="nhost">生产 · 全部机器人</div>')) : '',
+    byId.pc ? branch(card(byId.pc, '<div class="nhost">生产 · 全部软件机器人</div>')) : '',
     byId.oldnas ? branch(card(byId.oldnas, '<div class="nhost">备件存储 · 机器人已清</div>')) : '',
+  ].join('');
+  // 子路由·隔离区分区（2026-09-22）：4A=打印机区（实时探测）；裁判区=未部署静态卡
+  const subRouterNodes = [
     byId.print4a ? branch(card(byId.print4a, '<div class="nhost">打印机隔离区 · 192.168.2.1/24（wan 静态 31.98）</div>')) : '',
+    branch(card({ name: '裁判系统路由器', host: '192.168.3.1', up: null, ports: [] }, '<div class="nhost">物理机器人网段 · 未部署（配置已保存）</div>')),
   ].join('');
   const devCards = discovered
     .filter((d) => !targetHosts.has(d.ip))
@@ -876,7 +880,10 @@ function renderNetwork() {
     (byId.router ? branch(netNodeHtml(byId.router, '<div class="nhost">家庭网络核心 · 全家唯一出口</div>')) : '') +
     `<div class="net-trunk"></div>` +
     rail(3 + devCards.length) +
-    `<div class="net-branchrow">${lanNodes}${devCards}</div>`;
+    `<div class="net-branchrow">${lanNodes}${devCards}</div>` +
+    `<div class="net-trunk tall"><span class="net-egress">子路由 · 隔离区（各带独立网段，经主网关 NAT 上联）</span></div>` +
+    rail(2) +
+    `<div class="net-branchrow">${subRouterNodes}</div>`;
   const lanMeta = LAN
     ? (LAN.offsite
         ? ' · 本机不在家庭网段，设备发现挂起'
