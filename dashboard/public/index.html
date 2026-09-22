@@ -854,6 +854,7 @@ function renderNetwork() {
     branch(card({ name: '笔记本 · 曼波大模型', host: '本机 127.0.0.1', up: true, ports: [{ port: 3100, ok: true, latencyMs: 0 }] }, '<div class="nhost">运维台 · 你在这里</div>')),
     byId.pc ? branch(card(byId.pc, '<div class="nhost">生产 · 全部机器人</div>')) : '',
     byId.oldnas ? branch(card(byId.oldnas, '<div class="nhost">备件存储 · 机器人已清</div>')) : '',
+    byId.print4a ? branch(card(byId.print4a, '<div class="nhost">打印机隔离区 · 192.168.2.1/24（wan 静态 31.98）</div>')) : '',
   ].join('');
   const devCards = discovered
     .filter((d) => !targetHosts.has(d.ip))
