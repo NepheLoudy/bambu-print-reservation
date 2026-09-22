@@ -249,7 +249,7 @@ module.exports = {
       pm2Name: null,
       nasDir: null,
       deploy: '仅本机运行（node server.js），不部署',
-      role: '全项目可视化运维：总览仪表台（服务状态矩阵/1h 时间线/24h 可用率/掉线事件、活跃看板=队员活跃+功能激活）、端口职能/权限/指令清单、本地与主机(部署目标)服务状态、运行日志、更新状态；本地测试进程启停；npm push 等快捷指令。',
+      role: '全项目可视化运维：总览仪表台（服务状态矩阵/1h 时间线/24h 可用率/掉线事件、活跃看板=队员活跃+功能激活，队员活跃为正经使用口径：抽奖/关键词回答等娱乐功能不计入，2026-09-22）、端口职能/权限/指令清单、本地与主机(部署目标)服务状态、运行日志、更新状态；本地测试进程启停；npm push 等快捷指令。',
       listening: ['仅 127.0.0.1，无外部访问'],
       commands: ['HTTP API：/api/overview（含主机状态） /api/stats（总览仪表台：采样史/可用率/掉线事件） /api/activity（活跃看板：网关使用统计+各域 policy 激活聚合） /api/local/:id/start|stop|log /api/action/:id 与 /api/action/:id/log /api/nas/log/:name /api/nas/restart/:name /api/windows（定制窗口清单） /api/nas/api（SSH 代理直达部署目标本机接口）'],
       permissions: ['部署目标凭据直读 approval-bot/.env（不复制、不入库）'],

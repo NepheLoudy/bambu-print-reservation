@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v92**（2026-09-22，随本提交落地）。
+当前最新：**v93**（2026-09-22，随本提交落地）。上一版 v92（`41b2ec8`）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -748,7 +748,7 @@
 - 桌面版《机器人总成使用指南.html》已按本手册成员向内容重建（工作区外，不入 git）——v90 的「HTML 缺失待定性」就此销项。
 - 运维插曲：19:5x 起笔记本离开 31.x，运维台/watchdog 依设计进入「离站」状态不告警；小电脑最后一次全量检查（19:47）7 进程全在线。
 
-## v92 · 2026-09-22 · 随本提交落地 · docs
+## v92 · 2026-09-22 · `41b2ec8` · docs
 
 **hub v106 负责人群整合播报上线（含挂起的 v105 补部署）+ 使用指南双端同步**
 
@@ -756,3 +756,14 @@
 - 部署后验证：health 200、pm2 knowledge-tracker online、cron 下次执行 2026-09-23 12:05、/api/hub/policy 线上 leaderGroup 配置正确（webhook 只出 hasWebhook 布尔不泄漏原文）。
 - 同批文档：`机器人总成使用指南.md` hub 节定时任务补负责人群整合播报口径；桌面版《机器人总成使用指南.html》DDL 卡片同步（成员向一句话，工作区外不入 git）；`dashboard/registry.js` hub 条目 role/notes 更新 + 负责人群 stub 测试快捷按钮。
 - hub push.js 测试闸门补齐全量六套桩（v104/v105 两套此前漏挂，一并入闸）；新增 stub-test-ddl-leader 30 断言全过。
+
+## v93 · 2026-09-22 · 随本提交落地 · feat
+
+**队员活跃口径修正（用户拍板：抽奖/关键词等娱乐功能不计活跃）——gateway v29（`d990b1e`）+ hub v107（`5b80e39`）+ 运维台/规则同批**
+
+- 需求：运维台「队员活跃」此前把抽奖、关键词回答等娱乐命中也算活跃，纯娱乐玩家撑高活跃数；改为只算正经使用，并成文为长期规则。
+- gateway v29（已部署，health 200 / ws running）：`/api/usage` 双口径——`activeUsers`=机器人交互全量（网关日活跃表同口径，不变），新增 `seriousActiveUsers`/`seriousUsers`=正经使用（运维台消费）；日桶按人功能归因 `users[id].f` 为剔除依据，旧数据（无 f）按全量正经处理不回溯剔除、自然老化；娱乐清单=静态（`usage.js` STATIC_FUN_FEATURES：抽奖/关键词回答//lottery）+ 上报自学习（`/api/usage/report` 新字段 `fun:1` 学功能名、`learn:[触发词]` 学 `/触发词` 形态——堵住抽奖动态触发词被路由层记成正经 `/指令` 的漏洞；清单随 stats 持久化）；新增 `stub-test-usage-serious` 并入 push 测试闸门；README 使用统计节同步。
+- hub v107（已部署，health 200）：上报四处调用点带标——抽奖两处（chatService 值日群/普通群）`{fun:true, learn:keywords}`、关键词回答两处（chatService/autoReplyService）`{fun:true}`（DDL 确认正经不动）；stub-test-duty-branch 新增统计上报三断言，六套桩全过。
+- 运维台（本地，不部署）：「队员活跃」看板与总览「近24h活跃」KPI 切 `seriousActiveUsers`（`??` 兜旧口径），成员榜用 `seriousUsers`，卡头标注口径；「功能使用分布」仍全量展示娱乐命中；`registry.js` dashboard 条目与 `dashboard/README.md` 同步。
+- 规则成文：顶层 AGENTS 全局工程规则新增「队员活跃口径=正经使用（2026-09-22）」条（上报 fun/learn 约定 + 静态清单位置 + 旧数据兼容口径），「网关日活跃」条补双口径区分备注。
+- 杂项：`.zcodeignore`（前会话遗留忽略清单：`.zcode/`、晚间静默积压文件、值日规划文档、历史密钥备份等不入库项）并入本批入库。

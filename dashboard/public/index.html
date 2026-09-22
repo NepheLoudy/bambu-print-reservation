@@ -157,7 +157,7 @@
     <div class="net-wrap" id="netBoard"><div class="empty">加载中…</div></div>
   </div>
   <div class="board-cols">
-    <div class="board-card"><h2>👥 队员活跃 <span class="label">网关消息事件 · 近 7 天</span></h2><div id="activityBoard"><div class="empty">加载中…</div></div></div>
+    <div class="board-card"><h2>👥 队员活跃 <span class="label">网关交互 · 近 7 天 · 抽奖/关键词等娱乐不计活跃</span></h2><div id="activityBoard"><div class="empty">加载中…</div></div></div>
     <div class="board-card"><h2>🧩 功能激活 <span class="label">各域 policy 窗口聚合</span></h2><div id="activationBoard"><div class="empty">加载中…</div></div></div>
     <div class="board-card"><h2>⚠️ 近 24h 掉线事件 <span class="label">主机与本地皆无进程视为掉线</span></h2><div id="evtBoard"><div class="empty">加载中…</div></div></div>
   </div>
@@ -294,7 +294,7 @@ function renderBoard() {
     kpiTile('HTTP 健康', sm.httpProbed ? `${sm.httpOkCount}/${sm.httpProbed}` : '-', sm.httpProbed && sm.httpOkCount === sm.httpProbed ? 'ok' : (sm.httpProbed ? 'err' : ''), '探测各服务 /api/health'),
     kpiTile('本地测试进程', `${sm.localRunning}/${sm.localRunnable}`, sm.localRunning ? 'ok' : '', '本台拉起的进程'),
     kpiTile('24h 平均可用率', sm.avail24h != null ? sm.avail24h + '%' : '-', sm.avail24h == null ? '' : (sm.avail24h >= 99 ? 'ok' : sm.avail24h >= 95 ? 'warn' : 'err'), '主机或本地任一在跑即可用'),
-    kpiTile('近24h活跃', ACT && ACT.usage1 ? `${ACT.usage1.activeUsers} 人` : '-', ACT && ACT.usage1 && ACT.usage1.activeUsers ? 'ok' : '', ACT && ACT.usage1 ? `${ACT.usage1.total} 条消息事件` : '网关使用统计'),
+    kpiTile('近24h活跃', ACT && ACT.usage1 ? `${ACT.usage1.seriousActiveUsers ?? ACT.usage1.activeUsers} 人` : '-', ACT && ACT.usage1 && (ACT.usage1.seriousActiveUsers ?? ACT.usage1.activeUsers) ? 'ok' : '', ACT && ACT.usage1 ? `${ACT.usage1.total} 条消息事件 · 娱乐不计活跃` : '网关使用统计'),
     kpiTile('未提交改动', sm.dirtyTotal, sm.dirtyTotal ? 'warn' : 'ok', '按仓库去重合计'),
     kpiTile('动作执行', sm.actions.total, '', sm.actions.last ? `最近：${esc(sm.actions.last.cmd.slice(0, 20))}` : '自运维台启动以来'),
   ];
@@ -367,18 +367,23 @@ function renderActivityCard() {
   if (!el) return;
   if (!ACT || !ACT.usage7) { el.innerHTML = `<div class="empty">${ACT ? '网关使用统计不可达' : '加载中…'}</div>`; return; }
   const u1 = ACT.usage1, u7 = ACT.usage7;
+  // 活跃=正经使用口径（2026-09-22）：抽奖/关键词回答等娱乐功能不计入；
+  // ?? 兜旧网关（无 serious 字段时退回全量 activeUsers，待网关部署后自动切新口径）
+  const serious1 = u1 ? (u1.seriousActiveUsers ?? u1.activeUsers) : 0;
+  const serious7 = u7.seriousActiveUsers ?? u7.activeUsers;
+  const seriousUsers = u7.seriousUsers || u7.users;
   const kpi = (k, v) => `<span class="chip"><b>${v}</b> ${k}</span>`;
   const line = `<div class="kpi-line">
-    ${kpi('近24h活跃', (u1 ? u1.activeUsers : 0) + ' 人')}
+    ${kpi('近24h活跃', serious1 + ' 人')}
     ${kpi('近24h消息', u1 ? u1.total : 0)}
-    ${kpi('近7天活跃', u7.activeUsers + ' 人')}
+    ${kpi('近7天活跃', serious7 + ' 人')}
     ${kpi('近7天消息', u7.total)}
-  </div>`;
-  if (!u7.users.length) {
-    el.innerHTML = line + '<div class="empty">近 7 天暂无消息事件（统计自网关 v14 上线起累积，队员发消息/@机器人后此处见活跃）</div>';
+  </div><div class="act-head">活跃口径=正经使用：抽奖、关键词回答等娱乐功能不计入（功能使用分布仍全量展示）</div>`;
+  if (!seriousUsers.length) {
+    el.innerHTML = line + '<div class="empty">近 7 天暂无正经使用记录（统计自网关 v14 上线起累积；队员发指令/@机器人/私聊后此处见活跃，抽奖与关键词不算）</div>';
     return;
   }
-  const top = u7.users.slice(0, 10);
+  const top = seriousUsers.slice(0, 10);
   const maxC = Math.max(1, ...top.map((u) => u.count));
   const members = top.map((u) => `<div class="gbar">
     <span class="gname" title="${esc(u.id)}">${esc(u.name || '…' + u.id.slice(-6))}</span>
