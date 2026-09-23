@@ -340,6 +340,34 @@ app.get('/api/activity', async (req, res) => {
   res.json({ time: new Date().toISOString(), data });
 });
 
+// ---------- 团队负载看板：hub /api/hub/workload 双源聚合（工单+项目），300s 缓存 ----------
+// 该端点在部署目标侧要拉项目表全量 + 内网 fetch ticket-bot 按人明细，冷调用可达数秒，
+// curl 给 25s；失败回上次缓存（负载是 5 分钟级视图，不需要更鲜）
+let teamLoadCache = null;
+
+async function fetchTeamLoad() {
+  if (teamLoadCache && Date.now() - teamLoadCache.t < 300 * 1000) return teamLoadCache.data;
+  try {
+    const out = await sshExec(`curl -s -m 25 http://127.0.0.1:3000/api/hub/workload`, 30000);
+    const data = JSON.parse(out.trim());
+    if (!data || !Array.isArray(data.persons)) throw new Error('workload 响应缺少 persons');
+    teamLoadCache = { t: Date.now(), data };
+    return data;
+  } catch (err) {
+    if (teamLoadCache) return teamLoadCache.data;
+    throw err;
+  }
+}
+
+app.get('/api/team-load', async (req, res) => {
+  try {
+    const data = await fetchTeamLoad();
+    res.json({ time: new Date().toISOString(), data });
+  } catch (err) {
+    res.status(502).json({ error: `hub workload 拉取失败: ${err.message}` });
+  }
+});
+
 const actionStats = { total: 0, last: null }; // 本次运维台开机以来的一次性动作执行计数
 
 app.get('/api/overview', async (req, res) => {

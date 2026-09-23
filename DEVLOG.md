@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v99**（2026-09-24，随本提交落地）。上一版 v98。
+当前最新：**v100**（2026-09-24，随本提交落地）。上一版 v99。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -800,3 +800,13 @@
 
 - ticket-bot v81（9817e8b，独立仓）按用户拍板移除从未启用的工单每日汇总播报：cron 任务链（含 RETRY_CONFIG/isFrequencyLimitError/sleep 辅助）、buildDailySummaryCard、/api/bot/test-summary 端点、/api/bot/history summary 字段、CRON_SCHEDULE 配置键全链清理；保留了 broadcastHistory、ticketService 数据接口与 quietHours gateTask 机制本体。三套桩 71 断言 + 模块加载冒烟后部署，线上实测 cron-status 无 summary 字段、test-summary 404、health 200。
 - 本批为 ticket-pm/LOGIC-MAP.md 四处同步随顶层归档（webhook 通道说明改多人单结束通告、定时任务表删行、运维 API 清单去 test-summary、静默闸对照表改写）。使用指南 MD/HTML 从未记载该功能，成员无感知，不需同步。
+
+## v100 · 2026-09-24 · 随本提交落地 · feat
+
+**运维台新增「团队负载」看板（三仓联动：ticket v82 + pm v109 + dashboard）**
+
+- 用户需求（曼波）：负载同时算工单系统未结单 + 项目看板进行中项目，评分结合 DDL 距发起时间的时效/重要性/组别/项目状态做复核算法，**产出仅到本地运维台**（不做群播报——静默闸门天然不涉及，运维台本机轮询非机器人播报）。
+- **链路**：ticket-bot `GET /api/tickets/workload-by-person`（按人未结单明细，负载视角不做播报路由过滤，v82）→ pm-robot `GET /api/hub/workload`（workloadService 双源评分聚合，ticket-bot 失败降级仅项目侧，v109）→ dashboard `GET /api/team-load`（SSH 通道 curl 部署目标 hub 端点，300s 缓存）→ 前端「⚖️ 团队负载」卡片（Top10 分值条形 🔴≥8/🟠≥4/🟢 分档、点名字展开项目/工单明细、组别切面、待接单榜、工单侧离线黄标；5 分钟轮询）。
+- **评分算法**（口径在 pm-robot workloadService，权重随 API weights 透出）：状态折减 × DDL 时效（消耗比分档、逾期递增封顶 2.7）× 重要性（项目 priority/工单分桶代理）× 角色（owner 1.3），多人单按负责人摊薄，unclaimed 归组不计人。
+- registry.js 三处登记（hub/ticket windows + dashboard commands 与 role）；各仓 README/DEVLOG 同批；测试 ticket 4 套 + pm 7 套桩全过（pm 闸门收录 workload）。《机器人总成使用指南.html》不动——运维台为维护者工具，成员无感知。
+- 部署顺序：ticket-bot → pm-robot（消费方在后，照 ticket-pm 联动契约）→ dashboard 本地重启。

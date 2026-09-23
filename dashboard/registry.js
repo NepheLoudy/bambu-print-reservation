@@ -58,6 +58,7 @@ module.exports = {
       ],
       windows: [
         { m: 'GET', p: '/api/hub/policy', d: '定制项全景（审批群/值日策略源/回答表范围/播报群）' },
+        { m: 'GET', p: '/api/hub/workload', d: '团队负载全景（工单+项目双源评分聚合；运维台「团队负载」看板数据源；ticket-bot 不可用降级仅项目侧）' },
         { m: 'GET', p: '/api/autoreplies/rules?table=group', d: '关键词回答表（未@群消息，可编辑）', kind: 'rules', table: 'group' },
         { m: 'GET', p: '/api/autoreplies/rules?table=mention', d: '@触发回答表（可编辑）', kind: 'rules', table: 'mention' },
         { m: 'POST', p: '/api/autoreplies/rules', d: '新增/更新关键词规则', kind: 'rule-edit' },
@@ -149,6 +150,7 @@ module.exports = {
       ],
       windows: [
         { m: 'GET', p: '/api/tickets/policy', d: '播报路由/审批节点/多人单窗口/组长映射/门禁全景（只读）' },
+        { m: 'GET', p: '/api/tickets/workload-by-person', d: '未结单工单按人展开（open_id 粒度，负载视角不做路由过滤；hub /api/hub/workload 聚合数据源）' },
       ],
       notes: '多人接单批次已随 v61（f6f73e2）推送：出站 fetch 15s 超时、审批人解析失败不缓存自愈、接单队列复用全量记录、静默积压挪址 QUIET_BACKLOG_FILE；v64 起同群并发接单串行化（补充负责人合并写不再互相覆盖）；v65 起搬运人员口径=补充负责人全员（指定负责人公示即绑定入补充负责人，专项搬运废止；指定负责人本身不再直接入看板）；v66 起接单类消息按群实时队列门禁（无单群静默，不再回无待接单提示）；工单播报/接单/结单/审批自动通过事件写入动态广场（机器人项目看板）',
     },
@@ -249,9 +251,9 @@ module.exports = {
       pm2Name: null,
       nasDir: null,
       deploy: '仅本机运行（node server.js），不部署',
-      role: '全项目可视化运维：总览仪表台（服务状态矩阵/1h 时间线/24h 可用率/掉线事件、活跃看板=队员活跃+功能激活，队员活跃为正经使用口径：抽奖/关键词回答等娱乐功能不计入，2026-09-22）、端口职能/权限/指令清单、本地与主机(部署目标)服务状态、运行日志、更新状态；本地测试进程启停；npm push 等快捷指令。',
+      role: '全项目可视化运维：总览仪表台（服务状态矩阵/1h 时间线/24h 可用率/掉线事件、活跃看板=队员活跃+功能激活，队员活跃为正经使用口径：抽奖/关键词回答等娱乐功能不计入，2026-09-22；团队负载看板=工单+项目双源评分聚合，hub /api/hub/workload，2026-09-24）、端口职能/权限/指令清单、本地与主机(部署目标)服务状态、运行日志、更新状态；本地测试进程启停；npm push 等快捷指令。',
       listening: ['仅 127.0.0.1，无外部访问'],
-      commands: ['HTTP API：/api/overview（含主机状态） /api/stats（总览仪表台：采样史/可用率/掉线事件） /api/activity（活跃看板：网关使用统计+各域 policy 激活聚合） /api/local/:id/start|stop|log /api/action/:id 与 /api/action/:id/log /api/nas/log/:name /api/nas/restart/:name /api/windows（定制窗口清单） /api/nas/api（SSH 代理直达部署目标本机接口）'],
+      commands: ['HTTP API：/api/overview（含主机状态） /api/stats（总览仪表台：采样史/可用率/掉线事件） /api/activity（活跃看板：网关使用统计+各域 policy 激活聚合） /api/team-load（团队负载：hub 双源评分聚合，300s 缓存） /api/local/:id/start|stop|log /api/action/:id 与 /api/action/:id/log /api/nas/log/:name /api/nas/restart/:name /api/windows（定制窗口清单） /api/nas/api（SSH 代理直达部署目标本机接口）'],
       permissions: ['部署目标凭据直读 approval-bot/.env（不复制、不入库）'],
       localRun: null,
       quickActions: [],
