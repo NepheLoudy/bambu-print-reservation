@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v98**（2026-09-24，随本提交落地）。上一版 v97。
+当前最新：**v99**（2026-09-24，随本提交落地）。上一版 v98。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -793,3 +793,10 @@
 - **网络事件**：09-24 凌晨 superqianli 主网（校园网会话）再被踢，按 lab-network skill §四 常态自愈无需人工；实测七节点全绿、网关 uptime 29h+ 未重启、出口 IP 222.178.10.186 已记录备白名单比对。
 - **遗留文档批随本提交入库**（09-20/09-22 拍板与部署路径迁移的文档追平，前会话遗留）：qianli-deploy/qianli-lab-network 两个 SKILL.md、bambu PRINTER-LAN-API/README、dashboard/README、ticket-pm/LOGIC-MAP、wecom-attendance README、《动态广场看板搭建指南》《机器人总成使用指南》《网关拓扑文档》。
 - 部署顺序：duty → ticket（一次 SFTP 同步未生效重推自愈）→ pm → approval → bambu(SFTP) → 顶层归档；部署后七进程 online、各 health 200、gateway 长连接未动。
+
+## v99 · 2026-09-24 · 随本提交落地 · docs
+
+**归档 ticket-bot v81（移除工单每日汇总播报）的 LOGIC-MAP 同步**
+
+- ticket-bot v81（9817e8b，独立仓）按用户拍板移除从未启用的工单每日汇总播报：cron 任务链（含 RETRY_CONFIG/isFrequencyLimitError/sleep 辅助）、buildDailySummaryCard、/api/bot/test-summary 端点、/api/bot/history summary 字段、CRON_SCHEDULE 配置键全链清理；保留了 broadcastHistory、ticketService 数据接口与 quietHours gateTask 机制本体。三套桩 71 断言 + 模块加载冒烟后部署，线上实测 cron-status 无 summary 字段、test-summary 404、health 200。
+- 本批为 ticket-pm/LOGIC-MAP.md 四处同步随顶层归档（webhook 通道说明改多人单结束通告、定时任务表删行、运维 API 清单去 test-summary、静默闸对照表改写）。使用指南 MD/HTML 从未记载该功能，成员无感知，不需同步。
