@@ -76,7 +76,7 @@ qianli 项目群的所有机器人共用同一个飞书自建应用（`cli_aac7e
 | `PORT` | 网关监听端口，默认 3010 |
 | `APP_ID` / `APP_SECRET` | 共用应用凭证，缺任一则只起 HTTP 服务不连长连接 |
 | `GATEWAY_API_TOKEN` | 管理端点鉴权（2026-09-13）：`/api/dispatch`、`/api/usage-sync/run` 需带 `X-API-Token` 头；**未配置 = 两端点锁定（fail-closed）**。生成：`openssl rand -hex 24` |
-| `DDL_*` / `PLAZA_*` 等 | 见 `.env.example` 逐键注释 |
+| `PLAZA_*` 等 | 见 `.env.example` 逐键注释 |
 | `EVENT_TYPES` | 长连接订阅的事件类型（逗号分隔）。**改动需同步部署目标上的 .env**（v10 生产断链即代码默认值与线上 .env 不一致导致） |
 | `CONSUMERS` | 下游消费者登记，覆盖默认清单 |
 | `MESSAGE_ROUTES` | 消息路由规则（JSON 数组），覆盖默认规则 |
@@ -102,6 +102,8 @@ qianli 项目群的所有机器人共用同一个飞书自建应用（`cli_aac7e
 ```bash
 node scripts/stub-test-usage-sync.js    # 网关日活跃单表同步 stub（全量 create/签名跳过/变化 update/未配置跳过）
 node scripts/stub-test-usage-serious.js # 正经活跃口径 stub（娱乐剔除/学习清单/静态清单/旧数据兼容/双口径并存）
+node smoke-test.js                      # 本地冒烟（起 mock 消费者+无凭证网关，验证路由/模式/legacy 转换/去重；
+                                        # 仅本机跑——硬编码 3010 端口，勿入 push 闸门以免与部署目标在线网关撞端口）
 ```
 
 
@@ -121,7 +123,7 @@ node scripts/stub-test-usage-serious.js # 正经活跃口径 stub（娱乐剔除
    - bambu-print-reservation：`FEISHU_USE_LONG_CONNECTION=false`
    - ticket-bot：`FEISHU_USE_LONG_CONNECTION=false`
 
-3. **验证**：在群里 @机器人 发 `/help`，网关日志应出现 `[路由] 消息走默认目标 → hub`；改一条工单表记录，应在网关日志看到 bitable 广播到各机器人。
+3. **验证**：在群里 @机器人 发 `/help`，网关日志应出现 `[路由] evt_xxx 消息走默认目标 → hub`；改一条工单表记录，应在网关日志看到 bitable 广播到各机器人。
 
 ## 回滚
 

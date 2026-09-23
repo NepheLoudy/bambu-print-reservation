@@ -89,6 +89,7 @@
 | GET | /api/attendance/preview?weekOffset=N | 无 | 拉数并渲染周报（markdown/CSV 预览），不发送 |
 | POST | /api/attendance/members | X-API-Token | 名单增删（即时生效） |
 | POST | /api/attendance/test-broadcast | X-API-Token | 真实播报；body 可带 `{"weekOffset":0,"dryRun":true}` |
+| POST | /api/attendance/import | X-API-Token | 打卡数据 xlsx 导入（方案4 主链路，见上文「数据源」注）；body `{dataBase64, filename}`，解析入库+名单自动合并 |
 
 写端点鉴权照 feishu-gateway/src/auth.js 模板（timingSafeEqual + fail-closed：
 未配置 `ATTENDANCE_API_TOKEN` = 写端点整体锁定），值与全工作区共享 token 同值。
@@ -123,11 +124,14 @@
 ## 测试（部署前闸门强制跑，SKIP_TESTS=1 可跳）
 
 ```bash
-npm run test            # 全部：window / report / store / wecom 四套桩
+npm run test            # 全部：window / report / store / wecom / quiethours / feishu / import 七套桩
 npm run test:window     # 周窗口语义：锚定日/跨月/跨年/发送时刻/下次发送
 npm run test:report     # 聚合/异常拆分/markdown 表格转义/CSV BOM 与转义
 npm run test:store      # 名单增删校验/持久化/水位读写
 npm run test:wecom      # userid 分批(≤100)/错误码提示/无配置安全
+npm run test:quiethours # 晚间静默闸门（quietHours 模块：窗口/积压）
+npm run test:feishu     # 飞书通道（纯函数）：签名算法/通道门控/周报卡片构建与截断
+npm run test:import     # xlsx 导入解析：列识别/时区/名单合并/窗口过滤/缺列报错
 ```
 
 本地起服务：`npm start` → http://127.0.0.1:3007/api/health

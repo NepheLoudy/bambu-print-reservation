@@ -688,10 +688,14 @@ class Dispatcher {
       // 任务必须移出队列（2026-09-13）：留着会被下一轮自动匹配分到别的 Bambu，覆盖人工指定
       this.queue = this.queue.filter((t) => t.recordId !== task.recordId);
       this.known.add(task.recordId);
-      await bitableApi.updateRecord(config.bitable.reservationTableId, task.recordId, {
-        '申请状态': config.status.QUEUED,
-        [config.dispatch.printerField]: printer.name,
-      });
+      // 审批源任务不写镜像表（recordId=instance_code 不是镜像表 record_id，写入必抛错且任务
+      // 已出队会静默丢失；同 dispatchLocked 守卫口径）：状态由引擎内存追踪，人工按提示上传即可
+      if (task.fileSource !== 'approval') {
+        await bitableApi.updateRecord(config.bitable.reservationTableId, task.recordId, {
+          '申请状态': config.status.QUEUED,
+          [config.dispatch.printerField]: printer.name,
+        });
+      }
       this.persistState();
       return {
         manualOnly: true,

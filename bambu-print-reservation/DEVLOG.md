@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次部署）。本项目 push.js 为纯 SFTP 直传、无 git 步骤，**版本锚点取顶层 monorepo 中触碰本路径的归档提交**——两次归档之间的个别部署可能无版本记录。v1~v14 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v32**（2026-09-20，随本提交落地）。
+当前最新：**v33**（2026-09-24，顶层归档随批）。上一版 v32（PLAZA_ENABLED 停写批）。
 
 ## 阶段五 · 审批事件字段对齐与分发健壮化（2026-09-05）
 
@@ -222,7 +222,9 @@
 - 2026-09-20 用户拍板：动态广场相关功能由用户自维护，机器人只对各自现有业务看板负责。plaza.js `enabled()` 加 `PLAZA_ENABLED` 开关（默认关，显式设 `1` 才恢复写入）；打印生命周期（排队/开始/完成/失败）四处广场钩子保留代码不动，仅由开关关断。
 - `.env.example` 补注释；npm test 四套全过。版本锚点=顶层归档提交。
 
-## v84 · 2026-09-20 · 随本提交落地 · chore
+### 附记 · 顶层 v84 联动批归档（非本仓版本号 · 2026-09-20）
+
+> 勘误（2026-09-24 复查批）：本条原被误贴为本仓 `## v84` 条目——版本号与层级均不属 bambu 自身 v1~vN 序列（该批本仓正式条目即上行 v32），系顶层 DEVLOG 联动摘要的复制。按「历史条目不改写、版本号不重排」原则改为附记保留原文，不再占用/干扰本仓版本序列。
 
 **用户拍板批：动态广场机器人停写（四仓 PLAZA_ENABLED）**
 
@@ -230,3 +232,14 @@
 - 附带效果：表在回收站期间各仓持续刷的 `TableIdNotFound` warn 终结；用户日后恢复/重建广场表也不会被机器人自动灌数据。
 - gateway 的「网关日活跃」upsert 是另一张在役表，不在停写范围。`.env.example` 四仓补注释；顶层 AGENTS「机器人项目看板」节改口径；桌面意图文档待拍板 #1 销项并记入已定口径。
 - 测试：duty flow+express / ticket 三套 / hub duty-branch / bambu 四套全过。部署顺序：duty → hub → ticket → bambu（SFTP）→ 顶层。
+
+### v33 · 2026-09-24 · 顶层归档随批 · fix
+
+**manualDispatch 审批源守卫 + 事件端点 fail-closed + auth 废除 ?token=（全仓复查批）**
+
+- 提交说明：fix: manualDispatch 非自动机型分支补审批源守卫 + /api/feishu/event fail-closed + auth 废除 ?token=
+- **manualDispatch 守卫（P2）**：非自动机型（闪铸）分支原无条件写镜像表——审批源任务 recordId=instance_code 非镜像表 record_id，updateRecord 必抛错，且此时任务已出队、不进 givenUp，单据静默消失（重启才可能从旧状态文件捞回）。照 dispatchLocked 口径补 task.fileSource !== approval 守卫；出队 + known 去重保留，人工按提示上传不受影响。
+- **fail-closed**：/api/feishu/event 补「未配置 token 403 拒绝 approval_instance / approval_task 帧」（表格事件后备镜像通道不受影响）。现网 .env 已配 token，行为无实际变化。
+- src/auth.js 废除 ?token= 回退（R10②）。
+- **DEVLOG 勘误**：文末错贴的顶层 v84 条目改为「附记」（版本号/层级不属本仓序列，见该附记注），不再干扰版本锚点回溯。
+- 测试：四套桩全过（dispatcher 18 检查点 / persist / manual-race 8 项 / approval 9 项）。

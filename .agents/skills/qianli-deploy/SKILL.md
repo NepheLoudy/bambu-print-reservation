@@ -5,7 +5,7 @@ description: qianli 工作区飞书机器人项目的统一部署与开发链路
 
 # qianli 机器人统一部署链路
 
-六个项目（五个飞书 + 一个企业微信考勤播报）共用同一条链路口径：**项目根目录 `npm run push "提交说明"` 一条命令完成 提交→推送→部署→上传 .env→重启**。不要手写 SSH/SCP 部署命令，不要恢复任何独立 deploy 脚本。（实现形态有三种：approval-bot / pm-robot / ticket-bot 独立仓库 git push + 部署目标同步；gateway 只暂存自身路径推顶层远端、部署走 SFTP；bambu 纯 SFTP 无 git。）
+七个项目（六个飞书 + 一个企业微信考勤播报）共用同一条链路口径：**项目根目录 `npm run push "提交说明"` 一条命令完成 提交→推送→部署→上传 .env→重启**。不要手写 SSH/SCP 部署命令，不要恢复任何独立 deploy 脚本。（实现形态有三种：approval-bot / pm-robot / ticket-bot 独立仓库 git push + 部署目标同步；gateway 只暂存自身路径推顶层远端、部署走 SFTP；bambu 纯 SFTP 无 git。）
 
 > 术语约定：本文与各文档出现的「NAS」多为 2026-09-14 迁移前的历史称呼，**现部署目标=小电脑 DESKTOP-FE1MIGI**；`NAS_*` 配置键沿用不改（语义=部署目标），新写的文档/代码不要再造 NAS 称呼。
 
@@ -13,13 +13,13 @@ description: qianli 工作区飞书机器人项目的统一部署与开发链路
 
 | 项目 | 部署目标路径 | pm2 进程 | 端口 | 角色 |
 | --- | --- | --- | --- | --- |
-| feishu-gateway | /opt/feishu-gateway | feishu-gateway | 3010 | 唯一长连接网关，事件路由 |
-| project-management-robot | /opt/knowledge-tracker | knowledge-tracker | 3000 | 对话枢纽（hub），DDL 播报 |
-| approval-bot | /opt/approval-bot | approval-bot | 3002 | 财务审批（纯定时催办） |
-| ticket-bot | /opt/ticket-bot | ticket-bot | 3003 | 工单播报/接单/分桶 API |
-| duty-bot | /opt/duty-bot | duty-bot | 3006 | 值日域：排班/值日助手/管辖策略下发（独立仓，push.js 混合模式同 approval-bot） |
-| bambu-print-reservation | /opt/bambu-print-server | bambu-print-server | 3001 | 打印预约（纯 SFTP 部署，无 git 步骤） |
-| wecom-attendance-bot | /opt/wecom-attendance-bot | wecom-attendance | 3007 | 企业微信考勤周报（不接飞书链路，仅共用部署基建；repo:top 同 gateway，SFTP 直传） |
+| feishu-gateway | /c/qianli/opt/feishu-gateway | feishu-gateway | 3010 | 唯一长连接网关，事件路由 |
+| project-management-robot | /c/qianli/opt/knowledge-tracker | knowledge-tracker | 3000 | 对话枢纽（hub），DDL 播报 |
+| approval-bot | /c/qianli/opt/approval-bot | approval-bot | 3002 | 财务审批（纯定时催办） |
+| ticket-bot | /c/qianli/opt/ticket-bot | ticket-bot | 3003 | 工单播报/接单/分桶 API |
+| duty-bot | /c/qianli/opt/duty-bot | duty-bot | 3006 | 值日域：排班/值日助手/管辖策略下发（独立仓，push.js 混合模式同 approval-bot） |
+| bambu-print-reservation | /c/qianli/opt/bambu-print-server | bambu-print-server | 3001 | 打印预约（纯 SFTP 部署，无 git 步骤） |
+| wecom-attendance-bot | /c/qianli/opt/wecom-attendance-bot | wecom-attendance | 3007 | 企业微信考勤周报（不接飞书链路，仅共用部署基建；repo:top 同 gateway，SFTP 直传） |
 
 本地目录布局：ticket-bot 与 project-management-robot 归拢在 `ticket-pm/` 下（`ticket-pm/<项目名>`，联动契约见该目录 AGENTS.md）；approval-bot、feishu-gateway、bambu-print-reservation 在本仓库根目录。部署命令不变，仍在各自项目目录内执行。
 
@@ -50,7 +50,7 @@ push.js 依次做：① git add -A + commit + push（本地推 GitHub 失败不�
 ## 部署目标与隔离红线
 
 - push.js 已内置 SFTP 兜底，不要因为 "部署目标拉不到 GitHub" 去修它的网络或配代理。
-- 一切写入只进 `/opt/<项目>` 目录（git-bash 路径）；不开防火墙端口（机器人只靠飞书出站长连接 + 本机回环）；不动路由器；不动部署目标系统服务；pm2 只操作表里的六个进程。
+- 一切写入只进 `/c/qianli/opt/<项目>` 目录（git-bash 路径，Windows 实际路径 `C:\qianli\opt\<项目>`）；不开防火墙端口（机器人只靠飞书出站长连接 + 本机回环）；不动路由器；不动部署目标系统服务；pm2 只操作表里的七个进程。
 - 临时诊断脚本连接部署目标用 ssh2 + `.env` 凭证，带 `readyTimeout` 和 `keepaliveInterval`；SSH 会话偶发挂起，重试即可，不要改目标机配置去"修"它。
 
 ## 飞书架构铁律（违反必出事）
@@ -66,7 +66,7 @@ push.js 依次做：① git add -A + commit + push（本地推 GitHub 失败不�
 
 1. `pm2 ls` 目标进程 online，无 errored；
 2. `curl localhost:<端口>/api/health` 返回 200（网关看 `ws:"running"`）；
-3. 启动日志关键行：网关 `ws client ready`；机器人 `已配置为不使用长连接模式，跳过启动`；pm-robot `下次执行时间`；
+3. 启动日志关键行：网关 `📡 长连接已启动（共用应用本机唯一连接）`；机器人 `已配置为不使用长连接模式，跳过启动`；pm-robot `下次执行时间`；
 4. 功能用 dry-run 接口，不真发群：approval-bot `POST /api/bot/test-broadcast {"dryRun":true}`，ticket-bot `GET /api/tickets/unclosed-by-group`；
 5. 群内真实验证交给定时任务自然触发，次日看日志。
 

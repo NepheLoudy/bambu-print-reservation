@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v97**（2026-09-23，随本提交落地）。上一版 v96。
+当前最新：**v98**（2026-09-24，随本提交落地）。上一版 v97。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -784,3 +784,12 @@
 ## v97 · 2026-09-23 · 随本提交落地 · docs
 
 **归档 ticket-bot v79 搬运可靠性批 + lab-network skill 增补排查经验**。ticket-bot v79（嵌套仓 108e025，已部署）：李妍基建支持工单「长期未接单→一接单搬运就坏」事故链根治——parentId diff 门控归一化修复（v77 门控被关联字段读回形态击穿 → 每分钟重写看板行烧共享配额 → 1254607/查父项目超时风暴）、查父项目降频（仅建行/缺 parentId/父项目改名时查）、建行 key 落库校验自愈、无 key 孤儿行收养（严格匹配防认错行）；部署后实测每分钟重写已变 unchanged。skill 增补：排查手册新增第 0 步「先查本机连的哪个网」（曼波网关开发常连成自己的校园网账号直连认证，顶掉主路由会话 → ping 不进 31.57，先 `ipconfig` 再折腾）；并入 09-22 遗留的小电脑 IP 静态固化条目。
+
+## v98 · 2026-09-24 · 随本提交落地 · docs
+
+**归档全仓深度复查修复批（六仓联动）+ superqianli 网络事件记录 + 遗留文档批入库**
+
+- **复查批**（09-24 五路并行全仓复查：代码/接口/意图/逻辑 + 鉴权/闸门/守卫三铁律核查，全部桩测试回归后才部署）：duty-bot v35（3ab00b6，快递图片窗口守卫+排班补偿义务逐日即时落账，新增 generate-place 桩入闸门）、ticket-bot v80（e6e66a4，auth 废除 ?token=，部署后以 POST query-token 403 探针实测）、pm-robot v108（429a5c1，事件端点 fail-closed + 普通群@关键词命中补 usage 上报）、approval-bot v43（432e8a0，fail-closed + 废 ?token=，探针实测 403）、bambu v33（SFTP，manualDispatch 审批源守卫+fail-closed+废 ?token=）；gateway v30（smoke-test 鉴权同步，仅工具链零运行时改动，不部署不重启）；运维台 dashboard/registry.js duty 测试链补齐全量 7 套。
+- **网络事件**：09-24 凌晨 superqianli 主网（校园网会话）再被踢，按 lab-network skill §四 常态自愈无需人工；实测七节点全绿、网关 uptime 29h+ 未重启、出口 IP 222.178.10.186 已记录备白名单比对。
+- **遗留文档批随本提交入库**（09-20/09-22 拍板与部署路径迁移的文档追平，前会话遗留）：qianli-deploy/qianli-lab-network 两个 SKILL.md、bambu PRINTER-LAN-API/README、dashboard/README、ticket-pm/LOGIC-MAP、wecom-attendance README、《动态广场看板搭建指南》《机器人总成使用指南》《网关拓扑文档》。
+- 部署顺序：duty → ticket（一次 SFTP 同步未生效重推自愈）→ pm → approval → bambu(SFTP) → 顶层归档；部署后七进程 online、各 health 200、gateway 长连接未动。

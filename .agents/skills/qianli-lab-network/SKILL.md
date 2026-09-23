@@ -17,7 +17,7 @@ description: qianli 实验室/家庭网络拓扑、设备接入与断网排查�
    主路由 192.168.31.1 (NAT) ── ⚠ 用【学生账号】登录校园网认证,此会话=全家唯一生命线
         ├─ WiFi/LAN ─ 笔记本 LAPTOP-BGC4G36V (192.168.31.181) ── 运维台 127.0.0.1:3100
         ├─ LAN ──── 小电脑 DESKTOP-FE1MIGI (192.168.31.57) ── 生产机：6 机器人 pm2
-        ├─ LAN ──── 旧NAS qianli-NAS (192.168.31.151, Ubuntu) ── 备件存储：机器人已清零
+        ├─ LAN ──── 旧NAS qianli-NAS (192.168.31.153, Ubuntu) ── 备件存储：机器人已清零
         └─ 子路由(老路由器) ── 可选 AP 扩展，必须 AP 模式(见 §五)
 ```
 
@@ -30,7 +30,7 @@ description: qianli 实验室/家庭网络拓扑、设备接入与断网排查�
 | 设备 | 地址 | 访问方式 | 凭据 | 备注 |
 | --- | --- | --- | --- | --- |
 | 小电脑 DESKTOP-FE1MIGI | 192.168.31.57 | SSH **22**（OpenSSH，默认 shell 应为 git-bash）；**RDP 3389**（mstsc，2026-09-22 开启，防火墙限 31.0/24）；服务 HTTP 3000-3006/3010 | mechax / 见 approval-bot/.env `NAS_PASSWORD`（SSH 与 RDP 同账号） | 生产机；pm2 计划任务 `qianli-bots-autostart` 自启；部署目录 `C:\qianli\opt\<项目>`；**IP 已本机静态固化**（2026-09-22，DHCP 同值转静态：.57/24 + 网关/DNS 均 31.1，切换零中断，无需路由器侧绑定） |
-| 旧 NAS qianli-NAS | 192.168.31.151 | SSH **2222**；网页 3923 | qianli / 旧 .env 时期密码 | Ubuntu+桌面；**机器人已清零、`pm2-qianli` 已 disabled**，纯存储备件 |
+| 旧 NAS qianli-NAS | 192.168.31.153 | SSH **2222**；网页 3923 | qianli / 旧 .env 时期密码 | Ubuntu+桌面；**机器人已清零、`pm2-qianli` 已 disabled**，纯存储备件（2026-09-20 挪入交换机后 DHCP 由 .151 重分配为 .153） |
 | 主路由 | 192.168.31.1 | 网页管理 | 路由器凭据 | 用户本人是校园网网管 |
 | 飞书云 | open.feishu.cn:443 | 应用 cli_aac7e6f6cdf8dcc0 | 各仓 .env APP_ID/SECRET | 安全设置里的 **IP 白名单**是写失败排查重点（§四） |
 

@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次 git 提交 + 一次部署）。本项目无独立远端，push.js 只暂存 `feishu-gateway/` 路径提交进顶层 monorepo——版本即顶层仓库中触碰本路径的提交。v1~v8 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v29**（2026-09-22，随本提交落地）。上一版 v28（`a939175`）。
+当前最新：**v30**（2026-09-24，顶层归档随批，仅工具链未部署）。上一版 v29（d990b1e，正经活跃口径批）。上一版 v28（`a939175`）。
 
 ## 阶段五 · 开发历史建档（2026-09-04）
 
@@ -207,3 +207,12 @@
 - 测试：新增 `scripts/stub-test-usage-serious.js`（双口径并存/娱乐剔除/学习清单/静态清单/旧数据兼容/窗口聚合），push.js 测试闸门改为两套桩串联。
 - 规则成文：顶层 AGENTS 全局工程规则新增「队员活跃口径=正经使用」条；hub 上报侧带 fun/learn 同批部署（hub v107）。
 - 文档：README 使用统计节补双轨口径、report 新字段与测试清单。
+
+### v30 · 2026-09-24 · 顶层归档随批（仅工具链，未部署） · fix
+
+**smoke-test 同步 v26 鉴权（6/8 假失败修复）+ README 收录冒烟**
+
+- 提交说明：fix: smoke-test 同步 v26 鉴权修 6/8 假失败；README 测试节收录 smoke
+- smoke-test.js：/api/dispatch 挂鉴权后冒烟脚本没跟上，8 断言 6 个假失败——dispatch() 补 X-API-Token 头，spawn env 补 GATEWAY_API_TOKEN（网关 token 键名与别仓 API_TOKEN 不同；dotenv 不覆盖已存在 env，spawn 值必胜）。修后 8/8 全过（路由/模式/legacy 转换/去重真实验证）。
+- README 测试节收录 smoke 用法并注明**勿入 push 闸门**（硬编码 3010，部署目标跑会撞在线网关端口）。
+- 本版仅开发工具链改动、零运行时行为变化，未走 SFTP 部署、不重启网关；版本锚点随顶层归档提交。

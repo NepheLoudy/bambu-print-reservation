@@ -51,6 +51,7 @@ async function main() {
     cwd: CWD,
     env: Object.assign({}, process.env, {
       PORT: '3010',
+      GATEWAY_API_TOKEN: 'smoke-test-token', // 网关鉴权键名（src/auth.js）；dotenv 不覆盖已存在的 env，spawn 值必胜
       APP_ID: '',
       APP_SECRET: '',
       CONSUMERS:
@@ -91,7 +92,7 @@ async function main() {
   async function dispatch(body) {
     const res = await fetch('http://localhost:3010/api/dispatch', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-API-Token': 'smoke-test-token' },
       body: JSON.stringify(body),
     });
     return res.json();

@@ -118,21 +118,21 @@
 
 ```
 【上游 · 飞书】 审批实例事件 approval_instance / 审批任务事件 approval_task（feishu-gateway 长连接收到后转发）
-      │  POST /api/feishu/event（index.js:241，verificationToken 校验后 setImmediate 异步处理）
+      │  POST /api/feishu/event（index.js:278，verificationToken 校验后 setImmediate 异步处理）
       ▼
 【分发引擎 dispatcher】（src/services/dispatcher.js）
-      enqueue（幂等：known/queue 双查，dispatcher.js:132-149）→ 触发匹配 trigger/match
+      enqueue（幂等：known/queue 双查，dispatcher.js:236-254）→ 触发匹配 trigger/match
       匹配：指定打印机优先 → AMS 材料类型精确/家族 + 颜色 redmean 近似 → 加急优先
-            （dispatcher.js:237-264）；打印机空闲（jobEvent idle）同样触发（bindPrinterEvents :87-99）
+            （dispatcher.js:334-389）；打印机空闲（jobEvent idle）同样触发（bindPrinterEvents :117-128）
       ▼ 匹配成功
-【执行分发 dispatch】（dispatcher.js:305-393）
+【执行分发 dispatch】（dispatcher.js:418-525）
       ① 下载 3mf：审批附件 downloadApprovalAttachment（fileSource='approval'，不写预约镜像表）
       ② 上传：printerManager.uploadFileToPrinter → /sdcard/print_{recordId}.3mf
              model 含 X1/H2D → SFTP:22；否则(P1/A1) → FTP:21（client.js:278-284）
       ③ 下发：startProjectOnPrinter → MQTT project_file 帧（高段位 sequence_id，client.js:216-235）
-      ④ 登记 printing[printerId]=task、updateState activeTask（dispatcher.js:339-340）
+      ④ 登记 printing[printerId]=task、updateState activeTask（dispatcher.js:467-468）
       ⑤ 群播报「开始打印」卡片
-      ┆ 失败：回滚/重新排队，maxRetries 上限后退出队列转人工（dispatcher.js:356-386）
+      ┆ 失败：回滚/重新排队，maxRetries 上限后退出队列转人工（dispatcher.js:487-525）
       ▼
 【打印机 LAN 通道】（src/printer/client.js + node_modules/bambu-link）
       MQTT mqtts://<ip>:8883，bblp + Access Code
@@ -146,12 +146,12 @@
       → 关键变迁 jobEvent（start/finish/failed/idle，manager.js:121-134）
       ▼
 【下游动作】
-      finish → completeTask：清映射、播报完成卡片、触发下轮匹配（dispatcher.js:395-412）
-      failed → failTask：写回队列态、播报失败卡片（dispatcher.js:414-430）
+      finish → completeTask：清映射、播报完成卡片、触发下轮匹配（dispatcher.js:527-545）
+      failed → failTask：写回队列态、播报失败卡片（dispatcher.js:547-598）
       idle   → 下一轮匹配（新任务自动上机）
       每 60s → 打印机状态镜像表 upsert（manager.js:256-297, 308-310，仅展示）
-【控制面（仅 HTTP，无聊天指令）】POST /api/printers/:id/{print,pause,resume,stop}（index.js:191-239）
-      取消任务（dequeue → stopPrint）是引擎内唯一控制调用（dispatcher.js:151-160）
+【控制面（仅 HTTP，无聊天指令）】POST /api/printers/:id/{print,pause,resume,stop}（index.js:228-276）
+      取消任务（dequeue → stopPrint）是引擎内唯一控制调用（dispatcher.js:256-266）
 ```
 
 ---
@@ -180,31 +180,31 @@
 ### 4.4 状态事件分级（manager）
 
 - `handleStateChange`（`manager.js:99-135`）：先 `updateState` 全字段刷新（仅变化时发 `statusChange`，`manager.js:142-151`）；再按 gcodeState 变迁发 `jobEvent`——PRINTING（非 RESUME 而来）→ `start`、FINISH → `finish`、FAILED → `failed`、PRINTING→IDLE/FINISH → `idle`（`manager.js:121-134`）。
-- `jobEvent` 只被 dispatcher 消费（`bindPrinterEvents`，`dispatcher.js:87-99`）；`statusChange` 供查询接口/页面使用。
+- `jobEvent` 只被 dispatcher 消费（`bindPrinterEvents`，`dispatcher.js:117-128`）；`statusChange` 供查询接口/页面使用。
 
-### 4.5 分发引擎（dispatcher，单例 `dispatcher.js:505`）
+### 4.5 分发引擎（dispatcher，单例 `dispatcher.js:728`）
 
-- 启动 `start`（`dispatcher.js:68-85`）：主通道开启（`approval.enabled` 默认 true）时**关闭预约镜像表对账**（防重复入队），仅靠事件秒级驱动；主通道关闭时退回分钟级对账兜底（`reconcile` `dispatcher.js:102-127`，幂等补漏 + 重启后恢复打印中映射）。
-- 队列与幂等：`queue + known Set + printing Map`；入队三查（known/queue）防事件与对账重复（`dispatcher.js:132-149`）。
-- 匹配串行化：`matching` 锁 + 完成后按需 `setImmediate` 重跑（`trigger` `dispatcher.js:168-189`）；队首匹配不到不阻塞后续任务（`findAnyMatch`），全队列缺料才发缺料提醒（节流 `materialRemindMinutes`，`dispatcher.js:291-303`）。
-- 分发执行链（`dispatch` `dispatcher.js:305-393`）：见总图；失败处理为「回滚表状态 → 重试计数 → 冷却 `nextMatchAt` → 重新入队 → 冷却后定时再触发」，达 `maxRetries` 退出队列并发人工介入卡片（`dispatcher.js:356-386`）。
-- 完成/失败：`completeTask`（`dispatcher.js:395-412`）、`failTask`（`dispatcher.js:414-430`）——清 `printing` 映射与 `activeTask`、非审批源写预约镜像表状态、播报卡片、触发下轮。
-- 取消：`dequeue`（`dispatcher.js:151-160`）对打印中任务调用 `stopPrintOnPrinter` 停机并释放映射。
+- 启动 `start`（`dispatcher.js:87-115`）：主通道开启（`approval.enabled` 默认 true）时**关闭预约镜像表对账**（防重复入队），仅靠事件秒级驱动；主通道关闭时退回分钟级对账兜底（`reconcile` `dispatcher.js:206-231`，幂等补漏 + 重启后恢复打印中映射）。
+- 队列与幂等：`queue + known Set + printing Map`；入队三查（known/queue）防事件与对账重复（`dispatcher.js:236-254`）。
+- 匹配串行化：`matching` 锁 + 完成后按需 `setImmediate` 重跑（`trigger` `dispatcher.js:274-296`）；队首匹配不到不阻塞后续任务（`findAnyMatch`），全队列缺料才发缺料提醒（节流 `materialRemindMinutes`，`dispatcher.js:399-413`）。
+- 分发执行链（`dispatch` `dispatcher.js:418-525`）：见总图；失败处理为「回滚表状态 → 重试计数 → 冷却 `nextMatchAt` → 重新入队 → 冷却后定时再触发」，达 `maxRetries` 退出队列并发人工介入卡片（`dispatcher.js:487-525`）。
+- 完成/失败：`completeTask`（`dispatcher.js:527-545`）、`failTask`（`dispatcher.js:547-598`）——清 `printing` 映射与 `activeTask`、非审批源写预约镜像表状态、播报卡片、触发下轮。
+- 取消：`dequeue`（`dispatcher.js:256-266`）对打印中任务调用 `stopPrintOnPrinter` 停机并释放映射。
 
 ### 4.6 事件入口（index.js）
 
-- `POST /api/feishu/event`（`index.js:241-308`）：verificationToken 校验；`approval_instance` → `processApprovalEvent`（审批结果直接驱动入队/取消，秒级，主通道，`index.js:253-261`）；`approval_task` → 自动审批入口（`index.js:264-272`，配合 `APPROVAL_AUTO_APPROVER_ID`）；`bitable.record.create/update` → 镜像表事件后备模式（`index.js:274-295`）；`im.message.receive_v1` → 聊天消息（`index.js:297-305`）。长连接不属于本项目（`.env` `FEISHU_USE_LONG_CONNECTION=false`，事件由 feishu-gateway 转发）。
-- `POST /api/chat/command`（`index.js:310-324`）：`{command,args}` → `{reply}`，回复由网关代发；`/print-status` 对非自动机型标注「仅登记，分发需人工」。
-- HTTP 控制端点（`index.js:191-239`）：`POST /api/printers/:id/{print,pause,resume,stop}`（print 需 body `filePath`），透传 manager → client → MQTT 帧。**项目内无聊天指令对应**，供外部/人工调用。
+- `POST /api/feishu/event`（`index.js:278-345`）：verificationToken 校验；`approval_instance` → `processApprovalEvent`（审批结果直接驱动入队/取消，秒级，主通道，`index.js:290-298`）；`approval_task` → 自动审批入口（`index.js:301-309`，配合 `APPROVAL_AUTO_APPROVER_ID`）；`bitable.record.create/update` → 镜像表事件后备模式（`index.js:311-332`）；`im.message.receive_v1` → 聊天消息（`index.js:334-342`）。长连接不属于本项目（`.env` `FEISHU_USE_LONG_CONNECTION=false`，事件由 feishu-gateway 转发）。
+- `POST /api/chat/command`（`index.js:347-361`）：`{command,args}` → `{reply}`，回复由网关代发；`/print-status` 对非自动机型标注「仅登记，分发需人工」。
+- HTTP 控制端点（`index.js:228-276`）：`POST /api/printers/:id/{print,pause,resume,stop}`（print 需 body `filePath`），透传 manager → client → MQTT 帧。**项目内无聊天指令对应**，供外部/人工调用。
 
 ### 4.7 群播报与镜像表
 
 - 播报：入队/开始/完成/失败/缺料/人工介入卡片（`src/feishu/bot.js` 的 `buildQueueCard/buildJobStartCard/buildJobFinishCard/buildJobFailedCard/buildMaterialMissingCard`）→ 群自定义机器人 webhook（`.env` `BOT_WEBHOOK_URL`）。
-- 镜像表：每 60s `syncPrinterStatusToBitable`（`manager.js:256-297` + `setInterval` `manager.js:308-310`）把全部登记打印机 upsert 到飞书打印机表（printerName/model/ipAddress/status/currentJob/progress/temperature/lastUpdate）；未配 `BITABLE_PRINTER_TABLE_ID` 时静默跳过。**注意**：审批源任务不回写预约镜像表（那是审批系统数据，`dispatcher.js:300-307` 注释），追踪在引擎内存完成。
+- 镜像表：每 60s `syncPrinterStatusToBitable`（`manager.js:256-297` + `setInterval` `manager.js:307-309`）把全部登记打印机 upsert 到飞书打印机表（printerName/model/ipAddress/status/currentJob/progress/temperature/lastUpdate）；未配 `BITABLE_PRINTER_TABLE_ID` 时静默跳过。**注意**：审批源任务不回写预约镜像表（那是审批系统数据，`fileSource !== 'approval'` 守卫 `dispatcher.js:535`、注记 `dispatcher.js:636`），追踪在引擎内存完成。
 
 ### 4.8 闪铸等非自动机型的现状路径
 
-登记展示（`manager.js:38-41`）→ `/print-status` 标注仅登记 → 人工指令 `/print-dispatch` 落到非自动机型时只写表并返回 `manualOnly: true`，提示用厂商工具上传（`dispatcher.js:454-464`）。**本系统对闪铸没有任何网络协议代码**（`.env.example` 中 `闪铸AD5M`/`ADVENTURER5` 仅为登记示例）。
+登记展示（`manager.js:38-41`）→ `/print-status` 标注仅登记 → 人工指令 `/print-dispatch` 落到非自动机型时只写表并返回 `manualOnly: true`，提示用厂商工具上传（`dispatcher.js:690-706`）。**本系统对闪铸没有任何网络协议代码**（`.env.example` 中 `闪铸AD5M`/`ADVENTURER5` 仅为登记示例）。
 
 ---
 
