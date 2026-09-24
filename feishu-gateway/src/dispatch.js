@@ -251,6 +251,10 @@ async function routeMessage(frame) {
   const text = extractText(message);
   const mentioned = isMentioned(message);
 
+  // 被@统计（2026-09-24 团队负载算法数据源）：与路由无关，所有群消息必经此处，
+  // 在任何路由 return 之前记——不命中任何规则的消息里的 @ 也算（只计数不影响路由/转发）
+  usage.recordMentions(message);
+
   if (!text && message && message.message_id) {
     console.log(
       `[路由] 未提取到文本 message_id=${message.message_id} message_type=${message.message_type} ` +

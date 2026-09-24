@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次 git 提交 + 一次部署）。本项目无独立远端，push.js 只暂存 `feishu-gateway/` 路径提交进顶层 monorepo——版本即顶层仓库中触碰本路径的提交。v1~v8 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v30**（2026-09-24，顶层归档随批，仅工具链未部署）。上一版 v29（d990b1e，正经活跃口径批）。上一版 v28（`a939175`）。
+当前最新：**v31**（2026-09-24，随本提交落地）。上一版 v30（顶层归档随批，仅工具链未部署）。
 
 ## 阶段五 · 开发历史建档（2026-09-04）
 
@@ -216,3 +216,14 @@
 - smoke-test.js：/api/dispatch 挂鉴权后冒烟脚本没跟上，8 断言 6 个假失败——dispatch() 补 X-API-Token 头，spawn env 补 GATEWAY_API_TOKEN（网关 token 键名与别仓 API_TOKEN 不同；dotenv 不覆盖已存在 env，spawn 值必胜）。修后 8/8 全过（路由/模式/legacy 转换/去重真实验证）。
 - README 测试节收录 smoke 用法并注明**勿入 push 闸门**（硬编码 3010，部署目标跑会撞在线网关端口）。
 - 本版仅开发工具链改动、零运行时行为变化，未走 SFTP 部署、不重启网关；版本锚点随顶层归档提交。
+
+## v31 · 2026-09-24 · 随本提交落地 · feat
+
+**新增群聊被@统计（团队负载算法数据源，2026-09-24 算法升级批）**
+
+- 提交说明：feat: 群聊消息 mentions 按人按天累计 + GET /api/usage/mentions 自然日滑窗聚合
+- **需求**：曼波拍板的负载算法升级第三项——「监听所有群聊的被@，每被@一次加 0.01 分」（pm-robot workloadService 消费，同批 pm v110）。
+- **采集**：`src/usage.js` 新增 `recordMentions(message)`——群聊（chat_type=group）消息的 mentions 逐条计数；@机器人（self/app/bot/@_bot_*，与 isMentioned 口径对齐）、@所有人（@_everyone）、私聊不计；mention id 对象形态（{open_id}）兼容。调用点 `src/dispatch.js` routeMessage 入口（任何路由判断之前）——不命中规则的消息里的 @ 也算，只计数不影响路由/转发。mention 自带姓名顺手进 names 缓存。
+- **存储与聚合**：stats 新增 `mentions` 按天桶（{ 'YYYY-MM-DD': { openId: count } }），随 usage-stats.json 同文件落盘（60s 刷盘 + SIGINT）、prune 同窗清理（KEEP_DAYS=30）；旧 stats 文件无该键自动补 {}。`aggregateMentions(daysN=7)` 输出 [{id, name, count}] 降序；**窗口按自然日过滤**（起点=today-N+1）而非沿用 usage.aggregate 的桶数滑窗——负载评分输入不能在稀疏数据下把老计数长期带在身上（stub 测试抓出该语义差异后定的口径）。窗口 clamp 1..30，显式传 0 收敛到 1（`0||7` 默认值陷阱已修）。
+- **API**：`GET /api/usage/mentions?days=7`（只读不鉴权，照 /api/usage 惯例）；registry.js listening 登记。
+- 测试：`scripts/stub-test-usage-mentions.js`（计数形态/排除项/对象 id/姓名缓存/滑窗/clamp/prune），usage-serious/usage-sync 两套回归全过。README 使用统计节+测试节同步。

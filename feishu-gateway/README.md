@@ -94,6 +94,7 @@ qianli 项目群的所有机器人共用同一个飞书自建应用（`cli_aac7e
 - **活跃口径双轨（2026-09-22）**：`activeUsers`=机器人交互全量（网关日活跃表同口径，不变）；`seriousActiveUsers`/`seriousUsers`=**正经使用**（剔娱乐功能——运维台「队员活跃」看板消费此口径）。娱乐清单=静态（`src/usage.js` `STATIC_FUN_FEATURES`：抽奖/关键词回答//lottery）+ 上报自学习（fun 标记学功能名、learn 学 `/触发词` 形态，随 stats 持久化）；旧数据（无按人归因）按全量正经处理不回溯剔除。规则见顶层 AGENTS「队员活跃口径=正经使用」；
 - 按天分桶保留 30 天，落盘 `<数据目录>/usage-stats.json`（60s 兜底刷新 + SIGINT 落盘，重启不丢）；
 - 查询：`GET /api/usage?days=N`（默认 1，最大 30），返回 `users`/`seriousUsers`（含姓名）/`features`/`daily` 聚合；运维台「队员活跃」看板即消费此接口；
+- **群聊被@统计（2026-09-24，独立于上述交互口径）**：所有群消息的 `mentions` 按人按天累计（@机器人/@所有人/私聊不计；与路由无关，在任何路由判断之前记录——不命中规则的消息里的 @ 也算），查询 `GET /api/usage/mentions?days=N`（默认 7，最大 30，**自然日滑窗**，非桶数滑窗——负载评分输入不能把稀疏老计数长期带在身上）。pm-robot 团队负载评分消费（每被@一次 +0.01 分）。随 usage-stats.json 同文件落盘、prune 同窗清理；mention 自带姓名顺手进 names 缓存；
 - `POST /api/usage/report`（X-API-Token）——各机器人在功能命中点回传 `{openId, feature}`，供队员活跃/功能统计归因（hub 关键词回答、DDL 确认等网关看不见的内部命中靠此上报）；**娱乐功能须带 `fun: true`**（抽奖另带 `learn: 触发词数组`，把路由层记成正经指令的 `/触发词` 学进娱乐清单）；
 - 落多维表格：`PLAZA_BITABLE_APP_TOKEN` + `PLAZA_BITABLE_DAILY_TABLE` 配置后每 30 分钟按日期签名 upsert 到「网关日活跃」单表（动态广场看板数据源；分功能/分队员的两张明细表已于 2026-09-13 下线），`POST /api/usage-sync/run?force=1` 手动补数（**管理端点鉴权**：需带 `X-API-Token: $GATEWAY_API_TOKEN` 头，token 在本仓 `.env`；`/api/dispatch` 同样受控，未配置 token 时两端点锁定）。
 
@@ -102,6 +103,7 @@ qianli 项目群的所有机器人共用同一个飞书自建应用（`cli_aac7e
 ```bash
 node scripts/stub-test-usage-sync.js    # 网关日活跃单表同步 stub（全量 create/签名跳过/变化 update/未配置跳过）
 node scripts/stub-test-usage-serious.js # 正经活跃口径 stub（娱乐剔除/学习清单/静态清单/旧数据兼容/双口径并存）
+node scripts/stub-test-usage-mentions.js # 群聊被@统计 stub（普通成员计数/@机器人与@所有人剔除/私聊不计/对象形态 id/自然日滑窗/prune 同窗）
 node smoke-test.js                      # 本地冒烟（起 mock 消费者+无凭证网关，验证路由/模式/legacy 转换/去重；
                                         # 仅本机跑——硬编码 3010 端口，勿入 push 闸门以免与部署目标在线网关撞端口）
 ```

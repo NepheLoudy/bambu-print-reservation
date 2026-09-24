@@ -43,6 +43,12 @@ app.get('/api/usage', (req, res) => {
   res.json(usage.aggregate(req.query.days));
 });
 
+// 群聊被@统计（2026-09-24 团队负载算法数据源，pm-robot /api/hub/workload 消费）：
+// ?days=N 滑窗按人求和（默认 7，最大 30），只读不鉴权照 /api/usage 惯例
+app.get('/api/usage/mentions', (req, res) => {
+  res.json(usage.aggregateMentions(req.query.days));
+});
+
 // 消费方归因上报（2026-09-13 统计覆盖规则）：hub 等服务把路由层看不见的功能命中
 // 回报为队员/功能统计（不计 total 防双算）。规则见顶层 AGENTS「队员/功能统计上报规则」。
 // 2026-09-22 活跃口径修正：娱乐功能上报须带 fun:1（不计入队员活跃），

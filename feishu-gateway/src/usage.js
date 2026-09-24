@@ -27,7 +27,7 @@ try {
 }
 const FILE = path.join(dataDir, 'usage-stats.json');
 
-let stats = { v: 1, names: {}, days: {}, funFeats: {}, funCmds: {} };
+let stats = { v: 1, names: {}, days: {}, funFeats: {}, funCmds: {}, mentions: {} };
 try {
   stats = Object.assign(stats, JSON.parse(fs.readFileSync(FILE, 'utf-8')));
 } catch (err) { /* 首次运行空表起步 */ }
@@ -48,14 +48,19 @@ process.on('SIGTERM', () => {
 });
 
 const pad = (n) => String(n).padStart(2, '0');
-function today() {
-  const d = new Date();
+function dayKeyOffset(offsetDays) {
+  const d = new Date(Date.now() + offsetDays * 86400000);
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+function today() {
+  return dayKeyOffset(0);
 }
 
 function prune() {
   const keys = Object.keys(stats.days).sort();
   while (keys.length > KEEP_DAYS) delete stats.days[keys.shift()];
+  const mkeys = Object.keys(stats.mentions || {}).sort();
+  while (mkeys.length > KEEP_DAYS) delete stats.mentions[mkeys.shift()];
 }
 
 // ---------- 娱乐功能清单（2026-09-22 活跃口径修正：队员活跃只算正经使用） ----------
@@ -124,6 +129,65 @@ function recordFeature({ senderId, feature, fun, learn }) {
   } catch (err) {
     console.warn('[使用统计] 归因记录失败（忽略）:', err.message);
   }
+}
+
+// ---------- 群聊被@统计（2026-09-24 团队负载算法数据源） ----------
+// 口径：群聊消息里 @ 了普通成员，每 @ 一人次计一（pm-robot 负载评分 0.01 分/次）。
+// 不含 @机器人（路由层另有交互统计）与 @所有人；私聊无 mention 语义不计。
+// 按天分桶 { 'YYYY-MM-DD': { openId: count } }，随 stats 落盘、prune 同窗清理；
+// mention 条目自带被@者姓名，顺手进 names 缓存（免费，聚合输出直接带名字）。
+function recordMentions(message) {
+  try {
+    if (!message || message.chat_type !== 'group') return;
+    if (!Array.isArray(message.mentions)) return;
+    let day = null;
+    for (const m of message.mentions) {
+      if (!m || !m.key) continue;
+      // @机器人（self/app/bot/@_bot_*）与 @所有人（@_everyone）不计——与 isMentioned/extractText 的判定口径对齐
+      if (m.id === 'self' || m.mentioned_type === 'app' || m.mentioned_type === 'bot') continue;
+      if (String(m.key).startsWith('@_bot') || String(m.key).startsWith('@_everyone')) continue;
+      // 普通成员：id 为 open_id 字符串；防御个别形态给对象（{open_id: ...}）
+      const openId = typeof m.id === 'string' ? m.id : (m.id && m.id.open_id) || '';
+      if (!openId) continue;
+      if (!day) day = stats.mentions[today()] || (stats.mentions[today()] = {});
+      day[openId] = (day[openId] || 0) + 1;
+      if (m.name && !stats.names[openId]) {
+        stats.names[openId] = m.name;
+        dirty = true;
+      }
+    }
+    if (day) {
+      prune();
+      dirty = true;
+    }
+  } catch (err) {
+    console.warn('[使用统计] 被@记录失败（忽略）:', err.message);
+  }
+}
+
+// 被@聚合（?days=N，默认 7 天，最大 30）：按人求和，输出 [{id, name, count}] 降序。
+// 窗口按自然日过滤（起点 = today-N+1）而非「最近 N 个有数据的桶」——与 usage.aggregate
+// 的桶数滑窗不同：被@是负载评分输入，稀疏数据下桶数滑窗会把老计数长期带在身上虚高分
+function aggregateMentions(daysN = 7) {
+  const raw = daysN === undefined || daysN === null || daysN === '' ? 7 : Number(daysN);
+  const n = Math.min(KEEP_DAYS, Math.max(1, Number.isFinite(raw) ? raw : 7));
+  const fromKey = dayKeyOffset(-(n - 1));
+  const dates = Object.keys(stats.mentions || {}).sort().filter((d) => d >= fromKey);
+  const users = {};
+  for (const d of dates) {
+    for (const [id, c] of Object.entries(stats.mentions[d] || {})) {
+      users[id] = (users[id] || 0) + (c || 0);
+    }
+  }
+  const userList = Object.entries(users)
+    .map(([id, count]) => ({ id, name: stats.names[id] || '', count }))
+    .sort((a, b) => b.count - a.count);
+  return {
+    from: dates[0] || null,
+    to: dates[dates.length - 1] || null,
+    days: n,
+    users: userList,
+  };
 }
 
 // ---------- 成员名解析（通讯录，永久缓存；失败 24h 内不重试） ----------
@@ -222,10 +286,13 @@ function aggregate(daysN = 1) {
 module.exports = {
   recordMessage,
   recordFeature,
+  recordMentions,
   aggregate,
+  aggregateMentions,
   statsFile: FILE,
   // 供 bitable-sync 消费：原始日桶 / 姓名缓存 / 飞书客户端
   getAllDays: () => stats.days,
+  getAllMentions: () => stats.mentions,
   getNames: () => stats.names,
   resolveName,
   tenantToken,
