@@ -161,7 +161,7 @@
 ### 4.1 配置载入：`.env` → printers[]
 
 - 四列逗号分隔数组按位置对齐成 `printers[]`：`src/config.js:9-22`（`PRINTER_HOSTS / PRINTER_ACCESS_CODES / PRINTER_SERIALS / PRINTER_NAMES / PRINTER_MODELS`），`id` 从 1 起；默认 model 兜底 P1S（`config.js:18`）。
-- 分发相关参数：材料/颜色字段名、颜色近似阈值、对账/缺料提醒间隔、`useAms`、重试上限与冷却（`config.js:87-105`）；审批主通道开关 `approval.enabled`（`config.js:107-116`）。
+- 分发相关参数：材料/颜色字段名、颜色近似阈值、对账/缺料提醒间隔、`useAms`、重试上限与冷却（`config.js:92-110`）；审批主通道开关 `approval.enabled`（`config.js:112-125`）。
 
 ### 4.2 常驻连接：模块级单例，require 即连
 
@@ -193,18 +193,18 @@
 
 ### 4.6 事件入口（index.js）
 
-- `POST /api/feishu/event`（`index.js:278-345`）：verificationToken 校验；`approval_instance` → `processApprovalEvent`（审批结果直接驱动入队/取消，秒级，主通道，`index.js:290-298`）；`approval_task` → 自动审批入口（`index.js:301-309`，配合 `APPROVAL_AUTO_APPROVER_ID`）；`bitable.record.create/update` → 镜像表事件后备模式（`index.js:311-332`）；`im.message.receive_v1` → 聊天消息（`index.js:334-342`）。长连接不属于本项目（`.env` `FEISHU_USE_LONG_CONNECTION=false`，事件由 feishu-gateway 转发）。
-- `POST /api/chat/command`（`index.js:347-361`）：`{command,args}` → `{reply}`，回复由网关代发；`/print-status` 对非自动机型标注「仅登记，分发需人工」。
+- `POST /api/feishu/event`（`index.js:278-355`）：verificationToken 校验（v33 起 fail-closed——校验 token 未配置时直接拒绝消息帧，`index.js:288-293`）；`approval_instance` → `processApprovalEvent`（审批结果直接驱动入队/取消，秒级，主通道，`index.js:300-308`）；`approval_task` → 自动审批入口（`index.js:311-319`，配合 `APPROVAL_AUTO_APPROVER_ID`）；`bitable.record.create/update` → 镜像表事件后备模式（`index.js:321-342`）；`im.message.receive_v1` → 聊天消息（`index.js:344-352`）。长连接不属于本项目（`.env` `FEISHU_USE_LONG_CONNECTION=false`，事件由 feishu-gateway 转发）。
+- `POST /api/chat/command`（`index.js:357-371`）：`{command,args}` → `{reply}`，回复由网关代发；`/print-status` 对非自动机型标注「仅登记，分发需人工」。
 - HTTP 控制端点（`index.js:228-276`）：`POST /api/printers/:id/{print,pause,resume,stop}`（print 需 body `filePath`），透传 manager → client → MQTT 帧。**项目内无聊天指令对应**，供外部/人工调用。
 
 ### 4.7 群播报与镜像表
 
 - 播报：入队/开始/完成/失败/缺料/人工介入卡片（`src/feishu/bot.js` 的 `buildQueueCard/buildJobStartCard/buildJobFinishCard/buildJobFailedCard/buildMaterialMissingCard`）→ 群自定义机器人 webhook（`.env` `BOT_WEBHOOK_URL`）。
-- 镜像表：每 60s `syncPrinterStatusToBitable`（`manager.js:256-297` + `setInterval` `manager.js:307-309`）把全部登记打印机 upsert 到飞书打印机表（printerName/model/ipAddress/status/currentJob/progress/temperature/lastUpdate）；未配 `BITABLE_PRINTER_TABLE_ID` 时静默跳过。**注意**：审批源任务不回写预约镜像表（那是审批系统数据，`fileSource !== 'approval'` 守卫 `dispatcher.js:535`、注记 `dispatcher.js:636`），追踪在引擎内存完成。
+- 镜像表：每 60s `syncPrinterStatusToBitable`（`manager.js:256-297` + `setInterval` `manager.js:307-309`）把全部登记打印机 upsert 到飞书打印机表（printerName/model/ipAddress/status/currentJob/progress/temperature/lastUpdate）；未配 `BITABLE_PRINTER_TABLE_ID` 时静默跳过。**注意**：审批源任务不回写预约镜像表（那是审批系统数据，`fileSource !== 'approval'` 守卫 `dispatcher.js:533`、注记 `dispatcher.js:636`），追踪在引擎内存完成。
 
 ### 4.8 闪铸等非自动机型的现状路径
 
-登记展示（`manager.js:38-41`）→ `/print-status` 标注仅登记 → 人工指令 `/print-dispatch` 落到非自动机型时只写表并返回 `manualOnly: true`，提示用厂商工具上传（`dispatcher.js:690-706`）。**本系统对闪铸没有任何网络协议代码**（`.env.example` 中 `闪铸AD5M`/`ADVENTURER5` 仅为登记示例）。
+登记展示（`manager.js:38-41`）→ `/print-status` 标注仅登记 → 人工指令 `/print-dispatch` 落到非自动机型时只写表并返回 `manualOnly: true`，提示用厂商工具上传（`dispatcher.js:686-704`）。**本系统对闪铸没有任何网络协议代码**（`.env.example` 中 `闪铸AD5M`/`ADVENTURER5` 仅为登记示例）。
 
 ---
 

@@ -48,7 +48,7 @@
 - **管辖/权限口径的权威在各自机器人后端**，消费方短缓存 + 断联兜底（范例：hub 消费 duty-bot `GET /api/duty/policy`）；
 - **名册类**优先自动读飞书通讯录（open_id 直取组织架构），手工名册/绑定只作兜底（范例：duty-bot `syncFromContacts`）；
 - 新增定制项：先加窗口，再同步 `dashboard/registry.js` 登记与本文档；
-- 现状（2026-09-12 全量 debug 批后）：**五仓业务机器人窗口齐全**（gateway 为纯路由层、无定制项，不设窗口）——duty-bot（`/api/duty/policy`、`/api/duty/roster`、`/api/duty/whitelist`）、hub（`/api/hub/policy` + 关键词回答表 CRUD `/api/autoreplies/rules*` + 抽奖配置 CRUD `/api/lottery/rules*`，写 `.local.json` 即时生效，push 会用本地 xlsx 版覆盖）、approval-bot（`/api/approval/policy`，只读）、ticket-bot（`/api/tickets/policy`，只读）、bambu（`/api/print/policy`，只读）；
+- 现状（2026-09-12 全量 debug 批后五仓齐全；2026-09-15 wecom 落地后**六仓业务机器人窗口齐全**；gateway 为纯路由层、无定制项，不设窗口）——duty-bot（`/api/duty/policy`、`/api/duty/roster`、`/api/duty/whitelist`）、hub（`/api/hub/policy` + 关键词回答表 CRUD `/api/autoreplies/rules*` + 抽奖配置 CRUD `/api/lottery/rules*`，写 `.local.json` 即时生效，push 会用本地 xlsx 版覆盖）、approval-bot（`/api/approval/policy` + OCR 字段规则 `/api/ocr/fields`，只读+热改）、ticket-bot（`/api/tickets/policy`，只读）、bambu（`/api/print/policy`，只读）、wecom-attendance-bot（`/api/attendance/policy` 只读 + `/api/attendance/members` 名单增删）；
 - **界面**：本地运维台「🧰 定制中心」（registry `windows` 清单 + `/api/nas/api` SSH 代理直达部署目标本机接口——端点名 `nas` 为历史命名，语义=部署目标，现=小电脑）——白名单增删、名册刷新、各域 policy 全景查看、关键词回答表可视化编辑（增删改/启停/切表）都在运维台点选完成。
 
 # 开发日志（DEVLOG）——每次 push 记一版

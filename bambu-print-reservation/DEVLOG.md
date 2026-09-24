@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次部署）。本项目 push.js 为纯 SFTP 直传、无 git 步骤，**版本锚点取顶层 monorepo 中触碰本路径的归档提交**——两次归档之间的个别部署可能无版本记录。v1~v14 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v33**（2026-09-24，顶层归档随批）。上一版 v32（PLAZA_ENABLED 停写批）。
+当前最新：**v34**（2026-09-25，顶层归档随批）。上一版 v33（2026-09-24）。更早：v32（PLAZA_ENABLED 停写批）。
 
 ## 阶段五 · 审批事件字段对齐与分发健壮化（2026-09-05）
 
@@ -243,3 +243,12 @@
 - src/auth.js 废除 ?token= 回退（R10②）。
 - **DEVLOG 勘误**：文末错贴的顶层 v84 条目改为「附记」（版本号/层级不属本仓序列，见该附记注），不再干扰版本锚点回溯。
 - 测试：四套桩全过（dispatcher 18 检查点 / persist / manual-race 8 项 / approval 9 项）。
+
+## v34 · 2026-09-25 · 顶层归档随批 · docs
+
+**全量审查文档批（纯文档，无代码改动）**
+
+- PRINTER-LAN-API.md：§4.1/§4.6/§4.7/§4.8 行号随 v33 fail-closed 插入系统性偏移修正，§4.6 补 v33 fail-closed 行为记录（token 未配置拒收消息帧）。
+- AGENTS.md：push 命令口径修正（npm run push 不带参数，本仓无 git 步骤）；速览补 duty/wecom。
+- README：DISPATCH_STATE_FILE 生产路径带盘符（C:/home/...）；.env.example 同步。
+- 随批 SFTP 同步文档到部署目标（无 pm2 重启必要，代码零改动——push.js 常规执行）。

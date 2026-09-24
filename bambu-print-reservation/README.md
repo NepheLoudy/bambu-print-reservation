@@ -85,7 +85,7 @@ npm run push
 
 ## 状态持久化（2026-09-13 起）
 
-分发引擎的**队列 / 打印中映射 / 已知记录 / 完成计数**落盘到 `DISPATCH_STATE_FILE`（代码默认项目根 `.dispatch-state.json`，生产 `.env` 配置为项目外数据目录 `/home/qianli/bambu-data/dispatch-state.json`）——进程重启（含部署 pm2 restart，SIGINT/SIGTERM 退出前强制冲刷）后自动恢复，**打印预约排队不再因重启丢失**。变更防抖 300ms 合并写入、临时文件原子改名；`known` 截尾 2000 条防无限增长；文件损坏按空队列启动（审批事件/对账可重新入队）。
+分发引擎的**队列 / 打印中映射 / 已知记录 / 完成计数**落盘到 `DISPATCH_STATE_FILE`（代码默认项目根 `.dispatch-state.json`，生产 `.env` 配置为项目外数据目录 `C:/home/qianli/bambu-data/dispatch-state.json`——部署目标为 Windows 小电脑，路径带盘符）——进程重启（含部署 pm2 restart，SIGINT/SIGTERM 退出前强制冲刷）后自动恢复，**打印预约排队不再因重启丢失**。变更防抖 300ms 合并写入、临时文件原子改名；`known` 截尾 2000 条防无限增长；文件损坏按空队列启动（审批事件/对账可重新入队）。
 
 ## 测试
 

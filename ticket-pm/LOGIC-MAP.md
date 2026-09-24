@@ -20,12 +20,13 @@ feishu-gateway（事件接入 + 路由分工，不在本工作区）
                         │ 转发 /approval-* → approval-bot:3002
                         │ 转发 /print-*    → bambu:3001
                         │ DDL 卡工单分栏取数 → ticket-bot GET /api/tickets/unclosed-by-group
+                        │ 团队负载聚合取数 → ticket-bot GET /api/tickets/workload-by-person（v82 起）
                         ▼
  approval-bot / bambu-print-reservation / feishu-gateway（均在顶层，不归本工作区）
 ```
 
 发送通道约定（"播报卡互不越界"）：
-- **ticket-bot 播报**：应用机器人（对话型）IM API 优先（chat_id，能收 @ 事件），失败回退群自定义机器人 webhook（`ticket-bot/src/feishu/bot.js:88` `sendCardToTarget`）。
+- **ticket-bot 播报**：应用机器人（对话型）IM API 优先（chat_id，能收 @ 事件），失败回退群自定义机器人 webhook（`ticket-bot/src/feishu/bot.js:108` `sendCardToTarget`；行号随版本漂移，以函数名为准）。
 - **pm-robot 播报**：群自定义机器人 webhook（DDL 卡、多人单结束通告类）；对话回复走飞书 IM API（reply → chat_id 降级）。
 - 工单播报卡 / 接单回执 / 超时问询 → ticket-bot；DDL 卡 / 逾期确认 / 会议提醒 / 语录 → pm-robot。"播报对象/@谁"跟着卡片走。
 
@@ -86,7 +87,7 @@ feishu-gateway（事件接入 + 路由分工，不在本工作区）
 
 两个入口都要求**去空白后整句等于「接单 / 确认接单」**（`chatService.isExactAcceptText`）；含「接单」但非整句（如"还没人接单吗""我不想接单"）只回一条提示，**不触发任何写操作**。消息级去重：`processedMessages`（message_id，TTL 5 分钟）。`IGNORE_CHAT_IDS` 内的群整条跳过。**无单群静默（2026-09-13）**：群内接单类消息先查 `hasPendingAcceptInGroup(chatId)`——该群实时队列（`computeAcceptQueues`）为空即静默忽略（非工单群/当前无单的组别群都不再回「无待接单工单」与使用提示）；p2p 私聊确认入口不受此门禁影响。已知边界：门禁与 handleAcceptOrder 各拉一次全表（性能可接受，接单类消息低频）；两查之间队列清空会漏出一条「⚠️ 无待接单工单」——fail-safe（不会错误接单），保留。
 
-**群内链路 `handleAcceptOrder(chatId, userId, ...)`**（v64 起按 chatId **进程内串行化**：接单是「读全量记录 → 合并写补充负责人」链路，并发双读同底版会互相覆盖丢人；串行后后到者读到先到者的写入再合并）：
+**群内链路 `handleAcceptOrder(chatId, userId, ...)`**（v64 起进程内串行化，**v71 收敛为全局锁** `withAcceptLock('global')`：接单是「读全量记录 → 合并写补充负责人」链路，并发双读同底版会互相覆盖丢人；全局锁进一步兜住跨群写同一工单的边界竞态，串行后后到者读到先到者的写入再合并）：
 1. 定位工单：按源表实时推导该群队列（`computeAcceptQueues`，v57 起无内存待接单映射）：**仅触发节点** + 补充负责人为空 / "指定即绑定未确认"（补充负责人==指定负责人）/ **多人单续接窗口内**（多人单补充负责人已有人也开放，截止已过则出队）+ 面向组别覆盖该群（或指定负责人的组别覆盖该群）；按创建时间倒序（**最新为「接单1」**），群内复数张时接单词带序号，裸「接单」被拒并提示序号范围。
 2. 按序号（或唯一那张）定位目标：`expectedAssigneeId` 为空 → 任一组员；非空 → 仅指定负责人本人。
 3. 重查源表守卫（拉取失败按拒绝处理）：指定负责人工单他人确认 → 拒绝；审批节点已推进 → 拒绝；非多人单已被他人接单 → 拒绝。**指定负责人本人（补充负责人==本人，即「公示即绑定」态）放行**——绑定≠已确认，本人确认正是该链路的既定动作（v59 修复：原守卫把绑定当已确认，本人被拒、工单永卡触发节点）；本人短窗重复消息由内存 `assigneeConfirmState`（10 分钟）拦截。
@@ -114,8 +115,9 @@ feishu-gateway（事件接入 + 路由分工，不在本工作区）
 | 超时检查 | 每小时 | 节点 ∈ 触发节点 + 补充负责人为空 + 当前处理人有值 + 距发起时间 > 6h | **轮次计数（内存，重启清零）**：第 1 轮走既有分支——分支1 当前处理人==发起人 → 私信发起人"无人接单，是否仍需要/去审批界面撤回或结单"；分支2.1 指定负责人 → 私信当前处理人引导"接单确认"；分支2.2 无指定负责人 → 群内重问询卡（@组长；**每 6h 一次、每单封顶 2 次**，≈发起后 6h/12h 各一次，内存计数重启清零，至少一群发送成功才占额度；封顶或间隔未到的轮次跳过群内卡）。**第 2 轮起叠加「无人接单升级」**：私聊面向组别对应的组长（`GROUP_LEADERS`；多组别多组长各一条、同一组长名下多组合并为一条；组长值兼容 open_id/user_id，user_id 经通讯录解析 open_id 带缓存，解析失败 fail-closed 跳过），文案含组名/标题/超时小时/接单指引/工单链接；同一工单对组长私聊间隔 ≥3h，**不随群内封顶停止**——群内问询封顶后由它承担持续提醒。**注意**：绑定成功的指定工单天然被跳过；多人单有人接单即写补充负责人退出本检查（续接询问/到期自动通过不经此处，不受问询封顶限制），本任务实际覆盖"公示后无人响应"的工单 |
 | 结单提醒 | 每小时 | 节点 =「回执单：是否结单」+ 当前处理人有值 + 已过「理想结单时间」+ `CLOSE_REMINDER_LEAD_DAYS` 天 | **只私聊**：私聊当前处理人一次即止（「先私聊后转群」兜底已按需求移除，2026-09-05）；未结单工单的持续曝光由 pm-robot 每日 DDL 播报的「工单结单」分栏承担。状态在内存（重启会重私聊一轮） |
 | 指定负责人确认追问 | 每小时 | 节点 =「负责人确认消息后通过」+ 已绑定（补充负责人==指定负责人）+ 距发起时间 > `ASSIGN_NUDGE_HOURS`（默认24h） | 私聊负责人提醒确认（群 @机器人 或私聊「接单」均可完成）；同工单追问间隔不小于 N 小时；追问记录 7 天淘汰 |
+| 搬运缺行修补（v76） | 每小时 :15 | 源表 category 有值但看板缺对应行 | 纯数据对账补搬运，无任何播报（**不过晚间静默闸门**，写表动作不属播报） |
 
-上表所有任务（含工单播报与结束通告）统一受 **晚间静默闸门**（§1.7）约束。
+上表除「搬运缺行修补」外，所有任务（含工单播报与结束通告）统一受 **晚间静默闸门**（§1.7）约束。
 
 ### 1.5 指令（`/ticket-*`，`src/services/chatService.js`）
 
@@ -134,6 +136,11 @@ feishu-gateway（事件接入 + 路由分工，不在本工作区）
 - 返回 `{ result: { [chatId]: { urgent, week, unclaimed, waiting } } }`（`unclaimed`/`waiting` 为 additive 扩展，旧读法兼容）。
 - **字段细则（2026-09-17 口径）**：`title`=需求文本优先（需求1/需求，截 40 字防爆行）/编号兜底，`code`=申请编号（此前 title 直接取申请编号，分栏每行只显示编号看不到需求，2026-09-17 修复）；结单桶带 `handlerName/daysLeft/deadlineFormatted`，无人接单桶带 `elapsedHours/groups`（面向组别）。hub 卡片渲染：`👤负责人 「编号」**需求** - DDL 状态（📅 日期）`／`🆘（组别）「编号」**需求** - 已发布时长`。
 - 口径说明：管理层/未匹配到播报群组别的工单不出现在任何 DDL 分栏（管理层群只做工单发布/问询播报）。
+
+`GET /api/tickets/workload-by-person`（v82/v83，同文件 `unclosedService.js`，负载视角）：
+- 共享 `collectUnclosedTickets` 取数层，但口径刻意分化：**不做播报路由过滤**（管理层等无路由工单的负责人照样计负载）、无负责人回执单进 `orphanTickets`、无人接单单列 `unclaimed`；
+- 返回 `{ persons: { [openId]: { name, groups[], tickets[] } }, orphanTickets, unclaimed }`；ticket 带 `bucket/daysLeft/deadlineMs/deadlineFormatted/createdMs/shareCount/groups`（shareCount=负责人总数供摊薄，`groups`=单级面向组别供组别系数）；
+- 消费方：pm-robot `/api/hub/workload`（三源评分聚合）→ 运维台「团队负载」看板。
 
 ### 1.7 晚间静默（跨任务播报闸门，`src/utils/quietHours.js`）
 
@@ -155,7 +162,9 @@ feishu-gateway（事件接入 + 路由分工，不在本工作区）
 
 ```
 p2p 消息：  ① DDL逾期确认(handleP2PReply) → handled? 终止
-            ② chatService（私聊无需@；指令需私聊白名单；非指令命中任一回答表 → 只提示"仅面向群聊"）
+            ② chatService（私聊无需@；指令需私聊白名单；非指令命中任一回答表 → 只提示"仅面向群聊"；
+               图片/文件在 chatService 内双线：duty 照片凭证直传 + 发票采集观察转发 approval-bot
+               /api/invoice/collect（fire-and-forget 不 await，回执由 approval-bot 私聊发，v112））
 群聊消息：  ① chatService（必须@机器人；值日管辖群分支先行：看板词/值日指令/图片转 duty-bot
                            （带 messageId 幂等），未接管落回常规流；审批群(APPROVAL_CHAT_ID)指令整体
                            切换为 /approval-*；@我时指令：静态指令表未命中再查 抽奖动态指令（一个工作表=一个指令=一个奖池，如 /抽奖），仍未命中落 /print-* 与未知指令；非指令命中 → 先查 @触发回答表，未命中回落 关键词回答表）
@@ -172,7 +181,7 @@ p2p 消息：  ① DDL逾期确认(handleP2PReply) → handled? 终止
 
 1. 防重：`.broadcast-state.json` 记 `lastBroadcastDate`，同日跳过。**标记在至少一群送达后才落盘**——全败当天可 `/test-broadcast` 重跑；部分成功用各群 `/test-ddl` 补发（它不受标记限制）。
 2. 频控错误指数退避重试 ≤3 次；`deliveredGroups` 跨重试持久，重试只补失败群；同 webhook / 同 chatId 去重防一卡多发。
-3. 逐群（`broadcastGroups`：owner / dkyj / sj / xy 四群，各对应项目表一个人员字段）：只播该字段有人的项目，树形层级渲染逾期（@）/ 2日内（@）/ 本周概览 / 意外暂停。
+3. 逐群（`broadcastGroups`：owner / dkyj / sj / xy 四群，各对应项目表一个人员字段）：只播该字段有人的项目，树形层级渲染逾期（@）/ 2日内（@）/ 本周概览 / 意外暂停；另向**负责人群**（`LEADER_WEBHOOK_URL`/`LEADER_CHAT_ID`，v106 起）发一张整合卡（跨四群全量逾期/紧急汇总，供管理层一眼看全局）。
 4. **未结单工单分栏**（跨项目）：
    - 主链路：`ticketCloseService.getGroupedBuckets()` → ticket-bot `/api/tickets/unclosed-by-group`（10s 超时，冷缓存余量），按群取 `groupedTickets[chatId]`，各组只看到自己负责人的工单；
    - 分栏内容：结单分桶（加急/7日内，列负责人姓名）+ **等回执分桶**（`waiting`，回执结单节点上其余全部——无负责人/未填理想结单时间/超 7 日，2026-09-17 起，等回执=没做完不允许漏播）+ **无人接单分桶**（`unclaimed`，超 6h 无人响应，只列标题与发布时长不 @——群内问询与组长私聊升级由 ticket-bot 超时检查承担）；
@@ -194,7 +203,7 @@ p2p 消息：  ① DDL逾期确认(handleP2PReply) → handled? 终止
 ### 2.4 对话与指令分发（`server/src/services/chatService.js`）
 
 - 群聊需 @机器人（`isMentionedBot` 兼容 mentioned_type app/bot/self/名称）；私聊白名单同 ticket-bot 同套环境变量。
-- 本项目指令：`/help` `/status` `/test-ddl` `/keywords` `/autoreply` `/history` `/lottery`（看奖池）；`/print-*` → 转发 bambu `POST /api/chat/command`；**审批群**（`APPROVAL_CHAT_ID`）内 `/help` 与其余指令整体切换为 `/approval-*` → 转发 approval-bot，其它指令提示"本群仅财务指令"。
+- 本项目指令：`/help` `/status`（v105 起附**舰队健康快照**：部署目标 7 服务 health 并发探测 + 网关长连接/投递深度）`/test-ddl` `/keywords` `/autoreply` `/history` `/lottery`（看奖池）；`/print-*` → 转发 bambu `POST /api/chat/command`；**审批群**（`APPROVAL_CHAT_ID`）内 `/help` 与其余指令整体切换为 `/approval-*` → 转发 approval-bot，其它指令提示"本群仅财务指令"；p2p 图片/文件 → 发票采集观察转发 approval-bot（v112，`forwardInvoiceCollect`，60s 超时 fire-and-forget——注意 `extractFileContent` 现读 `message.body?.content` 系死代码，文件分支待修，见 DEVLOG v113 已知遗留）。
 - 值日管辖群值日分支先于一切能力（`handleDutyBranch` + `dutyPolicyService`）：**管辖范畴/生效范畴以 duty-bot `GET /api/duty/policy` 下发为准**（`DUTY_GROUP_CHAT_IDS`、看板触发词、基础指令关闭开关、引导语、p2p 指令清单；hub 60s 短缓存，duty-bot 失联时按本仓 `DUTY_CHAT_ID` 兜底；groupChatIds 空=不限制。关键词回答放行开关与值日域保留词校验已移除——2026-09-13 口径：值日助手仅 @ 与私聊触发、未@/@ 关键词回答全群统一，与值日部件无撞车面）。p2p 值日指令/图片按策略直转 duty-bot（带 messageId，duty-bot 侧消息级幂等生效；duty-bot 未接管如无会话口语变体→落回常规流程）；管辖群内 @消息：看板触发词（带不带 `/` 均可）出看板（载荷带 messageId）、群内指令子集+取件词形（2026-09-17 快递助手：策略 `groupCommands`=`值日助手/快递助手/快递/查询当前快递` 裸词与带 `/` 双形态 + `p2pCommandPatterns`=`已取n/全部已取`，转发 duty-bot；开窗→群发非@取件码/照片经 `maybeForwardExpressObserve` 观察转发进「快递」表，每小时整点未取播报过静默闸门）、@+纯图片窗口期转 duty-bot 登记（无窗口静默）、抽奖动态指令（/抽奖）先于基础指令关闭的引导语（2026-09-14）、关键词命中照常回答（同款 `buildMentionReplyForText`），其余回策略引导语；**非管辖群** @ 值日指令（`groupCommands` 指令子集，2026-09-17 修复——此前吃整份 p2pCommands 把「是/好/完成」口语词也拦成值日提示）回办理路径提示；未@消息照常走管道③（关键词回答全群统一，无值日群特殊放行开关）。已知边界（记录在案）：gateway `contains:'接单'` 全局抢占、`isMentionedBot` 把 @任何 app/bot 都算 @本机器人（共用应用妥协）、群看板限流命中静默。
 - 关键词自动回复分流（非指令）：群里 @我 → `buildMentionReplyForText`（先「@触发回答」表，命中即止；未命中回落「关键词回答」表）；私聊命中任一表 → 只回"仅面向群聊开放"提示，不返回答案。指令优先于自动回复。
 - `/test-ddl` 守卫：非播报群的群聊里拒绝执行（防止测试卡经 owner webhook 兜底跨群打到 owner 群）；私聊管理员保留 owner 群兜底。

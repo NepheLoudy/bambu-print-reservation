@@ -12,11 +12,11 @@
 - 五个机器人**共用同一个飞书应用**；长连接只属于 feishu-gateway，本项目事件一律 `FEISHU_USE_LONG_CONNECTION=false`，由网关转发到本项目的 `POST /api/feishu/event`；
 - 指令交互契约：`POST /api/chat/command`，入参 `{command, args}`，回 `{reply}`（回复由调用方——网关或 hub——代发）；
 - 群播报走群自定义机器人 webhook，对话回复走飞书 IM API；
-- 部署一律项目内 `npm run push "说明"`（规则见 qianli-deploy skill 与顶层 AGENTS.md），NAS 凭证在 .env 的 NAS_*；
+- 部署一律项目内 `npm run push`（不带参数——本仓 push 无 git 步骤，版本锚点取顶层仓库归档提交；规则见 qianli-deploy skill 与顶层 AGENTS.md），部署目标凭证在 .env 的 NAS_*（历史命名，语义=部署目标=小电脑）；
 - 通用坑：@识别要兼容 mentioned_type='bot'；多维表格字段值先过 fieldText 类工具再拼字符串；express.json 建议放宽到 2mb。
 
 顶层职能速览（需求跨项目即停，走上方"发错时的规定动作"）：
-ticket-bot=工单域｜approval-bot=财务审批｜project-management-robot=对话枢纽+DDL｜bambu-print-reservation=打印预约｜feishu-gateway=事件接入｜qianli 顶层=部署/架构/整理。
+ticket-bot=工单域｜approval-bot=财务审批｜project-management-robot=对话枢纽+DDL｜bambu-print-reservation=打印预约｜duty-bot=值日+快递｜wecom-attendance-bot=企业微信考勤周报｜feishu-gateway=事件接入｜qianli 顶层=部署/架构/整理。
 
 ## 只管这些（归属信号）
 打印、预约、打印机、Bambu/拓竹、`/print-*`、打印队列、打印状态通知。

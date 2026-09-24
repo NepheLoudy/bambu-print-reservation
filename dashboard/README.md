@@ -40,6 +40,8 @@ stderr/事件日志地静默死亡）。Startup 里另有 `qianli-ops-console-au
 | 更新状态 | 各仓 git 分支 / 最新提交 / 未提交改动数 |
 | 运行日志 | 部署目标 pm2 日志（SSH tail ~/.pm2/logs）+ 本地测试进程实时输出 |
 | **定制中心** | 各机器人后端定制窗口（`registry.js` 的 `windows` 清单）：白名单增删、名册全景与通讯录刷新、管辖策略/定制项全景、关键词回答表可视化编辑（增删改/启停/切表），读写经 `/api/nas/api`（SSH curl，端点名为历史命名）直达部署目标本机接口 |
+| **网络拓扑** | 云/主路由/小电脑/双子路由/4A 打印隔离区分区图（TCP 并行探测 + 出口 IP）；LAN 设备发现（ping 扫描 + ARP + OUI 厂商标注）与踢出/封禁/解封（经小米路由器 MAC 过滤，封禁持久化 `.banned-devices.json`） |
+| **R14 看门狗** | 每小时 SSH 逐端口 curl 各服务 `/api/health`（先探主路由判离站，连 2 轮异常才告警、12h 重提醒；23:00-09:00 静默 pending 补发；告警走 duty-bot 看板 webhook 或 `WATCHDOG_WEBHOOK_URL`） |
 
 ### 总览仪表台的口径说明
 

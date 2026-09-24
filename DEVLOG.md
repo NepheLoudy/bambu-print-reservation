@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v105**（2026-09-25，随本提交落地）。上一版 v104（发票采集全链路批，`cef9b2f`）。上一版 v103（值日体系全面检修，`19695bd`）。上一版 v102（值日公平性批，`7aae41e`）。上一版 v101（负载算法升级批，`97bd02b`）。上一版 v100（团队负载看板三仓联动，`11179b8`）。
+当前最新：**v106**（2026-09-25，随本提交落地）。上一版 v105（approval v46 复查批归档，`2b070a4`）。上一版 v104（发票采集全链路批，`cef9b2f`）。上一版 v103（值日体系全面检修，`19695bd`）。上一版 v102（值日公平性批，`7aae41e`）。上一版 v101（负载算法升级批，`97bd02b`）。上一版 v100（团队负载看板三仓联动，`11179b8`）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -869,3 +869,16 @@
 - **在线真机演练**（drill-online.js）：端点/鉴权/负例全过；transcribe 真调 404 判定为「图片识别」权限未生效（路径经官方 OpenAPI 核实），待权限开通复测；backfill 实测表格 SourceID 非审批 OpenAPI instance_id（1390003），重构为 APPROVAL_CODE 驱动（审批管理后台获取，一次性配置）。
 - **抬头校验落地**：INVOICE_ALLOWED_BUYERS=重庆大学|12100000400002697C。
 - 提交：approval-bot `8f312d8`/`c1b0284`/`3c2f2bb`/`dd855f2`（v45/v46+演练脚本）；pm-robot `4739bd7`/`046174e`（hub 转发+超时修复）。均已部署小电脑并在线复测。
+
+## v106 · 2026-09-25 · 随本提交落地 · fix+docs
+
+**全项目群全量代码审查 + 文档对齐批（八项目、五处行为修复、七仓部署）**
+
+- 提交说明：fix+docs: 全量审查批——hub 发票文件分支死代码修复等五处行为修复 + 八项目文档对齐 + duty 隐私历史抹除 + registry 同步
+- **审查方式**：八个项目并发只读子代理全量审查（代码 vs 文档逐条比对），产出差异清单后分仓修复。
+- **行为修复五处（均过桩测试）**：① hub v114（`4fb1388`）extractFileContent 双形状兼容——p2p 文件（数电票 PDF）发票采集自 v112 起死代码，改读事件帧 message.content + 采集 usage 上报（铁律⑧）+ 桩断言四条；② duty-bot v38（`7781ee1`）D-7 预告/请假确认两处「补位」残留文案改同日兼顾口径 + 对账报告区分容量顺延；③ approval-bot v48（`24617de`）/approval-batch status 排序比较器失效修复（状态机分组+金额降序）；④ ticket-bot v84（`eba5451`）getCronStatus 补报 syncRepairTask；⑤ wecom v9（`922ae36`）dataSource 默认值 api→import（env 缺失落生产档）。
+- **隐私历史抹除**：duty-bot reb_*.json（含全员真实姓名的 rebalance 运维输出，v37 哈希回填提交误入库）amend 进原 docs 提交后 force push（b8c1d59→`ceeb77b`），远端历史不再含姓名；.gitignore 补 reb_*.json。
+- **文档对齐（约 30 处）**：八仓 README/LOGIC-MAP/AGENTS/.env.example 漂移修正（gateway 鉴权三端点、approval regen+脚本清单、duty D-7/词形/API 表、bambu PRINTER-LAN-API 行号+fail-closed、wecom import 主口径、ticket 全局锁+workload 契约、hub README/LOGIC-MAP 发票链路+v105/106/109 特性）；dashboard/registry.js 补登 hub 发票转发/duty rebalance+周容量键/approval v46/v47/dashboard 网络拓扑+看门狗；顶层 AGENTS 定制窗口五仓→六仓；网关拓扑文档 bambu 命名勘误+补 3010；《机器人总成使用指南》MD/HTML 同批（发票私聊直交入口等）。
+- **hub v112/v113 补档**：4739bd7/046174e 两提交此前漏记 DEVLOG，已补条目。
+- **部署验证**：七服务 pm2 全 online；gateway ws=running；:3000/:3002/:3003 health 200。各仓桩测试全绿（hub 7/duty 7/approval 3+语法/ticket 4/wecom 7）。
+- 提交：duty `7781ee1`/`2d7768d`（回填）；hub `4fb1388`/`f161c72`；ticket `eba5451`/`6d54f8a`；approval `24617de`/`79e5886`；wecom `922ae36`；gateway `50f3029`；bambu v34 顶层归档随批。

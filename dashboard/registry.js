@@ -47,7 +47,7 @@ module.exports = {
       role: '所有对话/指令的唯一入口：@对话、基础指令、关键词监听与自动回答、抽奖（一个工作表=一个指令=一个奖池）、DDL 播报与逾期确认（含负责人群整合播报：逾期+临期跨群汇总 @章子赫，2026-09-22）、会议提醒、项目表；专项指令转发各服务。',
       listening: [
         '全部消息事件（gateway 转发）；群聊需 @机器人，私聊直接对话',
-        'p2p：DDL 逾期确认回复（12 小时时效，超时次日播报重问）→ 值日分支（指令/图片，duty-bot 未接管时落回常规流）→ 基础指令（白名单）→ 对话',
+        'p2p：DDL 逾期确认回复（12 小时时效，超时次日播报重问）→ 值日分支（指令/图片，duty-bot 未接管时落回常规流；图片/文件双线：duty 照片凭证 + 发票采集观察转发 approval-bot，2026-09-25 v112 起）→ 基础指令（白名单）→ 对话',
         '群：@对话 → 值日群分支（看板仅 @ 触发、带不带 / 均可、@+纯图片静默、非管辖群值日指令回提示）→ 审批群分支 → 基础指令（静态表未命中接 抽奖动态指令，工作表名=指令名）→ 关键词自动回答（全群统一，未@也生效）；会议提醒对值日管辖群跳过（群级功能全关）',
         'GET /api/hub/policy（定制窗口：审批群/值日策略源/回答表范围/播报群全景只读）',
       ],
@@ -83,7 +83,7 @@ module.exports = {
         { id: 'test-duty', label: '值日分支 stub 测试', cmd: 'node scripts/stub-test-duty-branch.js', cwd: 'server' }, // 脚本在 server/scripts（依赖 server/src 相对路径）
         { id: 'test-ddl-leader', label: '负责人群整合播报 stub 测试', cmd: 'node scripts/stub-test-ddl-leader.js', cwd: 'server' },
       ],
-      notes: '关键词自动回答表 .local.json 私有覆盖（真实回答不上传 git）；抽奖配置 .local.json 同口径守卫；2026-09-14 起 /help 不展示运维指令（/status /test-ddl /keywords /autoreply /history 仍可用）；DDL 播报事件写入动态广场（机器人项目看板）；2026-09-22 起每日 12:05 各群播报后负责人群补发「逾期+临期」整合卡（LEADER_WEBHOOK_URL/LEADER_CHAT_ID + 卡头 @章子赫，全空当日不发，webhook 只出布尔不出原文）',
+      notes: '关键词自动回答表 .local.json 私有覆盖（真实回答不上传 git）；抽奖配置 .local.json 同口径守卫；2026-09-14 起 /help 不展示运维指令（/status /test-ddl /keywords /autoreply /history 仍可用）；DDL 播报事件写入动态广场（机器人项目看板）；2026-09-22 起每日 12:05 各群播报后负责人群补发「逾期+临期」整合卡（LEADER_WEBHOOK_URL/LEADER_CHAT_ID + 卡头 @章子赫，全空当日不发，webhook 只出布尔不出原文）；2026-09-25 v112 起 p2p 图片/文件 fire-and-forget 转发票采集（approval-bot /api/invoice/collect，X-API-Token，60s 超时，回执由 approval-bot 私聊发）',
     },
     {
       id: 'bambu',
@@ -131,7 +131,7 @@ module.exports = {
       quickActions: [
         { id: 'install', label: 'npm install', cmd: 'npm install', cwd: '' },
       ],
-      notes: '提醒回落 open_id 已改通用变量名（REMINDER_FALLBACK_OPEN_ID_1/2）；v45 发票采集全链路：队员私聊/催办回票→三通道识别→采集台账（真源，审批base下「发票采集」「报销批次」两表）→/approval-batch 三件套（拟批/锁定回写报销单栏/打印PDF/BOM）；.ocr-fields.local.json 与 OCR_FIELDS_FILE 同 v44 口径',
+      notes: '提醒回落 open_id 已改通用变量名（REMINDER_FALLBACK_OPEN_ID_1/2）；v45 发票采集全链路：队员私聊/催办回票→三通道识别（PDF文本层/二维码/OCR）→采集台账（真源，审批base下「发票采集」「报销批次」两表）→/approval-batch 三件套（拟批/锁定回写报销单栏/打印PDF/BOM；v46 补 regen 附件自愈）；v46 全量复查批：/api/invoice/backfill 改 APPROVAL_CODE 驱动（.env 未配该键时端点按设计返 400 指引）、hub 转发超时对齐 60s、查重加锁；.ocr-fields.local.json 与 OCR_FIELDS_FILE 同 v44 口径',
     },
     {
       id: 'ticket',
@@ -190,6 +190,7 @@ module.exports = {
         '值日域管辖：DUTY_GROUP_CHAT_IDS 管辖群经 /api/duty/policy 下发，hub 群内闸门照此执行（含快递助手群内指令/取件词形/非@观察转发，2026-09-17）',
         '名册自动同步：启动/生成排班前/手动 refresh 读通讯录全员（open_id 直取），whitelist.json 为排除名单',
         '真实名册 config/members.json、whitelist.json 不进 git（push.js 显式 SFTP 上部署目标）',
+        '排班参数：DUTY_WEEKLY_INSERTION_ALLOWANCE（v37 周插入容量，默认每周 2 条非请假位插入，超出顺延下周——防补偿安置把一周插成天天 4 人的「雪球」）',
       ],
       localRun: { script: 'src/index.js', cwd: '', env: {} },
       quickActions: [
@@ -198,7 +199,7 @@ module.exports = {
         { id: 'table-check', label: '表格字段校验', cmd: 'npm run table:check', cwd: '' },
         { id: 'plaza-tables', label: '动态广场建表（幂等）', cmd: 'node scripts/create-plaza-tables.js', cwd: '' },
       ],
-      notes: '表格已接线（机器人项目看板库·值日看板表，字段经 DUTY_FIELD_* 映射）；名册自动读通讯录（64 人全员入册，open_id 直取，whitelist.json 为排除名单——权威在部署目标侧，push 有备份+守卫，见顶层 AGENTS「运行时数据保护」）；值日完成/请假事件写入动态广场；接口 GET /api/duty/brief、GET /api/duty/policy、GET /api/duty/roster、GET|POST /api/duty/whitelist、POST /api/chat/command（转发载荷带 messageId，消息级幂等全路径生效；返回 {reply}）、/api/bot/test-*',
+      notes: '表格已接线（机器人项目看板库·值日看板表，字段经 DUTY_FIELD_* 映射）；名册自动读通讯录（64 人全员入册，open_id 直取，whitelist.json 为排除名单——权威在部署目标侧，push 有备份+守卫，见顶层 AGENTS「运行时数据保护」）；值日完成/请假事件写入动态广场；接口 GET /api/duty/brief、GET /api/duty/policy、GET /api/duty/roster、GET|POST /api/duty/whitelist、POST /api/chat/command（转发载荷带 messageId，消息级幂等全路径生效；返回 {reply}）、/api/bot/test-*、POST /api/bot/rebalance（v37 排班重排：默认 dryRun 预览、confirm=true 执行，先自动全量备份到数据目录 backup/；X-API-Token）',
     },
     {
       id: 'wecom-attendance',
@@ -254,9 +255,9 @@ module.exports = {
       pm2Name: null,
       nasDir: null,
       deploy: '仅本机运行（node server.js），不部署',
-      role: '全项目可视化运维：总览仪表台（服务状态矩阵/1h 时间线/24h 可用率/掉线事件、活跃看板=队员活跃+功能激活，队员活跃为正经使用口径：抽奖/关键词回答等娱乐功能不计入，2026-09-22；团队负载看板=工单+项目双源评分聚合，hub /api/hub/workload，2026-09-24）、端口职能/权限/指令清单、本地与主机(部署目标)服务状态、运行日志、更新状态；本地测试进程启停；npm push 等快捷指令。',
+      role: '全项目可视化运维：总览仪表台（服务状态矩阵/1h 时间线/24h 可用率/掉线事件、活跃看板=队员活跃+功能激活，队员活跃为正经使用口径：抽奖/关键词回答等娱乐功能不计入，2026-09-22；团队负载看板=工单+项目双源评分聚合，hub /api/hub/workload，2026-09-24）、网络拓扑看板（TCP 探测+LAN 设备发现+踢出/封禁，经小米路由器）、R14 看门狗（每小时 SSH 逐端口健康巡检，连 2 轮异常才告警）、端口职能/权限/指令清单、本地与主机(部署目标)服务状态、运行日志、更新状态；本地测试进程启停；npm push 等快捷指令。',
       listening: ['仅 127.0.0.1，无外部访问'],
-      commands: ['HTTP API：/api/overview（含主机状态） /api/stats（总览仪表台：采样史/可用率/掉线事件） /api/activity（活跃看板：网关使用统计+各域 policy 激活聚合） /api/team-load（团队负载：hub 双源评分聚合，300s 缓存） /api/local/:id/start|stop|log /api/action/:id 与 /api/action/:id/log /api/nas/log/:name /api/nas/restart/:name /api/windows（定制窗口清单） /api/nas/api（SSH 代理直达部署目标本机接口）'],
+      commands: ['HTTP API：/api/overview（含主机状态） /api/stats（总览仪表台：采样史/可用率/掉线事件） /api/activity（活跃看板：网关使用统计+各域 policy 激活聚合） /api/team-load（团队负载：hub 双源评分聚合，300s 缓存） /api/network 与 /api/network/lan（网络拓扑+LAN 设备发现） /api/network/lan/kick|ban|unban（设备踢出/封禁，经小米路由器） /api/router/status /api/egress-ip（出口 IP） /api/watchdog（R14 看门狗状态） /api/local/:id/start|stop|log /api/action/:id 与 /api/action/:id/log /api/nas/log/:name /api/nas/restart/:name /api/windows（定制窗口清单） /api/nas/api（SSH 代理直达部署目标本机接口）'],
       permissions: ['部署目标凭据直读 approval-bot/.env（不复制、不入库）'],
       localRun: null,
       quickActions: [],
