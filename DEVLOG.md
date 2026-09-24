@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v104**（2026-09-25，随本提交落地）。上一版 v103（值日体系全面检修，`19695bd`）。上一版 v102（值日公平性批，`7aae41e`）。上一版 v101（负载算法升级批，`97bd02b`）。上一版 v100（团队负载看板三仓联动，`11179b8`）。
+当前最新：**v105**（2026-09-25，随本提交落地）。上一版 v104（发票采集全链路批，`cef9b2f`）。上一版 v103（值日体系全面检修，`19695bd`）。上一版 v102（值日公平性批，`7aae41e`）。上一版 v101（负载算法升级批，`97bd02b`）。上一版 v100（团队负载看板三仓联动，`11179b8`）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -849,7 +849,7 @@
 - 重排已执行：删 72 条未来未完成班次、重置 14 条义务、重新生成 09-26~10-25 共 94 条——10 月起每天严格 3 人，09-26~09-30 过渡期残余 4 人日为欠账按容量消化的预期代价；旧规则「请假加罚」义务一并作废。
 - 测试 duty 7 套全过（flow 新增请假空缺位/周容量/rebalance 三组断言）；文档 README/registry/用户侧 HTML/MD 同批。
 
-## v104 · 2026-09-25 · 随本提交落地 · feat
+## v104 · 2026-09-25 · `cef9b2f` · feat
 
 **approval-bot v45 发票采集全链路 + 报销批次三件套（hub 同批联动）+ registry 登记 + gitlink 快照**
 
@@ -859,3 +859,13 @@
 - **hub 同批**（pm-robot `4739bd7`，已部署）：p2p 图片/文件 fire-and-forget 转发 approval-bot 采集端点，值日线不受影响。
 - **依赖**（免费 npm）：sharp/jsqr/pdf-parse/pdf-lib/exceljs。**权限待后台开通**：approval:approval:readonly、drive:drive（v44 批的 im:resource、optical_char_recognition 一并）。
 - 测试：approval-bot npm test（×7 语法+3 套桩）全绿、pm-robot 7 套桩全绿；部署顺序 approval-bot → pm-robot。
+
+## v105 · 2026-09-25 · 随本提交落地 · fix
+
+**approval-bot v46 全量复查修复批 + OCR 兼容性演练（独立审查+演练双保险）**
+
+- **独立代码复查**：P1×6 全修——近似查重闸因日期毫秒/字符串口径不一致恒失效（改毫秒比对）；PDF 识别失败被静默丢票（改打回）；`looksLikeInvoice: like || true` 恒真致任意二维码图误打回（parseQrPayload 加 invoiceShape 形状判定）；镜像回写裸 requestAPI 读失败清空「补交发票」列（改带 code 校验的 getRecord）；lockBatch 半途失败死局（先建批次记录再打标+regen 自愈子指令）；查重/落表与 lock 的 TOCTOU（按发票号/批次号互斥锁）。P2 系列：hub 转发超时 60s、双入口重复回执静默、金额差字段两入口统一、日期解析钳制、reject 退回票回池、body limit 10mb、/api/invoice/collect 移除 OCR 开关一刀切、端点失败补队员回执。
+- **OCR 兼容性演练**（drill-ocr-compat.js，12/12 过）：真发票 QR 全链路解码（数电票/老票）、非发票码不误判、OCR 噪声变体（全角/半角/混排/千分位）、特征词静默、两票一页打印件几何验证；**演练抓出 pdf-parse v2.4.5 API 断裂并修复**（v1 函数调用已废弃）。
+- **在线真机演练**（drill-online.js）：端点/鉴权/负例全过；transcribe 真调 404 判定为「图片识别」权限未生效（路径经官方 OpenAPI 核实），待权限开通复测；backfill 实测表格 SourceID 非审批 OpenAPI instance_id（1390003），重构为 APPROVAL_CODE 驱动（审批管理后台获取，一次性配置）。
+- **抬头校验落地**：INVOICE_ALLOWED_BUYERS=重庆大学|12100000400002697C。
+- 提交：approval-bot `8f312d8`/`c1b0284`/`3c2f2bb`/`dd855f2`（v45/v46+演练脚本）；pm-robot `4739bd7`/`046174e`（hub 转发+超时修复）。均已部署小电脑并在线复测。
