@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v103**（2026-09-24，随本提交落地）。上一版 v102（值日公平性批，`7aae41e`）。上一版 v101（负载算法升级批，`97bd02b`）。上一版 v100（团队负载看板三仓联动，`11179b8`）。
+当前最新：**v104**（2026-09-25，随本提交落地）。上一版 v103（值日体系全面检修，`19695bd`）。上一版 v102（值日公平性批，`7aae41e`）。上一版 v101（负载算法升级批，`97bd02b`）。上一版 v100（团队负载看板三仓联动，`11179b8`）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -840,7 +840,7 @@
 - dashboard/registry.js：approval-bot 条目同步（role/listening/windows ×2/permissions/notes）。
 - 本批纯 approval-bot 单仓 + 顶层登记，无跨仓行为联动；用户侧《使用指南》待消息入口定了随批补。
 
-## v103 · 2026-09-25 · 随本提交落地 · feat
+## v103 · 2026-09-25 · `19695bd` · feat
 
 **值日体系全面检修：duty v37 单仓批——请假当日空缺/安置优先级/周插入容量/排班重排**
 
@@ -848,3 +848,14 @@
 - duty-bot v37：①删 arrangeReplacement，请假当日该岗空缺由同日队员兼顾；②planInsertion 安置优先级重构——目标周内「请假空缺位」优先（同岗回填不超员），无请假位才落密度最低日；③周级插入容量 DUTY_WEEKLY_INSERTION_ALLOWANCE=2（非请假位插入每周限 K 条超出顺延，填请假位不占），placePending/generate 同受约束，根除欠账集中安置雪球；④POST /api/bot/rebalance 重排端点（自动全量备份+dryRun 预览+confirm 执行）。
 - 重排已执行：删 72 条未来未完成班次、重置 14 条义务、重新生成 09-26~10-25 共 94 条——10 月起每天严格 3 人，09-26~09-30 过渡期残余 4 人日为欠账按容量消化的预期代价；旧规则「请假加罚」义务一并作废。
 - 测试 duty 7 套全过（flow 新增请假空缺位/周容量/rebalance 三组断言）；文档 README/registry/用户侧 HTML/MD 同批。
+
+## v104 · 2026-09-25 · 随本提交落地 · feat
+
+**approval-bot v45 发票采集全链路 + 报销批次三件套（hub 同批联动）+ registry 登记 + gitlink 快照**
+
+- **approval-bot v45**（`8f312d8`，已部署小电脑并验证）：发票采集对接重庆大学财务/小翼Plus 流程——队员私聊/催办私聊直接回发票（数电票 PDF/二维码截图/拍照），三通道识别（PDF 文本层 > 发票二维码 > OCR 兜底，非发票图特征词静默忽略）→ 查重双闸（号码精确+三元组近似）→ 抬头校验（INVOICE_ALLOWED_BUYERS 可配）→ 金额归类匹配（精确唯一自动归/唯一候选直归+金额比对闸 ±5%/¥10/多候选转人工；候选排除台账已收录——「发票/补交发票/采集台账」三口径等价）→「发票采集」表（真源）+补交发票栏镜像回写→私聊回执/打回提醒。
+- **财务三件套 /approval-batch**：preview 拟批（票池按项目分组）→ lock 锁定（回写采集表批次+审批表「报销单」栏，锁定后顺序不可变）→ 自动生成打印件 PDF（录入序、A4 竖版一页两票，pdf-lib）+ BOM xlsx（exceljs）落「报销批次」表附件 → submit/paid/reject 状态流转。周报卡新增「报销台账」段。
+- **存量回溯**：POST /api/invoice/backfill——审批实例附件探测式下载识别回填（路径待真机联调验证）。
+- **hub 同批**（pm-robot `4739bd7`，已部署）：p2p 图片/文件 fire-and-forget 转发 approval-bot 采集端点，值日线不受影响。
+- **依赖**（免费 npm）：sharp/jsqr/pdf-parse/pdf-lib/exceljs。**权限待后台开通**：approval:approval:readonly、drive:drive（v44 批的 im:resource、optical_char_recognition 一并）。
+- 测试：approval-bot npm test（×7 语法+3 套桩）全绿、pm-robot 7 套桩全绿；部署顺序 approval-bot → pm-robot。
