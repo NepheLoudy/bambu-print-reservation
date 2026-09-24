@@ -839,3 +839,12 @@
 - **approval-bot v44**（`e3bc757`，已部署小电脑并验证）：发票图像 OCR 转录服务端能力——引擎选飞书开放平台「识别图片中的文字」（**免费**，20 QPS，图片 <5MB，识别在飞书侧完成、数据不经第三方，图片内存直传不落盘）；「某些区域转录」用可配置字段规则实现（anchor 锚点 same/next/same_or_next + occurrence / regex），内置发票默认规则集（号码/日期/买卖方/价税合计），`GET/POST /api/ocr/fields` 定制窗口热改（规则存 `.ocr-fields.local.json`，push.js 打包排除+gitignore 防本地种子覆盖部署目标）；`POST /api/ocr/transcribe`（X-API-Token）+ policy 增 ocr 段；桩测试 stub-test-ocr 并入 npm test 与 push 闸门（抓出并修复 take=same 误跨段回落 bug）。权限待开通：`im:resource` + `optical_char_recognition`（高级权限）；消息侧入口待需求方定接口形态后另批接入。
 - dashboard/registry.js：approval-bot 条目同步（role/listening/windows ×2/permissions/notes）。
 - 本批纯 approval-bot 单仓 + 顶层登记，无跨仓行为联动；用户侧《使用指南》待消息入口定了随批补。
+
+## v103 · 2026-09-25 · 随本提交落地 · feat
+
+**值日体系全面检修：duty v37 单仓批——请假当日空缺/安置优先级/周插入容量/排班重排**
+
+- 用户拍板①请假当日空缺（废补位抽调）；②检修同日超员存量（09-19~09-24 雪球：09-27/09-28 各 5 人）。
+- duty-bot v37：①删 arrangeReplacement，请假当日该岗空缺由同日队员兼顾；②planInsertion 安置优先级重构——目标周内「请假空缺位」优先（同岗回填不超员），无请假位才落密度最低日；③周级插入容量 DUTY_WEEKLY_INSERTION_ALLOWANCE=2（非请假位插入每周限 K 条超出顺延，填请假位不占），placePending/generate 同受约束，根除欠账集中安置雪球；④POST /api/bot/rebalance 重排端点（自动全量备份+dryRun 预览+confirm 执行）。
+- 重排已执行：删 72 条未来未完成班次、重置 14 条义务、重新生成 09-26~10-25 共 94 条——10 月起每天严格 3 人，09-26~09-30 过渡期残余 4 人日为欠账按容量消化的预期代价；旧规则「请假加罚」义务一并作废。
+- 测试 duty 7 套全过（flow 新增请假空缺位/周容量/rebalance 三组断言）；文档 README/registry/用户侧 HTML/MD 同批。
