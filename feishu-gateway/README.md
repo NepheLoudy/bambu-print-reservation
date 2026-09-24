@@ -75,7 +75,7 @@ qianli 项目群的所有机器人共用同一个飞书自建应用（`cli_aac7e
 | --- | --- |
 | `PORT` | 网关监听端口，默认 3010 |
 | `APP_ID` / `APP_SECRET` | 共用应用凭证，缺任一则只起 HTTP 服务不连长连接 |
-| `GATEWAY_API_TOKEN` | 管理端点鉴权（2026-09-13）：`/api/dispatch`、`/api/usage-sync/run` 需带 `X-API-Token` 头；**未配置 = 两端点锁定（fail-closed）**。生成：`openssl rand -hex 24` |
+| `GATEWAY_API_TOKEN` | 管理端点鉴权（2026-09-13）：`/api/dispatch`、`/api/usage-sync/run`、`/api/usage/report`（消费方归因上报，2026-09-22 起纳入）需带 `X-API-Token` 头；**未配置 = 三端点整体锁定（fail-closed）**。生成：`openssl rand -hex 24` |
 | `PLAZA_*` 等 | 见 `.env.example` 逐键注释 |
 | `EVENT_TYPES` | 长连接订阅的事件类型（逗号分隔）。**改动需同步部署目标上的 .env**（v10 生产断链即代码默认值与线上 .env 不一致导致） |
 | `CONSUMERS` | 下游消费者登记，覆盖默认清单 |
@@ -85,14 +85,14 @@ qianli 项目群的所有机器人共用同一个飞书自建应用（`cli_aac7e
 | `APPROVAL_TARGETS` | 审批事件转发目标，留空=bambu+ticket |
 | `DOC_SUBSCRIBES` | 启动时需订阅记录变更的云文档 appToken（逗号分隔） |
 | `FEISHU_VERIFICATION_TOKEN` | 透传给下游机器人的校验 token（可选） |
-| `GATEWAY_DATA_DIR` | 使用统计落盘目录，默认 `/home/qianli/feishu-gateway-data`（必须在项目外：部署 tar 会清空项目目录） |
+| `GATEWAY_DATA_DIR` | 使用统计落盘目录，默认 `/home/qianli/feishu-gateway-data`（必须在项目外：部署 tar 会清空项目目录。部署目标为 Windows 小电脑，POSIX 形式路径实际解析到当前盘根，即 `C:\home\qianli\feishu-gateway-data`，找文件按这个来） |
 
 ## 使用统计（运维台活跃看板数据源）
 
 - **口径=机器人交互**：显式路由命中（/ticket-*、接单等专用能力）、私聊、群内 @机器人 才计数；群内未 @ 落默认目标的普通闲聊不计（hub 本就不会响应）；
 - 消息事件命中路由目标后顺带计数（只观察不改路由）：**谁**（open_id，经共用应用查通讯录解析成姓名并永久缓存）在用**什么功能**（`/` 开头取首个 token 精确到指令；工单接单监听说的是「接单」这两个字，单独成桶；其余按私聊对话/@群对话计）；2026-09-22 起按人功能归因落进日桶 `users[id].f`，作为活跃口径双轨的剔除依据；
 - **活跃口径双轨（2026-09-22）**：`activeUsers`=机器人交互全量（网关日活跃表同口径，不变）；`seriousActiveUsers`/`seriousUsers`=**正经使用**（剔娱乐功能——运维台「队员活跃」看板消费此口径）。娱乐清单=静态（`src/usage.js` `STATIC_FUN_FEATURES`：抽奖/关键词回答//lottery）+ 上报自学习（fun 标记学功能名、learn 学 `/触发词` 形态，随 stats 持久化）；旧数据（无按人归因）按全量正经处理不回溯剔除。规则见顶层 AGENTS「队员活跃口径=正经使用」；
-- 按天分桶保留 30 天，落盘 `<数据目录>/usage-stats.json`（60s 兜底刷新 + SIGINT 落盘，重启不丢）；
+- 按天分桶保留 30 天，落盘 `<数据目录>/usage-stats.json`（60s 兜底刷新 + SIGINT/SIGTERM 落盘——SIGTERM 是 v21 为 pm2 restart 场景补的，重启不丢）；
 - 查询：`GET /api/usage?days=N`（默认 1，最大 30），返回 `users`/`seriousUsers`（含姓名）/`features`/`daily` 聚合；运维台「队员活跃」看板即消费此接口；
 - **群聊被@统计（2026-09-24，独立于上述交互口径）**：所有群消息的 `mentions` 按人按天累计（@机器人/@所有人/私聊不计；与路由无关，在任何路由判断之前记录——不命中规则的消息里的 @ 也算），查询 `GET /api/usage/mentions?days=N`（默认 7，最大 30，**自然日滑窗**，非桶数滑窗——负载评分输入不能把稀疏老计数长期带在身上）。pm-robot 团队负载评分消费（每被@一次 +0.01 分）。随 usage-stats.json 同文件落盘、prune 同窗清理；mention 自带姓名顺手进 names 缓存；
 - `POST /api/usage/report`（X-API-Token）——各机器人在功能命中点回传 `{openId, feature}`，供队员活跃/功能统计归因（hub 关键词回答、DDL 确认等网关看不见的内部命中靠此上报）；**娱乐功能须带 `fun: true`**（抽奖另带 `learn: 触发词数组`，把路由层记成正经指令的 `/触发词` 学进娱乐清单）；
@@ -103,7 +103,10 @@ qianli 项目群的所有机器人共用同一个飞书自建应用（`cli_aac7e
 ```bash
 node scripts/stub-test-usage-sync.js    # 网关日活跃单表同步 stub（全量 create/签名跳过/变化 update/未配置跳过）
 node scripts/stub-test-usage-serious.js # 正经活跃口径 stub（娱乐剔除/学习清单/静态清单/旧数据兼容/双口径并存）
-node scripts/stub-test-usage-mentions.js # 群聊被@统计 stub（普通成员计数/@机器人与@所有人剔除/私聊不计/对象形态 id/自然日滑窗/prune 同窗）
+node scripts/stub-test-usage-mentions.js # 群聊被@统计 stub（普通成员计数/@机器人与@所有人剔除/私聊不计/对象形态 id/自然日滑窗/prune 同窗；
+                                        # 注意：push 部署闸门目前只串联跑前两支，mentions 桩需手动跑）
+node smoke-test.js                      # 本地冒烟（起 mock 消费者+无凭证网关，验证路由/模式/legacy 转换/去重；
+                                        # 仅本机跑——硬编码 3010 端口，勿入 push 闸门以免与部署目标在线网关撞端口）
 node smoke-test.js                      # 本地冒烟（起 mock 消费者+无凭证网关，验证路由/模式/legacy 转换/去重；
                                         # 仅本机跑——硬编码 3010 端口，勿入 push 闸门以免与部署目标在线网关撞端口）
 ```

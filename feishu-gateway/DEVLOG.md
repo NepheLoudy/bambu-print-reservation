@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次 git 提交 + 一次部署）。本项目无独立远端，push.js 只暂存 `feishu-gateway/` 路径提交进顶层 monorepo——版本即顶层仓库中触碰本路径的提交。v1~v8 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v31**（2026-09-24，`97bd02b`）。上一版 v30（顶层归档随批，仅工具链未部署）。
+当前最新：**v32**（2026-09-25，随本提交落地）。上一版 v31（2026-09-24，`97bd02b`）。更早：v30（顶层归档随批，仅工具链未部署）。
 
 ## 阶段五 · 开发历史建档（2026-09-04）
 
@@ -227,3 +227,13 @@
 - **存储与聚合**：stats 新增 `mentions` 按天桶（{ 'YYYY-MM-DD': { openId: count } }），随 usage-stats.json 同文件落盘（60s 刷盘 + SIGINT）、prune 同窗清理（KEEP_DAYS=30）；旧 stats 文件无该键自动补 {}。`aggregateMentions(daysN=7)` 输出 [{id, name, count}] 降序；**窗口按自然日过滤**（起点=today-N+1）而非沿用 usage.aggregate 的桶数滑窗——负载评分输入不能在稀疏数据下把老计数长期带在身上（stub 测试抓出该语义差异后定的口径）。窗口 clamp 1..30，显式传 0 收敛到 1（`0||7` 默认值陷阱已修）。
 - **API**：`GET /api/usage/mentions?days=7`（只读不鉴权，照 /api/usage 惯例）；registry.js listening 登记。
 - 测试：`scripts/stub-test-usage-mentions.js`（计数形态/排除项/对象 id/姓名缓存/滑窗/clamp/prune），usage-serious/usage-sync 两套回归全过。README 使用统计节+测试节同步。
+
+## v32 · 2026-09-25 · 随本提交落地 · docs
+
+**全量审查文档批（零行为改动，纯注释+文档对齐）**
+
+- 提交说明：docs: README 鉴权清单/SIGTERM/桩闸门口径修正 + 管理端点注释三端点对齐（全量审查批）
+- README：环境变量表 GATEWAY_API_TOKEN 补 /api/usage/report（三端点 fail-closed，原「两端点」与 src/auth.js 实际不符）；usage 落盘补 SIGTERM（v21）；测试节标注 mentions 桩不在 push 部署闸门（闸门只串联前两支）；数据目录注 Windows 实际解析位置。
+- src/auth.js:4 与 .env.example 注释同步「三端点」口径（纯注释，无行为变化）。
+- 网关拓扑文档（顶层路径）： bambu-print-server→bambu-print-reservation 命名勘误、补 3010 入站端口与 /api/health 探测。
+- 测试：node --check 过；本批无逻辑改动，桩不重跑（闸门前两支随下次 push 自然回归）。
