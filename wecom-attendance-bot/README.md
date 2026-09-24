@@ -16,7 +16,7 @@
 
 ## 架构位置（与飞书项目群的关系）
 
-- **数据源在企微、播报在飞书**：拉数走企微打卡 API（自建应用+授权+可信IP）；
+- **数据源在企微、播报在飞书**：生产主链路走**人肉周导 xlsx 导入**（`ATTENDANCE_DATA_SOURCE=import`，2026-09-16 起；企微打卡 API 链路保留可切回，受可信 IP 门槛）；
   播报走群自定义机器人 webhook（飞书/企微二选一或双发）——webhook 是群凭据直发，
   **不消费任何消息事件、不经 feishu-gateway 路由、不受对话铁律约束**（duty-bot 看板卡同先例）；
 - 部署链路与飞书五仓共用：`npm run push` 一条命令（git 进顶层 monorepo + SFTP 直传
@@ -29,11 +29,16 @@
 ```
 考勤机 ──(已打通)──> 企业微信打卡记录（云端）
                           │
-       每周一 09:30（Asia/Shanghai，可配 cron）
+   【import 模式 = 当前生产口径】
+   企微管理后台人肉导出「打卡记录明细」xlsx
+       → POST /api/attendance/import（X-API-Token）→ 解析入库+名单自动合并
+                          │
+   【api 模式 = 保留可切回（ATTENDANCE_DATA_SOURCE=api）】
        1. gettoken（缓存，失效自动重取）
        2. checkin/getcheckindata 拉上一完整周（周一00:00 ~ 周一00:00）
-       3. 按人聚合（打卡天数/异常；异常判定直接用企微返回的 exception_type）
-       4. 按配置通道播报：
+                          │
+       每周一 09:30（Asia/Shanghai，可配 cron）
+       按人聚合（打卡天数/异常）→ 按配置通道播报：
           飞书：webhook 卡片（签名可选）+ CSV 经现有应用 im API（可选）
           企微：webhook/upload_media 传 CSV → webhook/send 发 markdown_v2 周报卡
                           │
@@ -150,5 +155,6 @@ npm run push "feat: 说明"   # 测试闸门 → git 进顶层仓 → SFTP 传�
 
 - 「缺卡/未打卡」判定需要打卡规则（`checkin/getcheckinoption`）对照班次，v1 未做——
   当前只播实际打卡记录与企微判好的记录级异常（时间/地点/WiFi/设备异常）；
-- 拉数依赖可信 IP，家宽出口 IP 变动需人工更新管理后台配置（60020 告警会提示）；
-- 名单为显式配置（企微通讯录 API 需要额外授权范围，v1 不引入）。
+- 拉数依赖可信 IP（**仅 api 模式**；当前生产 import 模式不涉及），家宽出口 IP 变动需人工更新管理后台配置（60020 告警会提示）；
+- 名单：import 模式下随导入自动合并落盘（主流径）；api 模式才依赖显式配置
+  （企微通讯录 API 需要额外授权范围，v1 不引入）。

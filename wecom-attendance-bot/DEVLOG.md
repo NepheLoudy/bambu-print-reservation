@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次 git 提交 + 一次部署）。本项目无独立远端（repo:top 模式），push.js 只暂存 `wecom-attendance-bot/` 路径提交进顶层 monorepo——版本即顶层仓库中触碰本路径的提交。此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v8**（2026-09-20，随本提交落地）。
+当前最新：**v9**（2026-09-25，随本提交落地）。上一版 v8（2026-09-20）。
 
 ### v1 · 2026-09-15 · 随本提交落地 · feat
 **项目诞生：企业微信考勤周报机器人——每周打卡数据聚合播报（markdown_v2 周报卡 + CSV 明细附件）**
@@ -80,3 +80,12 @@
 - `src/feishu.js` 的 `getTenantToken`/`feishuApi` fetch 此前无 AbortSignal——挂起会占住 guardedRun 锁拖死整轮任务（`wecom.js` 同批已补、此处漏）。补 15s 超时。当前 FEISHU_CSV_CHAT_ID 为空该路径未激活，属潜伏问题预防性修复。
 - 发送失败告警文案「每小时自动重试，成功后补发本周报」与首启保护矛盾：首次成功前无水位、watchdog 不会自动重试（`catchupNeeded` 首启直接返回）。企微/飞书两处告警文案补「首次成功前无水位不自动补发，可 POST /api/attendance/test-broadcast 手动补」，避免首播失败时误以为会自动恢复。
 - 测试：七套桩全过（npm test 链式全绿）。
+
+## v9 · 2026-09-25 · 随本提交落地 · fix+docs
+
+**数据源默认值翻转（env 缺失落 import 生产档）+ import 主口径文档批**
+
+- 提交说明：fix: ATTENDANCE_DATA_SOURCE 默认值 api→import（与生产口径对齐，防 env 丢键静默切到必失败链路）+ README import 主口径标注
+- **默认值翻转**：config.js 的 dataSource 兜底值 `api`→`import`——生产自 v5 起主口径就是 import（人肉周导），api 模式受企微可信 IP 门槛在当前部署形态必失败；此前 env 丢键会静默切到 api 周周告警，现在缺键落在能工作的生产档。
+- **文档批**：README 架构位置与数据链路图改 import 主链路（api 模式标注保留可切回）、已知限制区分两模式名单口径。
+- **测试**：npm run test 七套全过；桩不断言默认值，行为人工核对（import 档解析链路不变）。
