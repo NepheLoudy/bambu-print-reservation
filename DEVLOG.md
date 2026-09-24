@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v101**（2026-09-24，随本提交落地）。上一版 v100（团队负载看板三仓联动）。
+当前最新：**v101**（2026-09-24，`97bd02b`）。上一版 v100（团队负载看板三仓联动，`11179b8`）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -811,7 +811,7 @@
 - registry.js 三处登记（hub/ticket windows + dashboard commands 与 role）；各仓 README/DEVLOG 同批；测试 ticket 4 套 + pm 7 套桩全过（pm 闸门收录 workload）。《机器人总成使用指南.html》不动——运维台为维护者工具，成员无感知。
 - 部署顺序：ticket-bot → pm-robot（消费方在后，照 ticket-pm 联动契约）→ dashboard 本地重启。
 
-## v101 · 2026-09-24 · 随本提交落地 · feat
+## v101 · 2026-09-24 · `97bd02b` · feat
 
 **负载算法升级批（用户拍板三项）：宣运×0.5 / 重装·步兵·哨兵×1.2 / 被@每 0.01 分——四仓联动（gateway v31 + ticket v82 补丁 + pm v110 + dashboard）**
 
