@@ -167,7 +167,7 @@
     <div class="board-card"><h2>⚠️ 近 24h 掉线事件 <span class="label">主机与本地皆无进程视为掉线</span></h2><div id="evtBoard"><div class="empty">加载中…</div></div></div>
   </div>
   <div class="board-card">
-    <h2>⚖️ 团队负载 <span class="label">工单+项目双源评分（DDL时效×状态×重要性×角色） · 点名字展开明细 · 5 分钟刷新</span></h2>
+    <h2>⚖️ 团队负载 <span class="label">工单+项目双源评分 + 被@接量（宣运×0.5·重装/步兵/哨兵×1.2·每被@一次+0.01） · 点名字展开明细 · 5 分钟刷新</span></h2>
     <div id="teamLoadBoard"><div class="empty">加载中…</div></div>
   </div>
 </section>
@@ -941,7 +941,9 @@ function renderTeamLoad() {
     ${chip('团队均分', s.avgScore ?? 0)}
     ${chip('最高分', `${s.topScore ?? 0}（${esc(s.topPersonName || '—')}）`, (s.topScore || 0) >= 8 ? 'warn' : '')}
     ${chip('待接单', s.unclaimedTotal ?? 0, s.unclaimedTotal ? 'warn' : '')}
+    ${chip('近7天被@', s.mentionTotal ?? 0)}
     ${LOAD.ticketsSource === 'unavailable' ? chip('工单侧', '离线·仅项目', 'warn') : ''}
+    ${LOAD.mentionsSource === 'unavailable' ? chip('被@侧', '离线', 'warn') : ''}
   </div>`;
 
   const persons = LOAD.persons || [];
@@ -974,6 +976,7 @@ function renderTeamLoad() {
       x.score
     )).join('');
     return `<div class="load-detail">
+      ${p.mentionCount ? actRow('📣 被@（近 7 天）', `${p.mentionCount} 次 · +${p.mentionScore} 分`) : ''}
       ${proj ? `<div class="act-head">项目（${p.projects.length}）</div>${proj}` : ''}
       ${tkt ? `<div class="act-head">工单（${p.tickets.length}）</div>${tkt}` : ''}
       ${!proj && !tkt ? '<div class="empty">无明细</div>' : ''}
@@ -982,7 +985,7 @@ function renderTeamLoad() {
   const rows = top.map((p) => `<div class="gbar clickable" onclick="toggleLoadDetail('${esc(p.openId)}')">
     <span class="gname">${loadLevel(p.score)} ${esc(p.name)}</span>
     <div class="track"><div class="fill${p.score >= 8 ? ' hot' : ''}" style="width:${Math.round((p.score / maxS) * 100)}%"></div></div>
-    <span class="cnt">${p.score} 分 · ${p.projectCount}项目·${p.ticketCount}工单</span>
+    <span class="cnt">${p.score} 分 · ${p.projectCount}项目·${p.ticketCount}工单${p.mentionCount ? `·@${p.mentionCount}` : ''}</span>
   </div>${detailOf(p)}`).join('');
 
   // 组别切面 + 待接单榜

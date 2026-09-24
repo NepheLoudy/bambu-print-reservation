@@ -23,6 +23,7 @@ module.exports = {
         'approval_instance / approval_task → bambu（打印审批联动）/ ticket-bot（接单→审批自动通过）',
         'drive.file.bitable_record_changed_v1 → 按 CONSUMERS 广播给登记的消费者',
         '消息命中路由后顺带记使用统计（不改路由）：GET /api/usage?days=N',
+        '群聊被@统计（2026-09-24 团队负载算法数据源）：所有群消息的 mentions 按人按天累计（@机器人/@所有人/私聊不计），GET /api/usage/mentions?days=7 近 N 天自然日滑窗按人求和',
         '各机器人命中点回传功能使用（X-API-Token）：POST /api/usage/report {openId, feature}',
       ],
       commands: ['（无业务指令，纯路由层）'],
@@ -58,7 +59,7 @@ module.exports = {
       ],
       windows: [
         { m: 'GET', p: '/api/hub/policy', d: '定制项全景（审批群/值日策略源/回答表范围/播报群）' },
-        { m: 'GET', p: '/api/hub/workload', d: '团队负载全景（工单+项目双源评分聚合；运维台「团队负载」看板数据源；ticket-bot 不可用降级仅项目侧）' },
+        { m: 'GET', p: '/api/hub/workload', d: '团队负载全景（工单+项目+被@三源评分聚合；运维台「团队负载」看板数据源；组别系数：宣运×0.5、重装/步兵/哨兵×1.2，每被@一次+0.01；ticket-bot/网关不可用各自降级标注）' },
         { m: 'GET', p: '/api/autoreplies/rules?table=group', d: '关键词回答表（未@群消息，可编辑）', kind: 'rules', table: 'group' },
         { m: 'GET', p: '/api/autoreplies/rules?table=mention', d: '@触发回答表（可编辑）', kind: 'rules', table: 'mention' },
         { m: 'POST', p: '/api/autoreplies/rules', d: '新增/更新关键词规则', kind: 'rule-edit' },

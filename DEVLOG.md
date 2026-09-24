@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v100**（2026-09-24，随本提交落地）。上一版 v99。
+当前最新：**v101**（2026-09-24，随本提交落地）。上一版 v100（团队负载看板三仓联动）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -810,3 +810,13 @@
 - **评分算法**（口径在 pm-robot workloadService，权重随 API weights 透出）：状态折减 × DDL 时效（消耗比分档、逾期递增封顶 2.7）× 重要性（项目 priority/工单分桶代理）× 角色（owner 1.3），多人单按负责人摊薄，unclaimed 归组不计人。
 - registry.js 三处登记（hub/ticket windows + dashboard commands 与 role）；各仓 README/DEVLOG 同批；测试 ticket 4 套 + pm 7 套桩全过（pm 闸门收录 workload）。《机器人总成使用指南.html》不动——运维台为维护者工具，成员无感知。
 - 部署顺序：ticket-bot → pm-robot（消费方在后，照 ticket-pm 联动契约）→ dashboard 本地重启。
+
+## v101 · 2026-09-24 · 随本提交落地 · feat
+
+**负载算法升级批（用户拍板三项）：宣运×0.5 / 重装·步兵·哨兵×1.2 / 被@每 0.01 分——四仓联动（gateway v31 + ticket v82 补丁 + pm v110 + dashboard）**
+
+- **组别系数**（pm workloadService GROUP_COEFF）：按任务归属组别乘——项目 category、工单单级面向组别（ticket-bot workload-by-person 同批补 groups 出参，不动 unclosed-by-group 契约）；宣经/宣运/宣运组 ×0.5，重装/步兵/哨兵 ×1.2（兵种分组只在项目 category，工单面向组别是职能组枚举）。
+- **被@接量（新数据源）**：网关 routeMessage 入口对全群消息 mentions 按人按天累计（@机器人/@所有人/私聊不计，任何路由判断之前、不命中规则也计），`GET /api/usage/mentions?days=7` **自然日滑窗**聚合（不沿用 usage 桶数滑窗——负载输入不能带稀疏老计数）；pm 侧第三源（5s 超时降级 `mentionsSource` 标注），每被@一次 +0.01 分，零任务纯被@的协调型角色也入榜。
+- dashboard 负载卡：KPI 加「近7天被@」、行内 `@N` 标注、明细加被@行、被@侧离线黄标；registry 三处同步（gateway listening/hub windows 描述）。
+- 测试：gateway 三套（新增 mentions stub）、ticket 4 套 19 断言（补 groups 断言）、pm 七套（workload 扩到 41 断言）全过；pm push 闸门收录。
+- 部署顺序：gateway → ticket-bot → pm-robot → dashboard 本地重启。被@计数自部署起累积，7 天窗口渐进趋真。
