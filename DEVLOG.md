@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v102**（2026-09-24，随本提交落地）。上一版 v101（负载算法升级批，`97bd02b`）。上一版 v100（团队负载看板三仓联动，`11179b8`）。
+当前最新：**v103**（2026-09-24，随本提交落地）。上一版 v102（值日公平性批，`7aae41e`）。上一版 v101（负载算法升级批，`97bd02b`）。上一版 v100（团队负载看板三仓联动，`11179b8`）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -821,7 +821,7 @@
 - 测试：gateway 三套（新增 mentions stub）、ticket 4 套 19 断言（补 groups 断言）、pm 七套（workload 扩到 41 断言）全过；pm push 闸门收录。
 - 部署顺序：gateway → ticket-bot → pm-robot → dashboard 本地重启。被@计数自部署起累积，7 天窗口渐进趋真。
 
-## v102 · 2026-09-24 · 随本提交落地 · feat
+## v102 · 2026-09-24 · `7aae41e` · feat
 
 **值日公平性修复批：duty v36 + pm v111 两仓联动——加罚只计未做完 / 补位按近期密度 / 请假两步确认 / D-7 值日预告**
 
@@ -831,3 +831,11 @@
 - 测试：duty 7 套（flow 重构两步请假+新增加罚/补位密度/D-7 断言、policy 清单 32→36）+ pm duty-branch 全过。
 - 文档：duty README、registry（duty commands/定时描述）、用户侧《机器人总成使用指南.html》（播报节奏/请假两步/时刻总表）与维护者 MD 同批。
 - 部署顺序：duty-bot → pm-robot（词形消费方在后，照 ticket-pm 联动契约）。
+
+## v103 · 2026-09-24 · 随本提交落地 · feat
+
+**approval-bot v44 发票图像 OCR 转录（飞书免费 OCR）+ registry 登记 + gitlink 快照**
+
+- **approval-bot v44**（`e3bc757`，已部署小电脑并验证）：发票图像 OCR 转录服务端能力——引擎选飞书开放平台「识别图片中的文字」（**免费**，20 QPS，图片 <5MB，识别在飞书侧完成、数据不经第三方，图片内存直传不落盘）；「某些区域转录」用可配置字段规则实现（anchor 锚点 same/next/same_or_next + occurrence / regex），内置发票默认规则集（号码/日期/买卖方/价税合计），`GET/POST /api/ocr/fields` 定制窗口热改（规则存 `.ocr-fields.local.json`，push.js 打包排除+gitignore 防本地种子覆盖部署目标）；`POST /api/ocr/transcribe`（X-API-Token）+ policy 增 ocr 段；桩测试 stub-test-ocr 并入 npm test 与 push 闸门（抓出并修复 take=same 误跨段回落 bug）。权限待开通：`im:resource` + `optical_char_recognition`（高级权限）；消息侧入口待需求方定接口形态后另批接入。
+- dashboard/registry.js：approval-bot 条目同步（role/listening/windows ×2/permissions/notes）。
+- 本批纯 approval-bot 单仓 + 顶层登记，无跨仓行为联动；用户侧《使用指南》待消息入口定了随批补。
