@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v107**（2026-09-25，随本提交落地；部署待实验室网段恢复后补）。上一版 v106（`2b070a4`）。上一版 v105（approval v46 复查批归档，`2b070a4`）。上一版 v104（发票采集全链路批，`cef9b2f`）。上一版 v103（值日体系全面检修，`19695bd`）。上一版 v102（值日公平性批，`7aae41e`）。上一版 v101（负载算法升级批，`97bd02b`）。上一版 v100（团队负载看板三仓联动，`11179b8`）。
+当前最新：**v108**（2026-09-25，随本提交落地；部署待实验室网段恢复后补）。上一版 v107（报销交付包跨仓批）。上一版 v106（`2b070a4`）。上一版 v105（approval v46 复查批归档，`2b070a4`）。上一版 v104（发票采集全链路批，`cef9b2f`）。上一版 v103（值日体系全面检修，`19695bd`）。上一版 v102（值日公平性批，`7aae41e`）。上一版 v101（负载算法升级批，`97bd02b`）。上一版 v100（团队负载看板三仓联动，`11179b8`）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -890,3 +890,10 @@
 - 财务交付包落地（照曼波给的实样文件夹《20260920-对抗赛-飞镖-第二十四笔-237.04》）：approval-bot v49 在锁定批次后自动生成**物料清单（校格式，严格复刻财务模板排版）**与**投递底单（学校投递单字段全预填，含大写金额/转卡收款人）**两份 xlsx，摘要/笔序自动拼装，paid 回执附归档文件夹名建议；审批群交付卡 + 裸词「接取」领取（hub v115 转发透传 senderName）。
 - 生产 base 迁移已完成（create-collect-tables 补 10 列，本地直连飞书云执行）；`.env` 补 BATCH_*/CQ_* 实值（自实样投递单，敏感不进 git）。
 - 部署状态：两仓代码随各自提交入库，**部署待笔记本回实验室网段后各自 `npm run push` 补上**。
+
+## v108 · 2026-09-25 · 随本提交落地 · feat（联动摘要）
+
+**approval-bot v50 报销台账电子表格同步归档（registry 登记 + approval gitlink）**
+
+- 《2027年千里团队报销台账》（飞书 Sheets）由 approval-bot v50 在批次生命周期点自动维护：submit 追加行（摘要/金额/收款人/经办人自动填，投递单号可带参数）、paid/reject 按批次摘要精确回填状态；幂等与 not_found 保护不误改财务手填行；`/approval-batch ledger` 手动补同步。
+- 本仓改动：registry approval 条目 notes + approval-bot gitlink。部署状态同 v107：待实验室网段恢复后 approval-bot `npm run push`。
