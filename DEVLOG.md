@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v108**（2026-09-25，随本提交落地；部署待实验室网段恢复后补）。上一版 v107（报销交付包跨仓批）。上一版 v106（`2b070a4`）。上一版 v105（approval v46 复查批归档，`2b070a4`）。上一版 v104（发票采集全链路批，`cef9b2f`）。上一版 v103（值日体系全面检修，`19695bd`）。上一版 v102（值日公平性批，`7aae41e`）。上一版 v101（负载算法升级批，`97bd02b`）。上一版 v100（团队负载看板三仓联动，`11179b8`）。
+当前最新：**v109**（2026-09-25，随本提交落地；部署待实验室网段恢复后补）。上一版 v108（台账同步归档）。上一版 v107（报销交付包跨仓批）。上一版 v106（`2b070a4`）。上一版 v105（approval v46 复查批归档，`2b070a4`）。上一版 v104（发票采集全链路批，`cef9b2f`）。上一版 v103（值日体系全面检修，`19695bd`）。上一版 v102（值日公平性批，`7aae41e`）。上一版 v101（负载算法升级批，`97bd02b`）。上一版 v100（团队负载看板三仓联动，`11179b8`）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -897,3 +897,12 @@
 
 - 《2027年千里团队报销台账》（飞书 Sheets）由 approval-bot v50 在批次生命周期点自动维护：submit 追加行（摘要/金额/收款人/经办人自动填，投递单号可带参数）、paid/reject 按批次摘要精确回填状态；幂等与 not_found 保护不误改财务手填行；`/approval-batch ledger` 手动补同步。
 - 本仓改动：registry approval 条目 notes + approval-bot gitlink。部署状态同 v107：待实验室网段恢复后 approval-bot `npm run push`。
+
+## v109 · 2026-09-25 · 随本提交落地 · fix（联动摘要）
+
+**财务机器人全量安全审查修复批归档：approval-bot v51 + hub v116 + 拓扑探测清单同步**
+
+- 曼波要求的「涉及钱的全量对抗性审查」完成（审查报告+管理混乱清单见当日会话），P0/P1 已修复：approval-bot 仅回环监听（HIGH：堵死 LAN 未鉴权调资金指令的整条攻击链）、资金指令操作人 open_id 反查通讯录实名并落批次表留痕（MEDIUM：防接取/经办人冒名）、台账读改写互斥锁（MEDIUM：并发追加丢行竞态）；hub /approval-* 全量透传身份。
+- 本仓改动：registry approval notes、NET_TARGETS 摘除 3002（回环后 LAN 探测恒 ✗ 属预期）、approval-bot gitlink。
+- 遗留排期（管理清单，非代码漏洞）：共享 API_TOKEN 按仓拆分、群 webhook 签名校验、台账/批次每日对账（周报带 drift 段）、审批多维表格成员编辑权限盘点、`archive/project-configs` 旧密钥轮换。
+- 部署状态：approval-bot/hub 均待实验室网段恢复后各自 `npm run push`。

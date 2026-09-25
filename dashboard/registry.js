@@ -131,7 +131,7 @@ module.exports = {
       quickActions: [
         { id: 'install', label: 'npm install', cmd: 'npm install', cwd: '' },
       ],
-      notes: 'v50 报销台账电子表格同步（2026-09-25，LEDGER_SPREADSHEET_TOKEN=《2027年千里团队报销台账》）：submit 追加行（摘要/金额/收款人/经办人自动填，投递单号可带参数）、paid/reject 按批次摘要精确回填状态，幂等/not_found 不误改人工行，ledger 子指令手动补；lock 新增收款方=/收款账号=（批次表新列，默认回退 CQ_* 报销人）；v49 交付包（2026-09-25，照财务《物料清单》模板+学校投递单实样）：lock 生成 物料清单（校格式，项目列=开票内容，缺失标黄）+投递底单（字段全预填含大写金额/转卡收款人，配置 BATCH_*/CQ_* 存 .env），摘要/笔序自动拼装落批次表；paid 回执附归档文件夹名建议；「接取」裸词领取登记接取人；提醒回落 open_id 已改通用变量名（REMINDER_FALLBACK_OPEN_ID_1/2）；v45 发票采集全链路：队员私聊/催办回票→三通道识别（PDF文本层/二维码/OCR）→采集台账（真源，审批base下「发票采集」「报销批次」两表）→/approval-batch 三件套（拟批/锁定回写报销单栏/打印PDF/BOM；v46 补 regen 附件自愈）；v46 全量复查批：/api/invoice/backfill 改 APPROVAL_CODE 驱动（.env 未配该键时端点按设计返 400 指引）、hub 转发超时对齐 60s、查重加锁；.ocr-fields.local.json 与 OCR_FIELDS_FILE 同 v44 口径',
+      notes: 'v51 全量安全审查修复（2026-09-25）：HTTP 仅回环监听 127.0.0.1（拓扑看板 3002 恒 ✗ 属预期，经 SSH 代理访问）；资金指令操作人 open_id 反查通讯录实名 + 批次表「最后操作人/时间」留痕；台账读改写互斥锁；v50 报销台账电子表格同步（2026-09-25，LEDGER_SPREADSHEET_TOKEN=《2027年千里团队报销台账》）：submit 追加行（摘要/金额/收款人/经办人自动填，投递单号可带参数）、paid/reject 按批次摘要精确回填状态，幂等/not_found 不误改人工行，ledger 子指令手动补；lock 新增收款方=/收款账号=（批次表新列，默认回退 CQ_* 报销人）；v49 交付包（2026-09-25，照财务《物料清单》模板+学校投递单实样）：lock 生成 物料清单（校格式，项目列=开票内容，缺失标黄）+投递底单（字段全预填含大写金额/转卡收款人，配置 BATCH_*/CQ_* 存 .env），摘要/笔序自动拼装落批次表；paid 回执附归档文件夹名建议；「接取」裸词领取登记接取人；提醒回落 open_id 已改通用变量名（REMINDER_FALLBACK_OPEN_ID_1/2）；v45 发票采集全链路：队员私聊/催办回票→三通道识别（PDF文本层/二维码/OCR）→采集台账（真源，审批base下「发票采集」「报销批次」两表）→/approval-batch 三件套（拟批/锁定回写报销单栏/打印PDF/BOM；v46 补 regen 附件自愈）；v46 全量复查批：/api/invoice/backfill 改 APPROVAL_CODE 驱动（.env 未配该键时端点按设计返 400 指引）、hub 转发超时对齐 60s、查重加锁；.ocr-fields.local.json 与 OCR_FIELDS_FILE 同 v44 口径',
     },
     {
       id: 'ticket',
