@@ -83,7 +83,7 @@ module.exports = {
         { id: 'test-duty', label: '值日分支 stub 测试', cmd: 'node scripts/stub-test-duty-branch.js', cwd: 'server' }, // 脚本在 server/scripts（依赖 server/src 相对路径）
         { id: 'test-ddl-leader', label: '负责人群整合播报 stub 测试', cmd: 'node scripts/stub-test-ddl-leader.js', cwd: 'server' },
       ],
-      notes: '关键词自动回答表 .local.json 私有覆盖（真实回答不上传 git）；抽奖配置 .local.json 同口径守卫；2026-09-14 起 /help 不展示运维指令（/status /test-ddl /keywords /autoreply /history 仍可用）；DDL 播报事件写入动态广场（机器人项目看板）；2026-09-22 起每日 12:05 各群播报后负责人群补发「逾期+临期」整合卡（LEADER_WEBHOOK_URL/LEADER_CHAT_ID + 卡头 @章子赫，全空当日不发，webhook 只出布尔不出原文）；2026-09-25 v112 起 p2p 图片/文件 fire-and-forget 转发票采集（approval-bot /api/invoice/collect，X-API-Token，60s 超时，回执由 approval-bot 私聊发）',
+      notes: 'v113 审批群裸词「接取」转发（2026-09-25）：交付卡领取回路，matchApprovalTake 放行（容忍尾部标点），转发载荷带 senderName/senderId 供 approval-bot 登记接取人；关键词自动回答表 .local.json 私有覆盖（真实回答不上传 git）；抽奖配置 .local.json 同口径守卫；2026-09-14 起 /help 不展示运维指令（/status /test-ddl /keywords /autoreply /history 仍可用）；DDL 播报事件写入动态广场（机器人项目看板）；2026-09-22 起每日 12:05 各群播报后负责人群补发「逾期+临期」整合卡（LEADER_WEBHOOK_URL/LEADER_CHAT_ID + 卡头 @章子赫，全空当日不发，webhook 只出布尔不出原文）；2026-09-25 v112 起 p2p 图片/文件 fire-and-forget 转发票采集（approval-bot /api/invoice/collect，X-API-Token，60s 超时，回执由 approval-bot 私聊发）',
     },
     {
       id: 'bambu',
@@ -119,8 +119,8 @@ module.exports = {
       nasDir: '/c/qianli/opt/approval-bot',
       deploy: 'npm run push',
       role: '财务审批域：审批群 /approval-*、每周财务催办周报（催发票/报销单/转账）、每日待审批提醒、催发票私聊、发票采集与报销批次三件套。',
-      listening: ['不消费消息事件（hub 转发 /api/chat/command）', 'p2p 回复轮询（催发票延期/无法提交识别 + 队员回票图片/PDF 采集）', 'GET /api/approval/policy（定制窗口：流程/审批人白名单/催办参数全景只读）', 'POST /api/ocr/transcribe（发票 OCR 转录）', 'POST /api/invoice/collect（hub 转发 p2p 交票采集）', 'POST /api/invoice/backfill（存量票回溯，管理端点）'],
-      commands: ['/approval-help /approval-list /approval-pending /approval-status /approval-urge /approval-batch'],
+      listening: ['不消费消息事件（hub 转发 /api/chat/command）', 'p2p 回复轮询（催发票延期/无法提交识别 + 队员回票图片/PDF 采集）', 'GET /api/approval/policy（定制窗口：流程/审批人白名单/催办参数全景只读）', 'POST /api/ocr/transcribe（发票 OCR 转录）', 'POST /api/invoice/collect（hub 转发 p2p 交票采集）', 'POST /api/invoice/backfill（存量票回溯，管理端点）', '锁定批次→审批群交付卡（打印件/BOM/物料清单/投递底单 四附件+接取指引，人工触发即时发）', '审批群裸词「接取」（hub 转发带 senderName）→ 登记批次接取人'],
+      commands: ['/approval-help /approval-list /approval-pending /approval-status /approval-urge /approval-batch', '接取 [批次号]（审批群回复领取交付包）'],
       windows: [
         { m: 'GET', p: '/api/approval/policy', d: '审批流程/审批人白名单/催办参数全景' },
         { m: 'GET', p: '/api/ocr/fields', d: '发票 OCR 字段提取规则全景（只读）' },
@@ -131,7 +131,7 @@ module.exports = {
       quickActions: [
         { id: 'install', label: 'npm install', cmd: 'npm install', cwd: '' },
       ],
-      notes: '提醒回落 open_id 已改通用变量名（REMINDER_FALLBACK_OPEN_ID_1/2）；v45 发票采集全链路：队员私聊/催办回票→三通道识别（PDF文本层/二维码/OCR）→采集台账（真源，审批base下「发票采集」「报销批次」两表）→/approval-batch 三件套（拟批/锁定回写报销单栏/打印PDF/BOM；v46 补 regen 附件自愈）；v46 全量复查批：/api/invoice/backfill 改 APPROVAL_CODE 驱动（.env 未配该键时端点按设计返 400 指引）、hub 转发超时对齐 60s、查重加锁；.ocr-fields.local.json 与 OCR_FIELDS_FILE 同 v44 口径',
+      notes: 'v49 交付包（2026-09-25，照财务《物料清单》模板+学校投递单实样）：lock 生成 物料清单（校格式，项目列=开票内容，缺失标黄）+投递底单（字段全预填含大写金额/转卡收款人，配置 BATCH_*/CQ_* 存 .env），摘要/笔序自动拼装落批次表；paid 回执附归档文件夹名建议；「接取」裸词领取登记接取人；提醒回落 open_id 已改通用变量名（REMINDER_FALLBACK_OPEN_ID_1/2）；v45 发票采集全链路：队员私聊/催办回票→三通道识别（PDF文本层/二维码/OCR）→采集台账（真源，审批base下「发票采集」「报销批次」两表）→/approval-batch 三件套（拟批/锁定回写报销单栏/打印PDF/BOM；v46 补 regen 附件自愈）；v46 全量复查批：/api/invoice/backfill 改 APPROVAL_CODE 驱动（.env 未配该键时端点按设计返 400 指引）、hub 转发超时对齐 60s、查重加锁；.ocr-fields.local.json 与 OCR_FIELDS_FILE 同 v44 口径',
     },
     {
       id: 'ticket',
