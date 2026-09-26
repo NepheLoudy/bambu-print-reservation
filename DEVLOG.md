@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v111**（2026-09-26，负载宣运系数再调批归档，随本提交落地；pm-robot 随批部署上线）。上一版 v110（七仓全量审查批归档）。上一版 v109（安全审查修复批）。上一版 v108（台账同步归档）。上一版 v107（报销交付包跨仓批）。上一版 v106（`2b070a4`）。上一版 v105（approval v46 复查批归档，`2b070a4`）。上一版 v104（发票采集全链路批，`cef9b2f`）。上一版 v103（值日体系全面检修，`19695bd`）。上一版 v102（值日公平性批，`7aae41e`）。上一版 v101（负载算法升级批，`97bd02b`）。上一版 v100（团队负载看板三仓联动，`11179b8`）。
+当前最新：**v112**（2026-09-26，五仓部署批归档，随本提交落地）。上一版 v111（负载宣运系数再调批归档）。上一版 v110（七仓全量审查批归档）。上一版 v109（安全审查修复批）。上一版 v108（台账同步归档）。上一版 v107（报销交付包跨仓批）。上一版 v106（`2b070a4`）。上一版 v105（approval v46 复查批归档，`2b070a4`）。上一版 v104（发票采集全链路批，`cef9b2f`）。上一版 v103（值日体系全面检修，`19695bd`）。上一版 v102（值日公平性批，`7aae41e`）。上一版 v101（负载算法升级批，`97bd02b`）。上一版 v100（团队负载看板三仓联动，`11179b8`）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -926,3 +926,13 @@
 - ticket-bot v86（`4bb8baf`）：`unclosedService` 消费侧注释系数示例同步 ×0.25（纯 docs，无行为变化）。
 - 本仓改动：`dashboard/registry.js` 与 `dashboard/public/index.html`「团队负载」看板口径说明同步 ×0.25、两项目归档（pm-robot gitlink 前移至 v119，ticket-bot 文件跟踪同步）。
 - 部署状态：部署目标实测可达，pm-robot 本批 `npm run push` 连同其 v115-v118 待部署批一并上线；ticket-bot v86 纯注释随下次部署；其余五仓（approval/gateway/duty/wecom/bambu）仍待部署（bambu 缺 APPROVAL_CODE）。
+
+## v112 · 2026-09-26 · 随本提交落地 · chore（部署批归档）
+
+**五仓部署批归档（曼波口令 PUSH）——网关/审批/值日/工单/考勤全部上线**
+
+- 部署顺序：gateway → approval → duty → ticket → wecom（先网关后业务机器人）。各仓 DEVLOG 占位哈希随批回填：gateway v32/v33（`50f3029`/`66dc3a3`）、approval v50-v53（`d0331bd`/`3507af0`/`a1fe3ba`/`1379f0c`）、duty v39/v40（`60654f0`/`33ab617`）、ticket v86（`4bb8baf`）、wecom v9/v10（`922ae36`/`66dc3a3`）。
+- **duty-bot v41 计划外修复**：v40 的私有配置守卫只认字符串 `'ENOENT'`，而 ssh2 原生 SFTP 对远端缺文件抛数字码 2（SSH_FX_NO_SUCH_FILE）——`config/policy-override.json` 两端均不存在的正常场景被误判「无法确认现网内容」中止部署，首次部署两次卡死且无提示面。补数字码放行后部署走通（members/whitelist 守卫路径正常备份比对）。
+- 部署体检：七进程 pm2 全 online；网关长连接唯一启动（ws:running，hub/approval/bambu/ticket 四消费者在册，投递 ok 无失败）；approval/ticket/knowledge-tracker「不使用长连接」日志确认；功能抽查 ticket `unclosed-by-group` 200 带真实数据、hub workload 透出宣运 0.25（v111 批实测）。wecom health ok（首启水位空=首启保护，不补发历史周）。
+- 本仓改动：三 gitlink 前移（approval `90cd50d`、duty `f90e56a`、pm-robot `c67d1de`——含 v119 部署时 push.js 抽奖同步尾巴提交）+ ticket-bot DEVLOG 文件同步。
+- **bambu v35 仍卡 APPROVAL_CODE**（待曼波从飞书审批后台取 code），本批未动。
