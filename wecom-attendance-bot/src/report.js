@@ -150,7 +150,12 @@ function aggregate(records, members) {
 function renderMarkdownV2(window, report, opts = {}) {
   const maxDetail = opts.maxDetailLines || 50;
   const maxBytes = opts.maxBytes || 3800; // 预留告警尾巴与安全边距，硬上限 4096
-  const esc = (s) => String(s == null ? '' : s).replace(/\|/g, '\\|');
+  // markdown 表格行防破坏（2026-09-27）：除竖线转义外，把换行折叠成空格、剔除控制字符——
+  // 名单姓名（企微通讯录/导入名单）可能带 \r\n 或控制字符，直接进表格行会破行/渲染异常
+  const esc = (s) => String(s == null ? '' : s)
+    .replace(/\r\n|\r|\n/g, ' ')
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .replace(/\|/g, '\\|');
   const lines = [];
   let used = 0; // 已消耗字节（行内容+换行），成员表与异常明细段共享同一预算
   const push = (l) => { lines.push(l); used += Buffer.byteLength(l, 'utf8') + 1; };

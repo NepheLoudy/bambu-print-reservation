@@ -13,6 +13,10 @@ class PrinterManager {
     this.clients = {};
     this.printerStates = {};
     this.listeners = [];
+    // 状态签名缓存（printerId → 上次写表签名）：60s 轮询此前无条件 upsert，
+    // 状态没变化也整行重写（lastUpdate 带时间戳每行必变），白烧写配额并制造
+    // 表格变更噪音——签名不变则本轮跳过写表
+    this.statusSignatures = new Map();
     this.init();
   }
 
@@ -274,7 +278,19 @@ class PrinterManager {
           lastUpdate: new Date().toISOString(),
         };
 
+        // 状态签名：关键状态字段拼接比较（不含 lastUpdate——它恒变，进了签名
+        // 等于永远不等）；签名未变且行已存在时跳过写表，签名随实际写表刷新
+        const signature = [
+          printer.status,
+          printer.currentJob || '',
+          printer.progress,
+          fields.temperature,
+        ].join('|');
+
         if (existingRecord) {
+          if (this.statusSignatures.get(printer.id) === signature) {
+            continue; // 状态无变化，不重写（保持表内 lastUpdate = 真实变化时刻）
+          }
           await bitableApi.updateRecord(
             config.bitable.printerTableId,
             existingRecord.record_id,
@@ -283,6 +299,7 @@ class PrinterManager {
         } else {
           await bitableApi.createRecord(config.bitable.printerTableId, fields);
         }
+        this.statusSignatures.set(printer.id, signature);
       }
     } catch (err) {
       console.error('[打印机管理] 同步打印机状态失败:', err.message);

@@ -11,3 +11,8 @@ duty-bot-plan.md
 archive/project-configs/*.env
 archive/project-configs/*.env.example
 dashboard-run.log
+
+# 环境变量文件全局忽略（各仓 .env 只经 push.js 单独 SFTP 上传，绝不进 git；.env.example 模板不受影响）
+**/.env
+**/.env.local
+**/.env.*.local

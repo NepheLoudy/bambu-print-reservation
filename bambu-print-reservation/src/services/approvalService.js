@@ -212,6 +212,13 @@ async function handleApprovalTaskEvent(event) {
   }
   if (!instance || String(instance.status || '').toUpperCase() !== 'PENDING') return;
 
+  // 双重校验（与 handleApprovalEvent 中详情比对对称，2026-09-27）：事件帧缺
+  // approval_code 时上面的过滤拦不住，这里以实例详情自带的 approval_code 补比对——
+  // 配置了定义 code 时，非打印审批定义的实例不代批（fail-closed）
+  if (configuredCode && instance.approval_code && instance.approval_code !== configuredCode) {
+    return;
+  }
+
   // 实例任务清单：确认该 task 的审批人是否为自动审批人（任务未处理）
   const task = (instance.task_list || []).find((t) => t.id === taskId || t.task_id === taskId);
   if (!task) return;
@@ -311,6 +318,12 @@ async function recoverInstance(instanceId) {
 
   const status = String(instance.status || '').toUpperCase();
   if (status === 'APPROVED') {
+    // 防重打（2026-09-27）：24h 对账窗口内已完成/重试耗尽（givenUp）的实例不再
+    // 补入队——完成事实已成立（或已转人工），重入队会把同一文件在真机上再打一遍
+    if (dispatcher.hasDispatchHistory(instanceId)) {
+      console.log(`[审批对账] 实例 ${instanceId} 已有分发痕迹（排队/打印中/已完成/已放弃），跳过补入队`);
+      return true;
+    }
     const task = buildTaskFromInstance(instance);
     if (!task) {
       console.log(`[审批对账] 实例 ${instanceId} 已通过但无附件字段，非打印审批，忽略`);

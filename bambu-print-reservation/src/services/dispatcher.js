@@ -122,7 +122,17 @@ class Dispatcher {
       } else if (event === 'failed') {
         if (task) this.failTask(task, printer, '打印机上报失败状态');
       } else if (event === 'idle') {
-        // 打印机回到空闲：触发下一轮匹配
+        // 打印中断电/断联恢复场景（2026-09-27）：PRINTING→IDLE 直接回空闲，
+        // 跳过了 FINISH/FAILED——printing 里的旧任务成幽灵，新任务分发时
+        // printing.set 会静默覆盖、旧任务永久丢追踪（表格停在假「打印中」）。
+        // 放行前先按失败收尾（写回「排队中」+ 重排/重试通道），再触发下一轮匹配
+        const ghost = this.printing.get(printer.id);
+        if (ghost) {
+          console.warn(`[分发] 打印机 ${printer.name} 由打印中直回空闲且无完成事件，按失败收尾幽灵任务: ${ghost.applicationNo || ghost.recordId}`);
+          this.failTask(ghost, printer, '打印机回空闲且无完成事件').catch((err) =>
+            console.error('[分发] 幽灵任务收尾失败:', err.message)
+          );
+        }
         this.trigger('printer-idle');
       }
     });
@@ -254,7 +264,15 @@ class Dispatcher {
   }
 
   dequeue(recordId) {
+    const removed = this.queue.filter((t) => t.recordId === recordId);
     this.queue = this.queue.filter((t) => t.recordId !== recordId);
+    // 审批撤销落在分发 await 链窗口内（2026-09-27）：任务已出队、正在
+    // 「写表→下载→上传→下发」的分钟级链路中，队列里已找不到它——置位
+    // cancelled 标记，dispatchLocked 在写表/上传/下发各步骤前复查中止
+    for (const t of removed) t.cancelled = true;
+    for (const t of this.inFlight) {
+      if (t.recordId === recordId) t.cancelled = true;
+    }
     // 审批终态同步清理 givenUp（2026-09-25）：留着可被 /print-dispatch 复活，
     // 已撤销/驳回的审批会重新驱动真机
     this.givenUp.delete(recordId);
@@ -271,6 +289,15 @@ class Dispatcher {
   /** 记录是否已在本引擎登记过（含排队/打印中/已完成；审批对账用于跳过已知实例） */
   isKnown(recordId) {
     return this.known.has(recordId);
+  }
+
+  /**
+   * 实例是否已有分发痕迹：排队/打印中/已完成（known）或重试耗尽退出（givenUp）。
+   * 审批对账补入队前的防重打闸——24h 对账窗口内已完成/已放弃的实例不再重新入队，
+   * 否则同一文件会被真机再打一遍（known 不含「已放弃但从未入队」的极端态，故并查 givenUp）
+   */
+  hasDispatchHistory(recordId) {
+    return this.known.has(recordId) || this.givenUp.has(recordId);
   }
 
   /** 触发一轮匹配（串行） */
@@ -438,29 +465,50 @@ class Dispatcher {
   async dispatchLocked(task, printer) {
     this.queue = this.queue.filter((t) => t.recordId !== task.recordId);
 
+    // 审批撤销复查（2026-09-27）：cancelled 由 dequeue 置位，写表/上传/下发各
+    // 步骤前复查，命中即中止分发——撤销落在分钟级 await 链窗口内不再被静默丢失
+    const fromApproval = task.fileSource === 'approval';
+    let mirrorWritten = false; // 已把镜像表写成「打印中」（中止时需回写已取消）
+    const checkCancelled = async (stage) => {
+      if (!task.cancelled) return false;
+      console.log(`[分发] 任务 ${task.recordId} 在${stage}前检测到已撤销（审批终态），中止分发`);
+      if (!fromApproval && mirrorWritten) {
+        await bitableApi
+          .updateRecord(config.bitable.reservationTableId, task.recordId, {
+            '申请状态': config.status.CANCELLED,
+          })
+          .catch(() => {});
+      }
+      return true;
+    };
+    if (await checkCancelled('入链')) return;
+
     try {
       console.log(`[分发] 开始分发: ${task.applicationNo || task.recordId} → ${printer.name}`);
 
-      const fromApproval = task.fileSource === 'approval';
       // 先校验附件再写「打印中」：缺附件的任务不该在镜像表里经历 打印中→已通过 的假抖动
       if (!task.fileToken) throw new Error('任务缺少切片文件附件');
 
       // 审批来源不写镜像表（那是审批系统的同步数据，写入会被覆盖且无权限）；
       // 状态追踪由引擎内存完成
+      if (await checkCancelled('写表')) return;
       if (!fromApproval) {
         await bitableApi.updateRecord(config.bitable.reservationTableId, task.recordId, {
           '申请状态': config.status.PRINTING,
           [config.dispatch.printerField]: printer.name,
         });
+        mirrorWritten = true;
       }
 
       // 远端文件名用 recordId，避免中文名/空格在 FTP URL 里出编码问题
       const remoteName = `print_${task.recordId}.3mf`;
+      if (await checkCancelled('上传')) return;
       const buffer = fromApproval
         ? await downloadApprovalAttachment(task.fileToken, task.fileName)
         : await downloadFile(task.fileToken);
       await printerManager.uploadFileToPrinter(printer.id, buffer, remoteName);
 
+      if (await checkCancelled('下发')) return;
       await printerManager.startProjectOnPrinter(
         printer.id,
         remoteName,
@@ -470,6 +518,9 @@ class Dispatcher {
 
       task.startedAt = Date.now();
       this.printing.set(printer.id, task);
+      // 成功分发清零重试计数（2026-09-27）：不清零则 givenUp 人工恢复后再失败
+      // 会带着历史计数直接判耗尽（一次失败就退出队列），运行期失败也提前折寿
+      task.dispatchRetries = 0;
       printerManager.updateState(printer.id, { activeTask: task });
 
       announce(`开始卡 ${task.recordId}`,
@@ -496,6 +547,16 @@ class Dispatcher {
         // 保留到 givenUp（2026-09-13）：审批源任务 recordId=instance_code 不在镜像表，
         // 不保留则 /print-dispatch 永远找不到它——人工恢复通道（B4）
         this.givenUp.set(task.recordId, task);
+        // 镜像表写回「排队中」（照 failTask 口径，2026-09-27）：分发失败前已把表
+        // 写成「打印中」，非审批源不回滚会让镜像表永久停在假「打印中」，
+        // /print-dispatch 恢复链路的状态校验也对不上
+        if (!fromApproval) {
+          await bitableApi
+            .updateRecord(config.bitable.reservationTableId, task.recordId, {
+              '申请状态': config.status.QUEUED,
+            })
+            .catch(() => {});
+        }
         announce(
           `分发放弃卡 ${task.recordId}`,
           require('../feishu/bot').buildJobFailedCard(
@@ -683,12 +744,22 @@ class Dispatcher {
       fromGivenUp = true;
     }
     if (!task) {
-      // 不在队列里（可能还在审批中）→ 拉记录直接分发
+      // 不在队列里（可能还在审批中）→ 拉记录直接分发。
+      // 状态白名单（2026-09-27 审批绕过修复，P0）：仅「已通过/排队中」可人工直发——
+      // 待审批/已驳回/已取消/已完成等状态一律拒绝，表格编辑不能绕过审批流驱动真机
       const records = await bitableApi.getAllRecords(config.bitable.reservationTableId);
       const record = records.find(
         (r) => r.record_id === recordId || r.fields['申请编号'] === recordId
       );
       if (!record) throw new Error(`未找到预约「${recordId}」`);
+      const dispatchableStatuses = [config.status.REVIEW_APPROVED, config.status.QUEUED];
+      const recordStatus = record.fields?.['申请状态'] || '';
+      if (!dispatchableStatuses.includes(recordStatus)) {
+        throw new Error(
+          `预约「${recordId}」当前状态「${recordStatus || '未知'}」不允许直接分发` +
+          `（仅「${dispatchableStatuses.join('」/「')}」可人工直发；待审批单请先完成审批）`
+        );
+      }
       task = reservationService.formatReservation(record);
     }
 

@@ -3,7 +3,10 @@
  *   人工指定与自动匹配的分钟级 TOCTOU——dispatch 是下载/上传/下发的 await 链，
  *   printing 占用登记在链尾；无闸门时两路会对同一台打印机双双下发。
  *   验证：①分发中打印机对自动匹配不可见 ②并发 dispatch 第二路立即拒绝
- *        ③manualDispatch 分发中判定 ④链路完成后闸门释放、排队任务可继续分发。
+ *        ③manualDispatch 分发中判定 ④链路完成后闸门释放、排队任务可继续分发
+ *        ⑤manualDispatch 状态白名单（待审批/已完成拒绝，2026-09-27 审批绕过修复）
+ *        ⑥idle 幽灵收尾（PRINTING→IDLE 无完成事件 → failTask 收尾，2026-09-27）
+ *        ⑦白名单放行（已通过/排队中直发照常）。
  * 用法：node test/dispatcher-manual-race-test.js（全通过退出码 0）
  */
 process.env.PLAZA_BITABLE_TABLE_ID = '';
@@ -16,15 +19,17 @@ const Module = require('module');
 const ROOT = path.join(__dirname, '..');
 
 // ---- 桩：外部依赖全部走桩，下载用可控 deferred 模拟分钟级 await 链 ----
-const calls = { uploads: [], starts: [] };
+const calls = { uploads: [], starts: [], tableWrites: [] };
 let downloadGate = null; // { promise, resolve }
+let reservationRecords = []; // manualDispatch 兜底拉单的表数据（守卫用例用）
+const listeners = {};   // printerManager.on 注册的监听（idle 幽灵用例直接触发）
 const PRINTER = { id: 1, name: 'P1', autoDispatch: true, status: '空闲', ams: [{ type: 'PLA', colorHex: '#FF0000' }] };
 let availablePrinters = [PRINTER];
 
 const stubs = {
   [path.join(ROOT, 'src/feishu/bitable.js')]: {
-    updateRecord: async () => ({}),
-    getAllRecords: async () => [],
+    updateRecord: async (tableId, id, fields) => { calls.tableWrites.push({ id, fields }); return {}; },
+    getAllRecords: async () => reservationRecords,
   },
   [path.join(ROOT, 'src/feishu/client.js')]: {
     downloadFile: async () => Buffer.from('x'),
@@ -49,7 +54,7 @@ const stubs = {
     startProjectOnPrinter: async (id, remoteName) => { calls.starts.push({ id, remoteName }); },
     updateState: () => {},
     stopPrintOnPrinter: async () => ({}),
-    on: () => {},
+    on: (event, cb) => { listeners[event] = cb; },
   },
   [path.join(ROOT, 'src/services/plaza.js')]: { append: () => {} },
 };
@@ -122,6 +127,49 @@ function taskOf(rid, appNo) {
     calls.uploads.some((u) => u.remoteName === 'print_rB.3mf') && !dispatcher.queue.some((t) => t.recordId === 'rB'),
     JSON.stringify({ uploads: calls.uploads, queue: dispatcher.queue.map((t) => t.recordId) }));
   check('闸门最终清空', dispatcher.dispatching.size === 0);
+
+  console.log('\n== 5. manualDispatch 状态白名单：待审批/已完成直发被拒（2026-09-27 审批绕过修复） ==');
+  reservationRecords = [
+    { record_id: 'rPend', fields: { 申请编号: '2026P', 申请状态: '待审批', 切片文件: [{ name: 'p.3mf', file_token: 'tok_p' }] } },
+    { record_id: 'rDone', fields: { 申请编号: '2026D2', 申请状态: '已完成', 切片文件: [{ name: 'd.3mf', file_token: 'tok_d' }] } },
+  ];
+  calls.tableWrites.length = 0;
+  const uploadsBeforeGuard = calls.uploads.length;
+  let pendErr = '';
+  try { await dispatcher.manualDispatch('rPend', 'P1'); } catch (err) { pendErr = err.message; }
+  check('待审批单拒绝直发', pendErr.includes('不允许直接分发') && pendErr.includes('待审批'), pendErr);
+  check('被拒单未上传未写表', calls.uploads.length === uploadsBeforeGuard && calls.tableWrites.length === 0,
+    JSON.stringify({ uploads: calls.uploads.length, uploadsBeforeGuard, writes: calls.tableWrites }));
+  let doneErr = '';
+  try { await dispatcher.manualDispatch('rDone', 'P1'); } catch (err) { doneErr = err.message; }
+  check('已完成单拒绝直发', doneErr.includes('不允许直接分发') && doneErr.includes('已完成'), doneErr);
+
+  console.log('\n== 6. idle 幽灵收尾：PRINTING→IDLE 无完成事件 → printing 按 failTask 收尾（2026-09-27） ==');
+  dispatcher.bindPrinterEvents(); // start() 未跑，手动注册 jobEvent 监听
+  calls.tableWrites.length = 0;
+  const ghost = { recordId: 'rGhost', applicationNo: '2026G', fileToken: 'tok_g', fileSource: 'mirror' };
+  dispatcher.printing.set(1, ghost);
+  listeners.jobEvent({ printer: PRINTER, event: 'idle' });
+  await new Promise((r) => setTimeout(r, 30)); // failTask 异步收尾（写表+重排）
+  check('幽灵任务已移出 printing（不再被新任务静默覆盖）', dispatcher.printing.get(1)?.recordId !== 'rGhost',
+    JSON.stringify([...dispatcher.printing.keys()]));
+  check('镜像表写回「排队中」', calls.tableWrites.some((w) => w.id === 'rGhost' && w.fields['申请状态'] === '排队中'),
+    JSON.stringify(calls.tableWrites));
+  check('幽灵任务带冷却重排进队列（重试通道）',
+    dispatcher.queue.some((t) => t.recordId === 'rGhost' && t.nextMatchAt > Date.now()),
+    JSON.stringify(dispatcher.queue.map((t) => t.recordId)));
+
+  console.log('\n== 7. 状态白名单放行：「已通过」单人工直发照常工作 ==');
+  reservationRecords = [
+    { record_id: 'rOK', fields: { 申请编号: '2026OK', 申请状态: '已通过', 切片文件: [{ name: 'ok.3mf', file_token: 'tok_ok' }] } },
+  ];
+  calls.tableWrites.length = 0;
+  const manualRes = await dispatcher.manualDispatch('rOK', 'P1');
+  check('已通过单直发成功（manualOnly=false）', manualRes.manualOnly === false, JSON.stringify(manualRes));
+  check('直发上传并写入打印中状态',
+    calls.uploads.some((u) => u.remoteName === 'print_rOK.3mf')
+    && calls.tableWrites.some((w) => w.id === 'rOK' && w.fields['申请状态'] === '打印中'),
+    JSON.stringify({ uploads: calls.uploads, writes: calls.tableWrites }));
 
   console.log(`\n结果：${pass} 通过 / ${fail} 失败`);
   process.exit(fail === 0 ? 0 : 1);

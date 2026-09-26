@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次 git 提交 + 一次部署）。本项目无独立远端（repo:top 模式），push.js 只暂存 `wecom-attendance-bot/` 路径提交进顶层 monorepo——版本即顶层仓库中触碰本路径的提交。此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v10**（2026-09-26，`66dc3a3`，全量审查修复批；09-26 下午随部署批上线）。上一版 v9（数据源默认值翻转+import 口径文档，`922ae36`）。上一版 v8（2026-09-20）。
+当前最新：**v11**（2026-09-27，随本提交落地）。上一版 v9（数据源默认值翻转+import 口径文档，`922ae36`）。上一版 v8（2026-09-20）。
 
 ### v1 · 2026-09-15 · 随本提交落地 · feat
 **项目诞生：企业微信考勤周报机器人——每周打卡数据聚合播报（markdown_v2 周报卡 + CSV 明细附件）**
@@ -98,3 +98,11 @@
 - **P1×2**：①markdown_v2 字节记账重构为共享预算，异常明细段纳入 4096 熔断（原只在预算外追加，25 人+100 异常实测 5611 字节超企微上限、该周企微通道确定性失败），超限截断并提示见 CSV；②runWeekly 水位门控——仅目标周键=当前周期键才推进 lastSentWeekKey/投递快照（原 test-broadcast 看历史周真发成功即回拨水位，watchdog 判漏播对全通道重复轰炸）。
 - **P2**：runWeekly saveState 前重读磁盘合并（import 端点并发写入不再被旧快照回滚）；policy 窗口 loadMembers 包 try/catch（members.json 损坏不再 500）；import base64 正则预校验（删不可达 catch）；csvEscape 对 =+-@ 前缀中和公式注入；AGENTS「六套桩」改七套。
 - 测试：七套全绿；stub-test-report 增字节熔断/公式防护 8 组断言、stub-test-store 增水位门控/并发合并 5 组断言。
+
+## v11 · 2026-09-27 · 随本提交落地 · fix
+
+**第二轮全量审查批（push.js 守卫补同步 + 卡片转义）**
+
+- 提交说明：fix: push.js ENOENT 判别/二次判定/损坏中止（同步 duty v40-v42）+ markdown 卡控制符转义
+- push.js planPrivateConfig 补 ENOENT 判别（ssh2 缺文件=数字码 2，其余读错误中止部署——duty v40 同款本仓漏同步）；countEntries 损坏返 null、两阶段损坏中止、apply 覆盖前重读二次判定；markdown 卡 esc 补换行折叠与控制字符剔除（防伪造 xlsx 姓名破表格行）。
+- 测试：七套全绿；report 套增 4 组转义断言。

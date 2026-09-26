@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v112**（2026-09-26，五仓部署批归档，随本提交落地）。上一版 v111（负载宣运系数再调批归档）。上一版 v110（七仓全量审查批归档）。上一版 v109（安全审查修复批）。上一版 v108（台账同步归档）。上一版 v107（报销交付包跨仓批）。上一版 v106（`2b070a4`）。上一版 v105（approval v46 复查批归档，`2b070a4`）。上一版 v104（发票采集全链路批，`cef9b2f`）。上一版 v103（值日体系全面检修，`19695bd`）。上一版 v102（值日公平性批，`7aae41e`）。上一版 v101（负载算法升级批，`97bd02b`）。上一版 v100（团队负载看板三仓联动，`11179b8`）。
+当前最新：**v113**（2026-09-27，第二轮全量对抗审查批归档，随本提交落地）。上一版 v112（五仓部署批归档）。上一版 v111（负载宣运系数再调批归档）。上一版 v110（七仓全量审查批归档）。上一版 v109（安全审查修复批）。上一版 v108（台账同步归档）。上一版 v107（报销交付包跨仓批）。上一版 v106（`2b070a4`）。上一版 v105（approval v46 复查批归档，`2b070a4`）。上一版 v104（发票采集全链路批，`cef9b2f`）。上一版 v103（值日体系全面检修，`19695bd`）。上一版 v102（值日公平性批，`7aae41e`）。上一版 v101（负载算法升级批，`97bd02b`）。上一版 v100（团队负载看板三仓联动，`11179b8`）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -936,3 +936,13 @@
 - 部署体检：七进程 pm2 全 online；网关长连接唯一启动（ws:running，hub/approval/bambu/ticket 四消费者在册，投递 ok 无失败）；approval/ticket/knowledge-tracker「不使用长连接」日志确认；功能抽查 ticket `unclosed-by-group` 200 带真实数据、hub workload 透出宣运 0.25（v111 批实测）。wecom health ok（首启水位空=首启保护，不补发历史周）。
 - 本仓改动：三 gitlink 前移（approval `90cd50d`、duty `f90e56a`、pm-robot `c67d1de`——含 v119 部署时 push.js 抽奖同步尾巴提交）+ ticket-bot DEVLOG 文件同步。
 - **bambu v35 仍卡 APPROVAL_CODE**（待曼波从飞书审批后台取 code），本批未动。
+
+## v113 · 2026-09-27 · 随本提交落地 · fix（联动摘要）
+
+**第二轮全量对抗审查批归档（代码/接口/设计意图/逻辑 + 攻击性假设，曼波点名；拿不准项已同步桌面《qianli-审查存疑与待裁定清单-20260927.md》）**
+
+- 方法：7 个按攻击面切的审查代理（approval 资金路径深审 / hub 播报对话链 / duty+wecom / gateway+dashboard+密钥链 / ticket / bambu / 资金链路跨服务横向），全部带对抗性假设逐条验证（多个假设以可复现实验证实）；主会话甄别后派 5 个修复代理落地，主会话独立复跑全部测试（approval 5/duty 7/wecom 7/hub 9/ticket 5/bambu 4/gateway 3+冒烟，全绿）。
+- 战果：**P0×1**（顶层 git 历史泄露值=当前活跃密钥且轮换从未执行——已出轮换清单置顶桌面文档，待曼波执行）；**P1×15**（bambu manualDispatch 审批绕过驱动真机、approval 票池并发双批/markBatch TOCTOU/reject 卡票/收款方不进底单/regen 金额漂移、hub 播报卡注入、ticket 表编辑代通过审批、duty 绑定劫持/生成双写、wecom push 守卫漏同步、duty test:flow 日期敏感误报卡闸门）；P2 约 30（含 hub/ticket/duty 三仓回环化收口、hub 官方卡注入消毒、ticket 对账代通过痕迹 gating、静默冲刷竞态两仓同修）；新增回归断言 60+ 组。
+- 本仓改动：gateway v34 / wecom v11 / bambu v36 代码与 DEVLOG、dashboard POST 防跨站中间件+前端补头、顶层 .gitignore 全局 .env 规则、七仓 push.js tar/闸门补洞。
+- 各仓版本：approval v54 / gateway v34 / duty v42 / ticket v87 / hub v120 / wecom v11 / bambu v36。
+- 部署状态：待实验室网段恢复后各仓 npm run push；ticket 上线前先跑 ensure-ticket-fields.js；密钥轮换（桌面文档第一节）优先级最高。

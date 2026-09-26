@@ -472,7 +472,8 @@ async function refresh() {
 }
 
 async function act(url, desc, id, logType) {
-  const res = await fetch(url, { method: 'POST' });
+  // 写端点须带防跨站头（server.js 全局 POST 中间件校验，缺失 403）——下同
+  const res = await fetch(url, { method: 'POST', headers: { 'X-Requested-With': 'qianli-dashboard' } });
   const data = await res.json();
   toast(data.ok ? desc + ' ✓' : (data.error || '失败'));
   refresh();
@@ -493,7 +494,7 @@ function promptPush(id) {
 }
 
 async function doAction(id, body) {
-  const res = await fetch(`/api/action/${id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const res = await fetch(`/api/action/${id}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'qianli-dashboard' }, body: JSON.stringify(body) });
   const data = await res.json();
   if (!data.ok) return toast(data.error || '执行失败');
   toast('已开始执行');
@@ -534,7 +535,7 @@ function openNasLog(name) {
 
 async function nasRestart(name) {
   if (!confirm(`确认重启主机上的 ${name}？（pm2 restart + save）`)) return;
-  const res = await fetch(`/api/nas/restart/${name}`, { method: 'POST' });
+  const res = await fetch(`/api/nas/restart/${name}`, { method: 'POST', headers: { 'X-Requested-With': 'qianli-dashboard' } });
   const data = await res.json();
   toast(data.ok ? `${name} 已重启 ✓` : (data.error || '失败'));
   refresh();
@@ -560,7 +561,7 @@ const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').
 
 async function nasApi(port, method, p, body) {
   const res = await fetch('/api/nas/api', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'qianli-dashboard' },
     body: JSON.stringify({ port, method, path: p, body }),
   });
   return res.json();
@@ -904,7 +905,7 @@ function renderNetwork() {
 async function devAction(action, ip, mac, name) {
   const labels = { kick: '踢出（断网）', ban: '封禁（持久断网）', unban: '解封' };
   if (!confirm(`确认对 ${name || ip}（${mac}）执行「${labels[action]}」？`)) return;
-  const res = await fetch(`/api/network/lan/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ip, mac, name }) });
+  const res = await fetch(`/api/network/lan/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'qianli-dashboard' }, body: JSON.stringify({ ip, mac, name }) });
   const data = await res.json().catch(() => ({}));
   // 路由器侧失败时后端带 warning（如解封：名单已移除但设备可能仍被拦截），结果提示追加 ⚠ 文案
   const warn = data.warning ? ` ⚠ ${data.warning}` : '';

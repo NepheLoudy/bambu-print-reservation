@@ -25,10 +25,17 @@ function runTestGate() {
     return true;
   }
   const { spawnSync } = require('child_process');
-  const cmd = 'node scripts/stub-test-usage-sync.js && node scripts/stub-test-usage-serious.js';
-  if (!cmd) { console.log('[测试闸门] 无测试命令，跳过'); return true; }
-  console.log('[测试闸门] 运行:', cmd);
-  const r = spawnSync(cmd, { shell: true, stdio: 'inherit', cwd: __dirname });
+  // 全量桩闸门（2026-09-27 全量化）：自动发现 scripts/stub-test-*.js，排序稳定保证命令可复现；
+  // 新增套件自动入闸，不再逐套手工挂清单（照 ticket-pm/project-management-robot/push.js 先例——
+  // 此前手工清单漏挂 stub-test-usage-mentions.js）
+  const suites = require('fs').readdirSync(path.join(__dirname, 'scripts'))
+    .filter(f => /^stub-test-.+\.js$/.test(f))
+    .sort()
+    .map(f => `node scripts/${f}`)
+    .join(' && ');
+  if (!suites) { console.log('[测试闸门] 未发现 stub-test-*.js，跳过'); return true; }
+  console.log('[测试闸门] 运行:', suites);
+  const r = spawnSync(suites, { shell: true, stdio: 'inherit', cwd: __dirname });
   if (r.status !== 0) {
     console.error('部署前测试未通过（SKIP_TESTS=1 可跳过），中止部署');
     return false;
@@ -107,6 +114,12 @@ const pack = spawnSync('tar', [
   '--exclude=node_modules',
   '--exclude=.git',
   '--exclude=.env',
+  // 运行时数据保护（2026-09-27 补洞）：data-dir 回退产物落 src/ 时不得进部署包覆盖现网
+  '--exclude=src/usage-stats.json',
+  '--exclude=src/usage-sync-state.json',
+  // 本地私有环境覆盖（.env 上传单独走 SFTP）
+  '--exclude=.env.local',
+  '--exclude=.env.*.local',
   '--exclude=logs',
   '--exclude=*.log',
   '--exclude=' + TAR_NAME,

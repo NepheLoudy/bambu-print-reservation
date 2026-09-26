@@ -13,6 +13,8 @@ process.env.PLAZA_BITABLE_TABLE_ID = '';
 process.env.PRINTER_HOSTS = '';
 const STATE_FILE = path.join(os.tmpdir(), `dispatch-state-test-${Date.now()}.json`);
 process.env.DISPATCH_STATE_FILE = STATE_FILE;
+// failTask 播报会过静默闸门：积压文件也指向临时目录，别污染项目根的真实积压
+process.env.QUIET_BACKLOG_FILE = path.join(os.tmpdir(), `quiet-backlog-test-${Date.now()}.json`);
 
 const DISPATCHER_PATH = require.resolve('../src/services/dispatcher');
 const dispatcher = require('../src/services/dispatcher');

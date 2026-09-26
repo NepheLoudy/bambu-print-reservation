@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次 git 提交 + 一次部署）。本项目无独立远端，push.js 只暂存 `feishu-gateway/` 路径提交进顶层 monorepo——版本即顶层仓库中触碰本路径的提交。v1~v8 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v33**（2026-09-26，`66dc3a3`，全量审查批；09-26 下午随部署批上线）。上一版 v32（`50f3029`）。上一版 v31（2026-09-24，`97bd02b`）。更早：v30（顶层归档随批，仅工具链未部署）。
+当前最新：**v34**（2026-09-27，随本提交落地）。上一版 v32（`50f3029`）。上一版 v31（2026-09-24，`97bd02b`）。更早：v30（顶层归档随批，仅工具链未部署）。
 
 ## 阶段五 · 开发历史建档（2026-09-04）
 
@@ -245,3 +245,11 @@
 - 提交说明：fix: 全量审查批——投递计数统一/fanout 入统计/出站超时统一/dataDir 收敛/SIGTERM 落盘/配置卫生
 - deliverTo 传输异常终态只计 1 次 failed/byConsumer（原首败预记+终态计 2，与 HTTP 层口径不一）；fanoutBitable/fanoutApproval 新增 fanoutPost 计入 deliveryStats（不引入重试：消费方幂等已具备，重试语义另批评估）；新增 http.js fetchWithTimeout（8s/15s）替换五处裸 fetch；dataDir 解析抽 data-dir.js 公共（写前 mkdir），.gitignore 补 usage-sync-state.json；bitable-sync 补 SIGINT/SIGTERM 落盘（prependListener 抢在 usage 的 exit(0) 前）；README 重复条目去重；.env 删四个零引用死键（PLAZA_BITABLE_FEATURE_TABLE/PLAZA_BITABLE_MEMBER_TABLE/API_TOKEN/FEISHU_ENCRYPT_KEY），GATEWAY_API_TOKEN 注释对齐三端点（与 FEISHU_VERIFICATION_TOKEN 同值是有意统一，拆分另批）。
 - 测试：三套 usage 桩 + smoke-test 全绿。
+
+## v34 · 2026-09-27 · 随本提交落地 · fix
+
+**第二轮全量审查批（本仓 src/ 无新缺陷；部署闸门与配置卫生）**
+
+- 提交说明：fix: 部署闸门自动发现全量 stub + tar 排除补洞 + usage 裸读取舍注释
+- push.js 闸门改 readdirSync 自动发现 scripts/stub-test-*.js（根治 usage-mentions 漏挂）；tar 补排除 src/usage-stats.json、src/usage-sync-state.json（data-dir 回退产物）与 .env.local/.env.*.local；/api/usage|mentions「LAN 可读全员统计」补已知取舍注释（行为未动，收紧随时可挂 token）。
+- 测试：三套 stub + smoke-test 全绿。

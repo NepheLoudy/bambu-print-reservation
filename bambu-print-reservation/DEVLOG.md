@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次部署）。本项目 push.js 为纯 SFTP 直传、无 git 步骤，**版本锚点取顶层 monorepo 中触碰本路径的归档提交**——两次归档之间的个别部署可能无版本记录。v1~v14 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v35**（2026-09-26，随本提交落地）。上一版 v33（2026-09-24）。更早：v32（PLAZA_ENABLED 停写批）。
+当前最新：**v36**（2026-09-27，随本提交落地）。上一版 v33（2026-09-24）。更早：v32（PLAZA_ENABLED 停写批）。
 
 ## 阶段五 · 审批事件字段对齐与分发健壮化（2026-09-05）
 
@@ -262,3 +262,14 @@
 - **P2**：legacy 消息直连链删除（对话铁律收口，/api/chat/command 主通道保留）；FEISHU_USE_LONG_CONNECTION=true 启动即抛（fail-fast 去空壳 async）；givenUp 任务人工指定/审批取消两处补清理（不再可被 /print-dispatch 复活驱动真机）；自动审批 handledTasks 改成功后登记；parseForm 从附件控件取原始文件名；jobEvent FINISH 死半边与无监听 statusChange 清理；ftpPut 失败路径 destroy 防 socket 泄漏；announce 空回调改报错日志；bot/client/manager/bitable 共 13 个零调用方函数删除。
 - 测试：四套全绿（dispatcher 18/persist 14/manual-race 8/approval 10）。
 - 提醒：.env 缺 APPROVAL_CODE（现网靠「表单含附件」自适应识别，共用应用的任何含附件审批通过都会驱动真机）——需从飞书审批管理后台取 code 配入。
+
+## v36 · 2026-09-27 · 随本提交落地 · fix
+
+**第二轮全量对抗审查修复批（P0 审批绕过 + 打印机状态机补漏）**
+
+- 提交说明：fix: 对抗审查——manualDispatch 状态白名单（堵审批绕过）/idle 幽灵收尾/取消竞态/code 双重校验等
+- **P0**：manualDispatch 兜底拉单无申请状态守卫——待审批/已驳回/已取消/已完成均可被 /print-dispatch 直接分发真机（hub 通配转发 + chat/command 无鉴权放大为「任何队员可绕审批打自交 3mf」）。修：状态白名单（仅已通过/排队中可直接分发，givenUp 恢复语义保留，其余明确报错）。
+- **P1**：断电恢复 PRINTING→IDLE 跳过 FINISH/FAILED，printing 幽灵不被收尾且会被新任务静默覆盖（旧单永久丢追踪、镜像表卡打印中）——idle 分支先 failTask('打印机回空闲且无完成事件') 收尾再放行。
+- **P2**：dispatchRetries 成功后清零（防抖动凑满 3 次进 givenUp）；givenUp 时非审批源镜像表回写排队中；dequeue 落在分发 await 链窗口的取消丢失（task.cancelled 标记+各步前复查）；approvalService 实例详情 approval_code 与配置比对（与事件路径双重校验对称化）；recoverInstance 查分发痕迹防 24h 窗口重打；quietHours 00:00-02:00 重启积压立即冲刷（原最长拖 31h）；syncPrinterStatusToBitable 状态签名去重（60s 全量 upsert 配额白耗）。
+- 测试：四套全绿；manual-race 套新增状态守卫/idle 幽灵收尾用例。
+- 提醒：.env 仍缺 APPROVAL_CODE（任何含附件审批通过即驱动真机的窗口仍在）——桌面存疑清单三.1。

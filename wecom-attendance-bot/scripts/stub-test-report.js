@@ -57,6 +57,19 @@ assert.ok(md.includes('A\\|B'), '竖线已转义');
 assert.ok(md.includes('### ⚠ 异常明细'), '异常明细段');
 assert.ok(md.includes('**时间异常**'), '异常类型加粗');
 
+// 4.5) markdown esc 加固（2026-09-27）：换行折叠 + 控制字符剔除（防伪造姓名破表格行）
+{
+  const evilRep = aggregate(records.slice(0, 1), [
+    { userid: 'u1', name: '坏\n名字' },
+    { userid: 'u9', name: 'X\r\nY|Z\u0007' },
+  ]);
+  const evilMd = renderMarkdownV2(win, evilRep);
+  const evilRow = evilMd.split('\n').find((l) => l.startsWith('| 坏 名字 |'));
+  assert.strictEqual(evilRow, '| 坏 名字 | 1 | 1 | - |', '折叠后行内容与列数正确');
+  assert.ok(evilMd.includes('X Y\\|Z'), '回车换行折叠 + 竖线转义 + 控制字符剔除');
+  assert.ok(!/[\u0000-\u001f\u007f]/.test(evilMd.replace(/\n/g, '')), '表格区不含残留控制字符');
+}
+
 // 5) 明细行数截断
 const mdCapped = renderMarkdownV2(win, rep, { maxDetailLines: 2 });
 assert.ok(mdCapped.includes('其余 1 条见 CSV 附件'), '明细截断提示');

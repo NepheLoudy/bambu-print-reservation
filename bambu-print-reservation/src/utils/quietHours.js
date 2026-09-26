@@ -68,6 +68,14 @@ function nextQuietEnd(now = new Date()) {
   return new Date(target);
 }
 
+/** 最近一个已过去的 end 整点（上海）的绝对时间戳；当前在窗口内时取窗口开始前那个 end */
+function lastQuietEndTs(now = new Date()) {
+  const p = shanghaiParts(now);
+  let target = Date.UTC(p.y, p.m, p.d, settings.end, 0, 0) - TZ_OFFSET_MS;
+  if (target > now.getTime()) target -= 24 * 60 * 60 * 1000;
+  return target;
+}
+
 function quietWindowDesc() {
   const fmt = (h) => `${String(h).padStart(2, '0')}:00`;
   return `${fmt(settings.start)}–${fmt(settings.end)}`;
@@ -173,6 +181,11 @@ function describeItem(item) {
   return `${item.name}（${item.queuedAt}）`;
 }
 
+/** 积压条目身份键：type+name+fireKey+queuedAt（gate 落盘后序列化往返稳定） */
+function itemKey(item) {
+  return `${item.type}|${item.name}|${item.fireKey || ''}|${item.queuedAt}`;
+}
+
 function scheduleFlush(delayMs) {
   if (flushTimer) clearTimeout(flushTimer);
   nextFlushAt = new Date(Date.now() + delayMs).toISOString();
@@ -199,27 +212,53 @@ async function runFlush() {
 
       console.log(`[晚间静默] 开始冲刷积压 ${items.length} 条...`);
       const remaining = [];
+      const settledKeys = new Set(); // 本轮已成功或已放弃（不再保留）
+      const retryKeys = new Set();   // 本轮失败保留重试
       for (const item of items) {
         try {
           await runItem(item);
+          settledKeys.add(itemKey(item));
           console.log(`[晚间静默] 积压补跑完成: ${describeItem(item)}`);
         } catch (err) {
           item.attempts = (item.attempts || 0) + 1;
           if (item.attempts >= MAX_ATTEMPTS) {
+            settledKeys.add(itemKey(item));
             console.error(`[晚间静默] 积压补跑连续 ${item.attempts} 次失败，放弃: ${describeItem(item)} — ${err.message}`);
           } else {
+            retryKeys.add(itemKey(item));
             remaining.push(item);
             console.error(`[晚间静默] 积压补跑失败（第 ${item.attempts} 次，保留重试）: ${describeItem(item)} — ${err.message}`);
           }
         }
       }
-      saveBacklog(remaining);
+
+      // 收尾保存前重读文件（同 ticket-bot 2026-09-27 竞态修复）：冲刷是分钟级
+      // 循环，期间 gatePayload/gateTask 可能往文件落了新积压——直接
+      // saveBacklog(remaining) 会以「本轮快照-已结算」覆盖整个文件，把新条目
+      // 静默丢掉。以重读结果为基底剔除已结算条目，保留重试条目用内存态
+      // （attempts 已自增）替换后合并保存
+      const fresh = loadBacklog();
+      const merged = [];
+      const mergedKeys = new Set();
+      for (const it of fresh) {
+        const k = itemKey(it);
+        if (settledKeys.has(k) || mergedKeys.has(k)) continue;
+        mergedKeys.add(k);
+        merged.push(retryKeys.has(k) ? (remaining.find((r) => itemKey(r) === k) || it) : it);
+      }
+      for (const r of remaining) {
+        const k = itemKey(r);
+        if (!mergedKeys.has(k)) { mergedKeys.add(k); merged.push(r); }
+      }
+      saveBacklog(merged);
 
       if (remaining.length > 0) {
+        // 有失败保留项：按重试节奏退避，避免无冷却地连打同一批失败条目
         scheduleFlush(RETRY_DELAY_MS);
         return;
       }
-      // 全部成功；冲刷期间新落进的积压由下一轮立刻处理
+      if (merged.length > 0) continue; // 冲刷期间新落进的积压，下一轮立即处理
+      return; // 全部成功且无新积压
     }
     console.warn('[晚间静默] 冲刷轮次达上限，剩余积压留待下次调度');
   } finally {
@@ -236,6 +275,23 @@ function initQuietHoursFlush() {
   }
   if (items.length === 0) {
     console.log(`[晚间静默] 播报静默窗口 ${quietWindowDesc()}（Asia/Shanghai），当前无积压`);
+    return;
+  }
+  // 积压最早 queuedAt 已越过最近一个 end 整点 → 它本该在上一个补发时点被发出
+  // （如昨夜积压 + 00:00–02:00 间重启：按「未到今日 end」调度会拖到今日 09:00，
+  // 最长延迟 31h）——立即冲刷，不再等下一个 end 整点
+  const queuedTsList = items
+    .map((it) => {
+      const ts = Date.parse(it.queuedAt || '');
+      return Number.isFinite(ts) ? ts : 0;
+    })
+    .filter(Boolean);
+  const earliestQueued = queuedTsList.length > 0 ? Math.min(...queuedTsList) : 0;
+  if (earliestQueued && earliestQueued <= lastQuietEndTs()) {
+    console.log(
+      `[晚间静默] 启动时存在 ${items.length} 条积压且最早入队（${new Date(earliestQueued).toLocaleString('zh-CN')}）已越过最近一个补发时点，5 秒后立即补跑`
+    );
+    scheduleFlush(5000);
     return;
   }
   if (inQuietHours() || shanghaiParts().minutesOfDay < settings.end * 60) {

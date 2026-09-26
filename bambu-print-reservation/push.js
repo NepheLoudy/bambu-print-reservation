@@ -63,6 +63,12 @@ const pack = spawnSync('tar', [
   '--exclude=node_modules',
   '--exclude=.git',
   '--exclude=.env',
+  // 运行时状态文件（2026-09-27 补洞）：现网权威在部署目标，不得随包覆盖
+  '--exclude=.dispatch-state.json',
+  '--exclude=.quiet-backlog.json',
+  // 本地私有环境覆盖（.env 上传单独走 SFTP）
+  '--exclude=.env.local',
+  '--exclude=.env.*.local',
   '--exclude=logs',
   '--exclude=*.log',
   '--exclude=' + TAR_NAME,

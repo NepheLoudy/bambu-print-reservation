@@ -30,6 +30,16 @@ app.use((req, res, next) => {
   }
   next();
 });
+// 防跨站 POST（2026-09-27 审查批）：恶意网页可对 127.0.0.1:3100 发 no-cors 表单/fetch POST，
+// 打到 /api/nas/restart/:name、/api/local/:id/start|stop、/api/action/:id 等写端点。
+// 全局要求自定义头 X-Requested-With: qianli-dashboard——跨站表单 POST 无法携带自定义头
+// （过不了 CORS 预检），缺失即 403；与 Host 校验叠加构成双保险
+app.use((req, res, next) => {
+  if (req.method === 'POST' && req.headers['x-requested-with'] !== 'qianli-dashboard') {
+    return res.status(403).json({ error: '缺少 X-Requested-With 头（防跨站 POST）' });
+  }
+  next();
+});
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ---------- NAS 连接配置：直读 approval-bot/.env（单一来源，不复制凭据） ----------

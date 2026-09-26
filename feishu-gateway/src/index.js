@@ -40,12 +40,17 @@ app.get('/api/health', (req, res) => {
 });
 
 // 使用统计（运维台活跃看板数据源）：?days=N 聚合最近 N 天（默认 1，最大 30）
+// 【已知取舍，2026-09-27 成文】无鉴权只读：LAN 内任何主机可读全员 open_id 级使用/被@统计。
+// 历史背景：该端点早于 0.0.0.0 绑定（服务曾仅回环可达）；现随服务绑 0.0.0.0 供 LAN 冒烟测试
+// （同 /api/health 惯例），数据为聚合计数、无写风险、不含密钥，评估后保留只读开放不加鉴权；
+// 若未来暴露面扩大（出公网）须重新评估
 app.get('/api/usage', (req, res) => {
   res.json(usage.aggregate(req.query.days));
 });
 
 // 群聊被@统计（2026-09-24 团队负载算法数据源，pm-robot /api/hub/workload 消费）：
 // ?days=N 滑窗按人求和（默认 7，最大 30），只读不鉴权照 /api/usage 惯例
+// （取舍同 /api/usage：LAN 可读 open_id 级被@计数，无写风险，见上方成文）
 app.get('/api/usage/mentions', (req, res) => {
   res.json(usage.aggregateMentions(req.query.days));
 });
