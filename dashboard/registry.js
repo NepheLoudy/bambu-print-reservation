@@ -59,7 +59,7 @@ module.exports = {
       ],
       windows: [
         { m: 'GET', p: '/api/hub/policy', d: '定制项全景（审批群/值日策略源/回答表范围/播报群）' },
-        { m: 'GET', p: '/api/hub/workload', d: '团队负载全景（工单+项目+被@三源评分聚合；运维台「团队负载」看板数据源；组别系数：宣运×0.5、重装/步兵/哨兵×1.2，每被@一次+0.01；ticket-bot/网关不可用各自降级标注）' },
+        { m: 'GET', p: '/api/hub/workload', d: '团队负载全景（工单+项目+被@三源评分聚合；运维台「团队负载」看板数据源；组别系数：宣运×0.25、重装/步兵/哨兵×1.2，每被@一次+0.01；ticket-bot/网关不可用各自降级标注）' },
         { m: 'GET', p: '/api/autoreplies/rules?table=group', d: '关键词回答表（未@群消息，可编辑）', kind: 'rules', table: 'group' },
         { m: 'GET', p: '/api/autoreplies/rules?table=mention', d: '@触发回答表（可编辑）', kind: 'rules', table: 'mention' },
         { m: 'POST', p: '/api/autoreplies/rules', d: '新增/更新关键词规则', kind: 'rule-edit' },

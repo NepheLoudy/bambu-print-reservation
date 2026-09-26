@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v110**（2026-09-26，随本提交落地；部署待实验室网段恢复后补）。上一版 v109（安全审查修复批）。上一版 v108（台账同步归档）。上一版 v107（报销交付包跨仓批）。上一版 v106（`2b070a4`）。上一版 v105（approval v46 复查批归档，`2b070a4`）。上一版 v104（发票采集全链路批，`cef9b2f`）。上一版 v103（值日体系全面检修，`19695bd`）。上一版 v102（值日公平性批，`7aae41e`）。上一版 v101（负载算法升级批，`97bd02b`）。上一版 v100（团队负载看板三仓联动，`11179b8`）。
+当前最新：**v111**（2026-09-26，负载宣运系数再调批归档，随本提交落地；pm-robot 随批部署上线）。上一版 v110（七仓全量审查批归档）。上一版 v109（安全审查修复批）。上一版 v108（台账同步归档）。上一版 v107（报销交付包跨仓批）。上一版 v106（`2b070a4`）。上一版 v105（approval v46 复查批归档，`2b070a4`）。上一版 v104（发票采集全链路批，`cef9b2f`）。上一版 v103（值日体系全面检修，`19695bd`）。上一版 v102（值日公平性批，`7aae41e`）。上一版 v101（负载算法升级批，`97bd02b`）。上一版 v100（团队负载看板三仓联动，`11179b8`）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -917,3 +917,12 @@
 - 本仓改动：gateway+wecom+bambu 三项目代码（顶层跟踪）、dashboard/registry.js（wecom 出站口径 import 为主）、dashboard/server.js NET_TARGETS（3002/3003 回环化后摘出 LAN 探测）、各项目 DEVLOG。
 - 结构优化：低风险项已随批落地（fetchWithTimeout 工具、映射收敛、闸门自动发现等）；中高风险项（chatService 拆分、dispatcher 拆分、排班 rebalance 同日冲突、usage.js 拆分等）记录在各仓 DEVLOG，另批处理。
 - 部署状态：七仓全部待实验室网段恢复后各自 npm run push（approval v49-v53、hub v115-v117 两笔大队列一并上线）。
+
+## v111 · 2026-09-26 · 随本提交落地 · fix（联动摘要）
+
+**团队负载宣运域系数再调批归档（pm-robot v119 + ticket-bot v86）**
+
+- pm-robot v119（`f707379`）：`GROUP_COEFF` 宣运域三键（项目 category「宣经」/「宣运」、工单面向组别「宣运组」）0.5 → 0.25——2026-09-24 拍板 ×0.5 后曼波再拍收紧；重装/步兵/哨兵 ×1.2 不变；`weights.groupCoeff` 引用透出自动跟随。stub-test-workload 期望重算（B3 0.1/D2 0.26/D4 0.2）41/41，九套全绿。
+- ticket-bot v86（`4bb8baf`）：`unclosedService` 消费侧注释系数示例同步 ×0.25（纯 docs，无行为变化）。
+- 本仓改动：`dashboard/registry.js` 与 `dashboard/public/index.html`「团队负载」看板口径说明同步 ×0.25、两项目归档（pm-robot gitlink 前移至 v119，ticket-bot 文件跟踪同步）。
+- 部署状态：部署目标实测可达，pm-robot 本批 `npm run push` 连同其 v115-v118 待部署批一并上线；ticket-bot v86 纯注释随下次部署；其余五仓（approval/gateway/duty/wecom/bambu）仍待部署（bambu 缺 APPROVAL_CODE）。
