@@ -488,8 +488,13 @@ app.post('/api/action/:id', (req, res) => {
   // 安全（2026-09-15 审查批）：不再接受客户端裸 {cmd,args} 直接 spawn——
   // 前端只用 actionId 与 cmd:'push'，裸执行面配合 DNS rebinding/CSRF 即成网页→本机 RCE 链
   if (!entry) return res.status(400).json({ error: '未知动作' });
-  const cwdRel = path.join(proj.dir, entry.cwd || '');
-  res.json(runAction(proj.id, entry.cmd, cwdRel, entry.args || []));
+  // 安全（2026-09-27 二轮审查）：cwd 是客户端输入，path.join 可被 ..\..\.. 夹出工作区——
+  // resolve 后必须仍落在目标项目目录内
+  const cwdAbs = path.resolve(ROOT, proj.dir, entry.cwd || '');
+  if (!cwdAbs.startsWith(path.resolve(ROOT, proj.dir))) {
+    return res.status(400).json({ error: 'cwd 越界' });
+  }
+  res.json(runAction(proj.id, entry.cmd, cwdAbs, entry.args || []));
 });
 
 app.get('/api/action/:id/log', (req, res) => {
@@ -626,7 +631,7 @@ const LAN_SCAN = { cache: null, at: 0, running: null };
 const LAN_KNOWN = {
   '192.168.31.1': '主路由',
   '192.168.31.57': '小电脑(生产)',
-  '192.168.31.151': '旧NAS(备件)',
+  '192.168.31.153': '旧NAS(备件)',
 };
 const LAN_OUI = [
   ['f0:b4:29', 'TP-Link'], ['64:09:80', '小米'], ['28:6c:07', '小米'], ['78:11:dc', '小米'],
@@ -707,6 +712,7 @@ async function lanDeviceAction(req, res, { ban }) {
   const { ip, mac, name } = req.body || {};
   const macClean = String(mac || '').toLowerCase().trim();
   if (!macClean) return res.status(400).json({ error: '缺少 mac' });
+  if (!/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/.test(macClean)) return res.status(400).json({ error: 'mac 格式非法' });
   try {
     await withRouter((ctx) => xiaomi.setMacFilter(ctx, macClean, true));
     if (ban) {
@@ -725,6 +731,7 @@ app.post('/api/network/lan/unban', (req, res) => {
   const { mac } = req.body || {};
   const macClean = String(mac || '').toLowerCase().trim();
   if (!macClean) return res.status(400).json({ error: '缺少 mac' });
+  if (!/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/.test(macClean)) return res.status(400).json({ error: 'mac 格式非法' });
   const bans = loadBans();
   if (!bans[macClean]) return res.json({ ok: true, note: '不在封禁名单' });
   delete bans[macClean];
@@ -925,8 +932,8 @@ function watchdogEvaluate(key, name, ok, detail) {
   if (due || prev.pending) {
     // 无论发送成败都记尝试时间：失败若不更新，due 恒真会每小时重复轰炸
     WATCHDOG.state.set(key, { ...prev, lastAlertAt: Date.now(), pending: false });
-    watchdogSend(`⚠️ qianli 服务异常：${name} health 连续巡检失败（${detail}；自 ${new Date(prev.since).toLocaleString('zh-CN')} 起）。排查/重启走本地运维台或 pm2`).then((sent) => {
-      if (sent) WATCHDOG.state.set(key, { ...prev, lastAlertAt: Date.now(), pending: false });
+    watchdogSend(`⚠️ qianli 服务异常：${name} health 连续巡检失败（${detail}；自 ${new Date(prev.since).toLocaleString('zh-CN')} 起）。排查/重启走本地运维台或 pm2`).catch((err) => {
+      console.error('[watchdog] 告警发送异常:', err.message);
     });
   }
 }

@@ -1,4 +1,7 @@
 /**
+ * ⚠️ 已废弃（仅存档，勿跑）：2026-09-27 二轮审查定性——远程路径 /opt/knowledge-tracker、
+ * /home/qianli/.pm2 均为旧 NAS 布局，现役部署目标为小电脑 C:/qianli/opt/*；凑齐 env
+ * 硬跑会向真实财务群注入测试消息而实际什么都没验证。保留仅作历史取证。
  * 部署后一次性操作：
  * 1) 上传 hub 修复后的 chatService.js 并重启 knowledge-tracker
  * 2) 注入两条仿真消息验证修复（真实 mention 结构：mentioned_type=bot、id 为对象）

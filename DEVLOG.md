@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v113**（2026-09-27，第二轮全量对抗审查批归档，随本提交落地）。上一版 v112（五仓部署批归档）。上一版 v111（负载宣运系数再调批归档）。上一版 v110（七仓全量审查批归档）。上一版 v109（安全审查修复批）。上一版 v108（台账同步归档）。上一版 v107（报销交付包跨仓批）。上一版 v106（`2b070a4`）。上一版 v105（approval v46 复查批归档，`2b070a4`）。上一版 v104（发票采集全链路批，`cef9b2f`）。上一版 v103（值日体系全面检修，`19695bd`）。上一版 v102（值日公平性批，`7aae41e`）。上一版 v101（负载算法升级批，`97bd02b`）。上一版 v100（团队负载看板三仓联动，`11179b8`）。
+当前最新：**v114**（2026-09-27，扩展范围审查批归档，随本提交落地）。上一版 v113（第二轮全量对抗审查批归档）。上一版 v112（五仓部署批归档）。上一版 v111（负载宣运系数再调批归档）。上一版 v110（七仓全量审查批归档）。上一版 v109（安全审查修复批）。上一版 v108（台账同步归档）。上一版 v107（报销交付包跨仓批）。上一版 v106（`2b070a4`）。上一版 v105（approval v46 复查批归档，`2b070a4`）。上一版 v104（发票采集全链路批，`cef9b2f`）。上一版 v103（值日体系全面检修，`19695bd`）。上一版 v102（值日公平性批，`7aae41e`）。上一版 v101（负载算法升级批，`97bd02b`）。上一版 v100（团队负载看板三仓联动，`11179b8`）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -946,3 +946,13 @@
 - 本仓改动：gateway v34 / wecom v11 / bambu v36 代码与 DEVLOG、dashboard POST 防跨站中间件+前端补头、顶层 .gitignore 全局 .env 规则、七仓 push.js tar/闸门补洞。
 - 各仓版本：approval v54 / gateway v34 / duty v42 / ticket v87 / hub v120 / wecom v11 / bambu v36。
 - 部署状态：待实验室网段恢复后各仓 npm run push；ticket 上线前先跑 ensure-ticket-fields.js；密钥轮换（桌面文档第一节）优先级最高。
+
+## v114 · 2026-09-27 · 随本提交落地 · fix（联动摘要）
+
+**扩展范围审查批归档（曼波扩围：qianli 全路径全机器人补完）**
+
+- 补审前两轮未覆盖面：dashboard 全量（router-xiaomi/前端/registry/自启链）、sop/site-sop-planet 公开站（独立仓，ps1 部署链+CI+页面 JS）、tools（keep-awake + rm-battlescope 3720 行 Python）、hub widget/auto-deploy/sync 脚本、bambu 外围、gateway nas-e2e、顶层三 bat。
+- 战果：**P1×1**（sop 公开站整仓发布——部署脚本/编辑版 html 公网可下载，两条 CI 改白名单 dist + OSS incremental:false 清历史对象 + dev-helper Origin 防跨站写，sop 独立仓已随批推送修复线上）；P2×4（dashboard push cwd 路径逃逸、旧 NAS IP 标注漂移、sop dev-helper CSRF、widget 写功能 403 变砖定性）；P3×20+ 记录桌面文档第七节。
+- 本仓改动：dashboard（cwd 越界校验/LAN_KNOWN .153/mac 格式校验/watchdog 回调）、gateway nas-e2e-test 废弃横幅、tools .gitignore 补 .deps/。
+- 各仓版本：hub v121（外围横幅+NaN 清理）、sop 独立仓安全批；dashboard/tools 由本仓跟踪。
+- 关机：曼波指示审查完成后关机一次，已执行。
