@@ -68,17 +68,29 @@ function parseForm(form) {
     const type = String(item.type || '');
 
     if (type === 'attachment' && !parsed.attachment) {
-      // value: 逗号分隔的 attachment_id（兼容数组/对象形态）
+      // value: 逗号分隔的 attachment_id（兼容数组/对象形态）；
+      // 数组/对象形态携带的 name/file_name 是原始文件名，一并取出
       let ids = [];
+      let name = '';
       if (typeof item.value === 'string') {
         ids = item.value.split(',').map((s) => s.trim()).filter(Boolean);
+        // 逗号分隔 id 形态表单无原始文件名，name 保持空串（由 buildTask 回退 approval_<code>.3mf）
       } else if (Array.isArray(item.value)) {
-        ids = item.value.map((v) => (typeof v === 'string' ? v : v.attachment_id || v.file_token)).filter(Boolean);
+        for (const v of item.value) {
+          if (typeof v === 'string') {
+            ids.push(v);
+            continue;
+          }
+          ids.push(v.attachment_id || v.file_token);
+          if (!name) name = v.name || v.file_name || '';
+        }
+        ids = ids.filter(Boolean);
       } else if (item.value && typeof item.value === 'object') {
         ids = [item.value.attachment_id || item.value.file_token].filter(Boolean);
+        name = item.value.name || item.value.file_name || '';
       }
       if (ids.length > 0) {
-        parsed.attachment = { attachmentId: ids[0], name: '' };
+        parsed.attachment = { attachmentId: ids[0], name };
       }
       continue;
     }
@@ -198,13 +210,6 @@ async function handleApprovalTaskEvent(event) {
     console.error(`[自动审批] 拉取实例详情失败 ${instanceId}:`, err.message);
     return; // 不登记 handledTasks：下轮事件/对账仍可重试，避免自动审批静默丢失
   }
-  // 详情拉取成功后才登记已处理（2026-09-17）：此前先登记后拉取，拉取失败该任务
-  // 的自动审批被当作已处理静默丢弃
-  handledTasks.add(taskId);
-  if (handledTasks.size > 500) {
-    const first = handledTasks.values().next().value;
-    handledTasks.delete(first);
-  }
   if (!instance || String(instance.status || '').toUpperCase() !== 'PENDING') return;
 
   // 实例任务清单：确认该 task 的审批人是否为自动审批人（任务未处理）
@@ -248,9 +253,16 @@ async function handleApprovalTaskEvent(event) {
     });
     if (res.code !== 0) {
       console.error(`[自动审批] 同意失败 ${instanceId}: ${res.msg} (code: ${res.code})`);
-    } else {
-      console.log(`[自动审批] 已自动同意 ${instanceId}（task ${taskId}）`);
+      return; // 不登记 handledTasks：下轮事件/对账仍可重试（2026-09-25：此前先登记后调接口，失败即永久跳过）
     }
+    // 同意成功后才登记已处理（含截尾防无限增长）：登记只代表「该任务已成功代批」，
+    // 中间任一环失败都不登记，留给下轮事件重试
+    handledTasks.add(taskId);
+    if (handledTasks.size > 500) {
+      const first = handledTasks.values().next().value;
+      handledTasks.delete(first);
+    }
+    console.log(`[自动审批] 已自动同意 ${instanceId}（task ${taskId}）`);
   } catch (err) {
     console.error(`[自动审批] 调用同意接口失败 ${instanceId}:`, err.message);
   }

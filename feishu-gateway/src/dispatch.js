@@ -1,6 +1,7 @@
 const lark = require('@larksuiteoapi/node-sdk');
 const config = require('./config');
 const usage = require('./usage');
+const { fetchWithTimeout } = require('./http');
 
 // 已处理事件去重（飞书可能对同一事件重复投递；机器人侧也有 message_id 去重兜底）
 const seenEvents = new Set();
@@ -80,21 +81,16 @@ function parseCommand(text) {
 }
 
 async function postJson(url, body) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8000);
   try {
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-      signal: controller.signal,
     });
     const json = await res.json().catch(() => null);
     return { ok: res.ok, status: res.status, body: json };
   } catch (err) {
     return { ok: false, status: 0, error: err.message };
-  } finally {
-    clearTimeout(timer);
   }
 }
 
@@ -166,8 +162,8 @@ async function deliverTo(consumer, mode, frame, text) {
     deliveryStats.ok += 1;
     return result;
   } catch (err) {
-    deliveryStats.failed += 1;
-    deliveryStats.byConsumer[consumer.name] = (deliveryStats.byConsumer[consumer.name] || 0) + 1;
+    // 首败不预记：终态（重试后再败/再抛）才计一次 failed，与 HTTP 层失败路径同口径
+    //（此前传输异常路径首败+终态各计一次，最终失败被计成 2）
     console.warn(`[路由] 投递 ${consumer.name} 失败（${err.message}），3s 后重试一次`);
     await new Promise((r) => setTimeout(r, 3000));
     try {
@@ -315,14 +311,31 @@ async function fanoutBitable(frame) {
             record: { record_id: item.record_id, fields: item.after_value || item.before_value || {} },
           },
         };
-        const result = await postJson(consumer.eventUrl, withToken(legacyFrame));
-        logDelivery(consumer.name, `${legacyType} record=${item.record_id}`, result);
+        await fanoutPost(consumer, `${legacyType} record=${item.record_id}`, legacyFrame);
       }
     } else {
-      const result = await postJson(consumer.eventUrl, withToken(frame));
-      logDelivery(consumer.name, `bitable table=${tableId}`, result);
+      await fanoutPost(consumer, `bitable table=${tableId}`, frame);
     }
   }
+}
+
+/**
+ * fanout（bitable/审批事件广播）专用投递：与消息投递共用同一本 deliveryStats，
+ * 让 /api/health 的投递统计覆盖全部出站转发。与 deliverTo 不同的是**不自动重试**——
+ * 消费方幂等虽已具备（表格事件按 table_id 过滤、审批事件按 approval_code 决策，
+ * legacy 拆事件也是纯转发），但 fanout 的重试语义（补发窗口/失败风暴控制）另批评估，
+ * 当前保持单次投递，失败如实计入 failed。
+ */
+async function fanoutPost(consumer, what, frame) {
+  const result = await postJson(consumer.eventUrl, withToken(frame));
+  logDelivery(consumer.name, what, result);
+  if (result.ok) {
+    deliveryStats.ok += 1;
+  } else {
+    deliveryStats.failed += 1;
+    deliveryStats.byConsumer[consumer.name] = (deliveryStats.byConsumer[consumer.name] || 0) + 1;
+  }
+  return result;
 }
 
 /**
@@ -338,9 +351,7 @@ async function fanoutApproval(frame) {
       console.warn(`[路由] 审批事件目标 ${name} 未在 CONSUMERS 中定义，跳过`);
       continue;
     }
-    const result = await postJson(consumer.eventUrl, withToken(frame));
-    logDelivery(consumer.name, `审批事件 ${frame.header.event_type} instance=${(frame.event && frame.event.instance_id) || '?'}`, result);
-    last = result;
+    last = await fanoutPost(consumer, `审批事件 ${frame.header.event_type} instance=${(frame.event && frame.event.instance_id) || '?'}`, frame);
   }
   return last || { ok: false, dropped: true };
 }

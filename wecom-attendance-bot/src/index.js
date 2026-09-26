@@ -64,7 +64,14 @@ app.get('/api/health', (req, res) => {
 
 // ---- 定制窗口：政策全景只读（顶层 AGENTS「机器人后端定制窗口」） ----
 app.get('/api/attendance/policy', (req, res) => {
-  const members = store.loadMembers();
+  // 名单文件损坏时窗口仍可用（与 /api/health 同口径），错误经 membersError 字段带出
+  let members = [];
+  let membersError = null;
+  try {
+    members = store.loadMembers();
+  } catch (e) {
+    membersError = e.message;
+  }
   const win = report.weekWindow(0, Date.now(), config.cronParts.dow == null ? 1 : config.cronParts.dow);
   // state 只出摘要：imported.records 是全量打卡明细（个人信息），不能整包出只读窗口
   let imported = null;
@@ -98,6 +105,7 @@ app.get('/api/attendance/policy', (req, res) => {
       apiDocs: '播报走飞书群自定义机器人 webhook（与 duty-bot 看板卡同款链路）；机器人开了签名校验需配 FEISHU_WEBHOOK_SECRET；CSV 经现有应用 im API 发文件需 FEISHU_APP_ID/SECRET + FEISHU_CSV_CHAT_ID',
     },
     members: { file: config.membersFile, count: members.length, list: members },
+    membersError,
     dataSource: config.dataSource,
     imported,
     state: stateSummary,
@@ -117,8 +125,13 @@ app.post('/api/attendance/members', requireApiToken, (req, res) => {
 app.post('/api/attendance/import', requireApiToken, (req, res) => {
   const { dataBase64, filename } = req.body || {};
   if (!dataBase64) return res.status(400).json({ error: '缺少 dataBase64（打卡明细文件字节流的 base64）' });
-  let buf;
-  try { buf = Buffer.from(String(dataBase64), 'base64'); } catch { return res.status(400).json({ error: 'dataBase64 非法 base64' }); }
+  // Buffer.from(str, 'base64') 对任意字符串都不抛错（非法字符被静默忽略），catch 不可达——
+  // 改正则预校验：字母数字+/ 组成、尾部 = 补位 ≤2、去空白后长度为 4 的倍数才算合法 base64
+  const b64 = String(dataBase64).replace(/\s+/g, '');
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(b64) || b64.length % 4 !== 0) {
+    return res.status(400).json({ error: 'dataBase64 非法 base64' });
+  }
+  const buf = Buffer.from(b64, 'base64');
   try {
     const parsed = importService.parseWorkbook(buf);
     const merged = importService.mergeMembers(store.loadMembers(), parsed.members);

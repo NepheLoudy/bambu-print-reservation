@@ -255,6 +255,9 @@ class Dispatcher {
 
   dequeue(recordId) {
     this.queue = this.queue.filter((t) => t.recordId !== recordId);
+    // 审批终态同步清理 givenUp（2026-09-25）：留着可被 /print-dispatch 复活，
+    // 已撤销/驳回的审批会重新驱动真机
+    this.givenUp.delete(recordId);
     for (const [printerId, task] of this.printing) {
       if (task.recordId === recordId) {
         // 打印中取消：停机并释放
@@ -405,7 +408,9 @@ class Dispatcher {
       .slice(0, 5)
       .map((t) => `${t.materialType || '任意材料'}×${t.color || '任意颜色'}（${t.applicationNo || t.fileName || t.recordId}）`)
       .join('；');
-    announce('缺料提醒', require('../feishu/bot').buildMaterialMissingCard(this.queue.length, needs), () => {});
+    announce('缺料提醒', require('../feishu/bot').buildMaterialMissingCard(this.queue.length, needs), (err) =>
+      console.error('[分发] 缺料提醒播报失败:', err.message)
+    );
     console.log(`[分发] ${this.queue.length} 个任务缺料等待: ${needs}`);
   }
 
@@ -498,7 +503,7 @@ class Dispatcher {
             printer,
             `分发失败：${err.message}；已自动重试 ${task.dispatchRetries} 次仍失败，已暂停自动分发，请人工介入`
           ),
-          () => {}
+          (err) => console.error('[分发] 放弃播报失败:', err.message)
         );
         return;
       }
@@ -513,7 +518,7 @@ class Dispatcher {
           printer,
           `分发失败：${err.message}，已重新排队（第 ${task.dispatchRetries}/${config.dispatch.maxRetries} 次重试）`
         ),
-        () => {}
+        (err) => console.error('[分发] 重试播报失败:', err.message)
       );
       // 冷却结束后再触发一轮匹配（否则要等到下一次入队/空闲事件才会重试）
       setTimeout(() => {
@@ -538,7 +543,9 @@ class Dispatcher {
         .catch((err) => console.error('[分发] 完成写表失败:', err.message));
     }
 
-    announce(`完成卡 ${task.recordId}`, require('../feishu/bot').buildJobFinishCard(task, printer), () => {});
+    announce(`完成卡 ${task.recordId}`, require('../feishu/bot').buildJobFinishCard(task, printer), (err) =>
+      console.error('[分发] 完成播报失败:', err.message)
+    );
     plaza.append({ event: '打印完成', title: `${task.applicationNo || task.recordId} @ ${printer.name}` });
     console.log(`[分发] 完成: ${task.applicationNo || task.recordId} @ ${printer.name}`);
     this.trigger('task-finish');
@@ -570,7 +577,7 @@ class Dispatcher {
           printer,
           `打印失败：${reason}；已自动重试 ${task.dispatchRetries} 次仍失败，已暂停自动分发，可 /print-dispatch 人工恢复`
         ),
-        () => {}
+        (err) => console.error('[分发] 失败播报失败:', err.message)
       );
     } else {
       task.dispatchError = reason;
@@ -584,7 +591,7 @@ class Dispatcher {
           printer,
           `打印失败：${reason}，已重新排队（第 ${task.dispatchRetries}/${config.dispatch.maxRetries} 次重试）`
         ),
-        () => {}
+        (err) => console.error('[分发] 失败播报失败:', err.message)
       );
       setTimeout(() => {
         if (this.queue.some((t) => t.recordId === task.recordId)) {
@@ -639,7 +646,9 @@ class Dispatcher {
             .updateRecord(config.bitable.reservationTableId, task.recordId, { '申请状态': config.status.COMPLETED })
             .catch((err) => console.error('[分发] 巡检补完成写表失败:', err.message));
         }
-        announce(`完成卡 ${task.recordId}`, require('../feishu/bot').buildJobFinishCard(task, state), () => {});
+        announce(`完成卡 ${task.recordId}`, require('../feishu/bot').buildJobFinishCard(task, state), (err) =>
+          console.error('[分发] 巡检完成播报失败:', err.message)
+        );
         plaza.append({ event: '打印完成', title: `${task.applicationNo || task.recordId} @ ${state.name || printerId}（巡检补记）` });
         released = true;
       }
@@ -688,6 +697,9 @@ class Dispatcher {
       // 任务必须移出队列（2026-09-13）：留着会被下一轮自动匹配分到别的 Bambu，覆盖人工指定
       this.queue = this.queue.filter((t) => t.recordId !== task.recordId);
       this.known.add(task.recordId);
+      // 人工已接管同样要移出 givenUp（2026-09-25）：否则记录残留在恢复通道里，
+      // 可被再次 /print-dispatch 复活重复驱动真机
+      this.givenUp.delete(task.recordId);
       // 审批源任务不写镜像表（recordId=instance_code 不是镜像表 record_id，写入必抛错且任务
       // 已出队会静默丢失；同 dispatchLocked 守卫口径）：状态由引擎内存追踪，人工按提示上传即可
       if (task.fileSource !== 'approval') {

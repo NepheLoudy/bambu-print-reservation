@@ -12,12 +12,19 @@ const dispatcher = require('../services/dispatcher');
 //   表格直提交流程（人工在表格建单改状态）保留为后备，可配置关闭。
 // ============================================================
 
-async function startEventSubscription() {
-  if (!config.feishuEvent.useLongConnection) {
-    console.log('[事件订阅] 网关模式：事件由 feishu-gateway 转发到 /api/feishu/event');
-  } else {
-    console.log('[事件订阅] 独立长连接模式（本地调试用）');
+// 同步函数（无 await）：误配绊线用 throw 直接炸——保持 async 的话 throw 会变成
+// rejected promise，index.js 裸调用拿不到，fail-fast 就失效了
+function startEventSubscription() {
+  if (config.feishuEvent.useLongConnection) {
+    // fail-fast（2026-09-25）：本仓从未实现长连接（空壳分支），误配 true 会让人以为
+    // 在收事件、实际静默丢全部事件。qianli 架构只允许 feishu-gateway 持唯一长连接，
+    // 本服务事件一律由网关转发到 /api/feishu/event
+    throw new Error(
+      'FEISHU_USE_LONG_CONNECTION=true 不受支持：qianli 只允许 feishu-gateway 持长连接，' +
+      '本服务事件由网关转发到 /api/feishu/event。请移除该配置后重启。'
+    );
   }
+  console.log('[事件订阅] 网关模式：事件由 feishu-gateway 转发到 /api/feishu/event');
   console.log(
     config.approval.enabled
       ? '[事件订阅] 审批直连主通道：approval_instance 事件驱动分发（表格镜像仅展示）'

@@ -3,4 +3,5 @@ node_modules/
 logs/
 *.log
 usage-stats.json
+usage-sync-state.json
 data/

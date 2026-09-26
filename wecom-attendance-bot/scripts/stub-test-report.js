@@ -101,8 +101,41 @@ assert.ok(/（\d+\/200 人）/.test(mdBig), '截断计数（shown/total）');
 assert.ok(mdBig.includes('完整数据见 CSV 附件'), '熔断提示指向 CSV 附件');
 assert.ok(!md.includes('名单过长已截断'), '小名单不触发熔断');
 
+// 8.5) 异常段字节熔断（回归 2026-09-25）：异常明细此前在预算外，25 人+100 异常实测 5611 字节超限
+const manyMembers = Array.from({ length: 25 }, (_, i) => ({ userid: `m${i}`, name: `成员${i}号测试名字` }));
+const manyRecords = [];
+for (const m of manyMembers) {
+  for (let j = 0; j < 4; j++) {
+    manyRecords.push({
+      userid: m.userid,
+      checkin_time: S(`2026-09-0${j < 2 ? 7 : 8}T${String(9 + j).padStart(2, '0')}:00:00+08:00`),
+      checkin_type: '上班打卡',
+      exception_type: '时间异常',
+      location_title: '实验室',
+      wifiname: 'lab',
+      groupname: '默认规则',
+    });
+  }
+}
+const repMany = aggregate(manyRecords, manyMembers); // 25 人 × 4 异常 = 100 条明细
+assert.strictEqual(repMany.totals.exceptions, 100, '异常总量 100');
+const mdMany = renderMarkdownV2(win, repMany);
+assert.ok(Buffer.byteLength(mdMany, 'utf8') < 4096, '异常段纳入预算后整体不超企微 4096 上限');
+assert.ok(mdMany.includes('异常过多已截断'), '异常段熔断提示出现');
+assert.ok(/（\d+\/100 条），完整明细见 CSV 附件/.test(mdMany), '异常熔断计数并指向 CSV 附件');
+
 // 9) CSV 空兜底行与 10 列表头对齐
 const csvEmptyCols = renderCsv(win, empty).replace(/^\uFEFF/, '').split('\r\n');
 assert.strictEqual(csvEmptyCols[1].split(',').length, 10, '空记录兜底行与表头列数一致');
 
-console.log('✓ stub-test-report 全部通过（聚合/渲染/CSV 27 组断言）');
+// 10) CSV 公式注入防护：= + - @ 开头单元格前置 ' 中和（Excel/WPS 会当公式执行）
+const repF = aggregate([
+  { userid: 'uf', checkin_time: S('2026-09-07T08:00:00+08:00'), checkin_type: '上班打卡', exception_type: '', location_title: '=HYPERLINK("http://evil","x")', wifiname: '+cmd', groupname: '-减号组' },
+], [{ userid: 'uf', name: '@注入人' }]);
+const csvF = renderCsv(win, repF);
+assert.ok(csvF.includes("'=HYPERLINK"), '公式前缀 = 已中和');
+assert.ok(csvF.includes("'+cmd"), '公式前缀 + 已中和');
+assert.ok(csvF.includes("'-减号组"), '公式前缀 - 已中和');
+assert.ok(csvF.includes("'@注入人"), '公式前缀 @ 已中和（姓名列）');
+
+console.log('✓ stub-test-report 全部通过（聚合/渲染/CSV/字节熔断/公式防护 43 组断言）');

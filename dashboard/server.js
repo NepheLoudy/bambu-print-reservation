@@ -556,7 +556,7 @@ const NET_TARGETS = [
   { id: 'internet', name: '互联网', kind: 'cloud', host: '223.5.5.5', ports: [443] },
   { id: 'feishu', name: '飞书云(API/长连接)', kind: 'cloud', host: 'open.feishu.cn', ports: [443] },
   { id: 'router', name: '主路由', kind: 'net', host: '192.168.31.1', ports: [80] },
-  { id: 'pc', name: '小电脑(生产)', kind: 'host', host: '192.168.31.57', ports: [22, 3010, 3000, 3001, 3003, 3006] }, // 3007/3002 回环专用（approval-bot 2026-09-25 v51 起仅 127.0.0.1 监听，LAN 探测恒 ✗ 不列；经 SSH 代理访问 localhost）
+  { id: 'pc', name: '小电脑(生产)', kind: 'host', host: '192.168.31.57', ports: [22, 3010, 3000, 3001, 3006] }, // 3007/3002/3003 回环专用（approval-bot v51、ticket-bot v85 起仅 127.0.0.1 监听，LAN 探测恒 ✗ 不列；经 SSH 代理访问 localhost）
   { id: 'oldnas', name: '旧NAS(备件存储)', kind: 'host', host: '192.168.31.153', ports: [2222, 3923] }, // 2026-09-20 挪入交换机后 DHCP 从 .151 重分配为 .153；建议主网关 UI 按 MAC 绑静态杜绝再漂
   // 4A 打印隔离区路由器（192.168.2.1/24，OpenWrt 23.05.2，打印机专用）：2026-09-22 入网，wan 已固化为静态 31.98；
   // 管理口 22/80/443 经 Allow-Mgmt-MainLAN 规则对 31.x 开放，可 TCP 探测；详见《网关拓扑文档.md》§三。

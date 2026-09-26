@@ -30,6 +30,13 @@ function sendDowOrDefault() {
   return config.cronParts.dow == null ? 1 : config.cronParts.dow;
 }
 
+// 合并保存：以磁盘最新 state 为底叠加本次字段（runWeekly 发送耗时窗口内，import 端点
+// 可能已写入新的 imported 数据——整对象替换旧快照会把并发写入回滚丢失）
+function mergeSaveState(patch) {
+  const latest = store.loadState();
+  return store.saveState({ ...latest, ...patch });
+}
+
 async function runWeekly({ offset = 0, dryRun = false, trigger = 'cron' } = {}) {
   // 通道门控（v2 飞书通道扩展）：企微群机器人 / 飞书群机器人至少配一个
   const channels = feishu.pickChannels(config);
@@ -119,17 +126,24 @@ async function runWeekly({ offset = 0, dryRun = false, trigger = 'cron' } = {}) 
 
   const pending = (channels.wecom && !done.wecom) || (channels.feishu && !done.feishu);
   if (pending) {
-    state.delivery = done;
-    state.lastError = { weekKey: win.key, at: new Date().toISOString(), message: failed.join('；') };
-    store.saveState(state);
+    mergeSaveState({
+      delivery: done,
+      lastError: { weekKey: win.key, at: new Date().toISOString(), message: failed.join('；') },
+    });
     throw new Error(`部分通道发送失败: ${failed.join('；')}`);
   }
 
-  state.lastSentWeekKey = win.key;
-  state.lastSentAt = new Date().toISOString();
-  state.lastError = null;
-  state.delivery = done; // 保留本周期投递快照（下周期自动被新 weekKey 覆盖）
-  store.saveState(state);
+  // 水位门控：只有目标周键=当前周期键（offset=0 的当周）才推进——test-broadcast 带
+  // weekOffset>0 补看历史周时真发成功也不得回拨水位/投递快照，否则 watchdog 判当周
+  // 漏播、整点重复轰炸
+  if (win.key === report.weekWindow(0, Date.now(), sendDowOrDefault()).key) {
+    mergeSaveState({
+      lastSentWeekKey: win.key,
+      lastSentAt: new Date().toISOString(),
+      lastError: null,
+      delivery: done, // 保留本周期投递快照（下周期自动被新 weekKey 覆盖）
+    });
+  }
   console.log(`[${trigger}] 周报已播报: ${win.label}（${aggregated.totals.punches} 条记录 / ${aggregated.totals.exceptions} 条异常；通道 ${[channels.wecom && '企微', channels.feishu && '飞书'].filter(Boolean).join('+')}）`);
   return { window: win, markdown, csv, filename, sent: true, totals: aggregated.totals };
 }

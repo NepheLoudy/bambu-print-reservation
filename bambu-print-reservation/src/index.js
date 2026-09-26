@@ -7,16 +7,8 @@ const approvalService = require('./services/approvalService');
 const dispatcher = require('./services/dispatcher');
 const printerManager = require('./printer/manager');
 const { startEventSubscription, processBitableEvent, processApprovalEvent, processApprovalTaskEvent } = require('./feishu/eventSubscription');
-const {
-  processChatMessage,
-  executeCommand,
-  handlePrintHelpCommand,
-  handlePrintStatusCommand,
-  handlePrintAmsCommand,
-  handlePrintListCommand,
-  handlePrintPendingCommand,
-  handlePrintDispatchCommand,
-} = require('./services/chatService');
+// 指令唯一出口：hub 经 POST /api/chat/command 转发（对话铁律——本仓不消费消息事件）
+const { executeCommand } = require('./services/chatService');
 
 const app = express();
 
@@ -341,15 +333,8 @@ app.post('/api/feishu/event', async (req, res) => {
     });
   }
 
-  if (header?.event_type === 'im.message.receive_v1') {
-    setImmediate(async () => {
-      try {
-        await processChatMessage(event);
-      } catch (err) {
-        console.error('处理消息事件失败:', err);
-      }
-    });
-  }
+  // 注意：不再处理 im.message.receive_v1——qianli 对话铁律规定消息事件只经
+  // feishu-gateway → hub 分发，本仓指令唯一入口是 POST /api/chat/command
 
   res.json({ code: 0, msg: 'success' });
 });

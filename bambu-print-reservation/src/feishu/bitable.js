@@ -63,22 +63,6 @@ const bitableApi = {
     return res.data.record;
   },
 
-  async batchCreateRecords(tableId, records) {
-    const res = await requestAPI(
-      'POST',
-      `/bitable/v1/apps/${this.appToken}/tables/${tableId}/records/batch_create`,
-      {
-        records: records.map(fields => ({ fields })),
-      }
-    );
-
-    if (res.code !== 0) {
-      throw new Error(`批量创建记录失败: ${res.msg}`);
-    }
-
-    return res.data.records || [];
-  },
-
   async updateRecord(tableId, recordId, fields) {
     const res = await requestAPI(
       'PUT',
@@ -119,38 +103,6 @@ const bitableApi = {
     }
 
     return true;
-  },
-
-  async searchRecord(tableId, fieldName, value) {
-    const records = await this.getAllRecords(tableId);
-
-    for (const record of records) {
-      const fieldValue = record.fields[fieldName];
-      if (fieldValue === value) {
-        return record;
-      }
-      if (typeof fieldValue === 'object' && fieldValue !== null) {
-        if (fieldValue.text === value) return record;
-        if (Array.isArray(fieldValue) && fieldValue.length > 0) {
-          if (fieldValue[0]?.text === value) return record;
-        }
-      }
-    }
-
-    return null;
-  },
-
-  async getTableSchema(tableId) {
-    const res = await requestAPI(
-      'GET',
-      `/bitable/v1/apps/${this.appToken}/tables/${tableId}`
-    );
-
-    if (res.code !== 0) {
-      throw new Error(`获取表格 schema 失败: ${res.msg}`);
-    }
-
-    return res.data.table;
   },
 
   async createField(tableId, field) {

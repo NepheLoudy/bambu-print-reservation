@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次部署）。本项目 push.js 为纯 SFTP 直传、无 git 步骤，**版本锚点取顶层 monorepo 中触碰本路径的归档提交**——两次归档之间的个别部署可能无版本记录。v1~v14 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v34**（2026-09-25，顶层归档随批）。上一版 v33（2026-09-24）。更早：v32（PLAZA_ENABLED 停写批）。
+当前最新：**v35**（2026-09-26，随本提交落地）。上一版 v33（2026-09-24）。更早：v32（PLAZA_ENABLED 停写批）。
 
 ## 阶段五 · 审批事件字段对齐与分发健壮化（2026-09-05）
 
@@ -252,3 +252,13 @@
 - AGENTS.md：push 命令口径修正（npm run push 不带参数，本仓无 git 步骤）；速览补 duty/wecom。
 - README：DISPATCH_STATE_FILE 生产路径带盘符（C:/home/...）；.env.example 同步。
 - 随批 SFTP 同步文档到部署目标（无 pm2 重启必要，代码零改动——push.js 常规执行）。
+
+## v35 · 2026-09-26 · 随本提交落地 · fix
+
+**七仓全量审查修复批（P1×2 + P2 清理）**
+
+- 提交说明：fix: 全量审查修复——打印机失联幽灵空闲/AMS 位图错位/铁律收口/状态机补漏
+- **P1×2**：①打印机「幽灵空闲」——bambu-link 从不 emit disconnect、connected 永不回落，断电后仍按空闲选机白耗分发；client 记 lastStateAt、manager 对超过 PRINTER_STATE_STALE_MS（默认 3 分钟）未报状态的机器拒绝自动分发并标注失联。②AMS existBits 位图错位——tray.id 是 0 基（0..3，254=外部），charAt(id-1) 整体错一格导致未装满时材料匹配歪曲，改 charAt(id) 并对外部槽加守卫。
+- **P2**：legacy 消息直连链删除（对话铁律收口，/api/chat/command 主通道保留）；FEISHU_USE_LONG_CONNECTION=true 启动即抛（fail-fast 去空壳 async）；givenUp 任务人工指定/审批取消两处补清理（不再可被 /print-dispatch 复活驱动真机）；自动审批 handledTasks 改成功后登记；parseForm 从附件控件取原始文件名；jobEvent FINISH 死半边与无监听 statusChange 清理；ftpPut 失败路径 destroy 防 socket 泄漏；announce 空回调改报错日志；bot/client/manager/bitable 共 13 个零调用方函数删除。
+- 测试：四套全绿（dispatcher 18/persist 14/manual-race 8/approval 10）。
+- 提醒：.env 缺 APPROVAL_CODE（现网靠「表单含附件」自适应识别，共用应用的任何含附件审批通过都会驱动真机）——需从飞书审批管理后台取 code 配入。

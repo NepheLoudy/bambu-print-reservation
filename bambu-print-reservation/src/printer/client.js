@@ -18,6 +18,12 @@ const GCODE_STATE_MAP = {
 const SFTP_TIMEOUT_MS = 120 * 1000;
 const FTP_TIMEOUT_MS = 60 * 1000;
 
+// 失联判定窗口（PRINTER_STATE_STALE_MS 可配，默认 3 分钟）：超过该时长未收到任何
+// state 报文即视为失联。幽灵空闲防护——bambu-link 从不 emit 'disconnect'，
+// connected 置 true 后永不回落，打印机断电/断网后仍按最后一条 state 显示「空闲」，
+// 分发引擎会继续选中它空跑分发；必须以报文新鲜度兜底，不依赖库的断开事件
+const STATE_STALE_MS = Number(process.env.PRINTER_STATE_STALE_MS || 3 * 60 * 1000);
+
 class PrinterClient {
   constructor(printerConfig) {
     this.config = printerConfig;
@@ -25,6 +31,8 @@ class PrinterClient {
     this.state = null;
     this.connected = false;
     this.connecting = false;
+    // 最近一次收到 state 报文的时间戳（失联判定依据，见 isStateStale）
+    this.lastStateAt = 0;
     this.listeners = [];
     this.ftpClient = null;
     this.sshClient = null;
@@ -61,11 +69,14 @@ class PrinterClient {
       });
 
       this.client.on('state', (state) => {
+        this.lastStateAt = Date.now();
         this.state = state;
         this.notifyListeners('state', state);
       });
 
       this.client.on('stateUpdate', (patch, previousState) => {
+        // 增量报文同样证明连接存活，一并刷新新鲜度
+        this.lastStateAt = Date.now();
         this.notifyListeners('stateUpdate', patch, previousState);
       });
 
@@ -127,6 +138,14 @@ class PrinterClient {
   }
 
   /**
+   * 是否失联：超过 STATE_STALE_MS 未收到任何 state 报文（含从未收到过）。
+   * bambu-link 无可靠的 disconnect 事件，选机与状态展示以此兜底判定
+   */
+  isStateStale() {
+    return this.lastStateAt <= 0 || Date.now() - this.lastStateAt > STATE_STALE_MS;
+  }
+
+  /**
    * 归一化打印状态：以 gcode_state 为准（job.stage 是数值型 mc_print_stage，判不准）
    */
   getPrintStatus() {
@@ -147,6 +166,8 @@ class PrinterClient {
       nozzleTemp: temps.nozzle || null,
       bedTemp: temps.bed || null,
       chamberTemp: temps.chamber || null,
+      // 失联标注：true 表示该状态来自过期报文（幽灵空闲防护，选机侧会过滤）
+      stateStale: this.isStateStale(),
     };
   }
 
@@ -165,9 +186,14 @@ class PrinterClient {
     if (ams && ams.trays) {
       for (const tray of Object.values(ams.trays)) {
         if (!tray) continue;
-        // existBits 标记各槽是否实际插着料盒（'1111' 从左到右）
+        // 254=外部料架（vt_tray，bambu-link 解析里 external: tid === 254），
+        // 不在 4 位位图内，由下方 vtTray 分支单独处理
+        if (Number(tray.id) === 254) continue;
+        // existBits（ams_exist_bits）标记各槽是否实际插着料盒，'1111' 从左到右。
+        // 槽位 0 基（0..3）：bambu-link 直接以打印机上报的 tray.id 作键（0..3），
+        // 位图第 N 位即 tray.id=N，故直接 charAt(tray.id)，勿再减 1
         const installed = ams.existBits
-          ? String(ams.existBits).charAt(Number(tray.id) - 1) !== '0'
+          ? String(ams.existBits).charAt(tray.id) !== '0'
           : true;
         if (!installed) continue;
         trays.push({
@@ -192,12 +218,6 @@ class PrinterClient {
     }
 
     return trays;
-  }
-
-  getIsPrinting() {
-    const status = this.getPrintStatus();
-    if (!status) return false;
-    return ['打印中', '暂停', '准备中', '切片中'].includes(status.status);
   }
 
   // ============ 打印控制 ============
@@ -253,20 +273,6 @@ class PrinterClient {
       throw new Error('打印机未连接');
     }
     return this.client.stopPrint();
-  }
-
-  async home() {
-    if (!this.client || !this.connected) {
-      throw new Error('打印机未连接');
-    }
-    return this.client.home();
-  }
-
-  async sendGcode(gcode) {
-    if (!this.client || !this.connected) {
-      throw new Error('打印机未连接');
-    }
-    return this.client.printGcode(gcode);
   }
 
   // ============ 文件传输（SFTP 优先，FTP 兜底） ============
@@ -400,7 +406,9 @@ class PrinterClient {
     const client = this.ftpClient;
     return new Promise((resolve, reject) => {
       const fail = (err) => {
-        if (this.ftpClient === client) this.ftpClient = null; // 出错视为连接已坏，下次重连
+        // 出错视为连接已坏：置空强制下轮重连，并显式销毁 socket 防泄漏
+        if (this.ftpClient === client) this.ftpClient = null;
+        try { client.destroy(); } catch (e) { /* ignore */ }
         reject(err);
       };
       const timer = setTimeout(() => {
@@ -410,44 +418,6 @@ class PrinterClient {
         clearTimeout(timer);
         if (err) {
           fail(err);
-        } else {
-          resolve();
-        }
-      });
-    });
-  }
-
-  async uploadFile(localPath, remotePath) {
-    const fs = require('fs');
-    const buffer = fs.readFileSync(localPath);
-    return this.uploadBuffer(buffer, remotePath);
-  }
-
-  async listFiles(remoteDir = '/') {
-    if (!this.ftpClient) {
-      await this.connectFTP();
-    }
-
-    return new Promise((resolve, reject) => {
-      this.ftpClient.list(remoteDir, (err, list) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(list || []);
-        }
-      });
-    });
-  }
-
-  async deleteFile(remotePath) {
-    if (!this.ftpClient) {
-      await this.connectFTP();
-    }
-
-    return new Promise((resolve, reject) => {
-      this.ftpClient.delete(remotePath, (err) => {
-        if (err) {
-          reject(err);
         } else {
           resolve();
         }

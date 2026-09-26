@@ -211,7 +211,7 @@ module.exports = {
       pm2Name: 'wecom-attendance',
       nasDir: '/c/qianli/opt/wecom-attendance-bot',
       deploy: 'npm run push（SFTP 直传，同 gateway 模式）',
-      role: '企业微信考勤域：负责人群每周播报考勤打卡数据（周报卡 + CSV 明细），拉企微打卡 API 聚合，不碰考勤机硬件；播报主通道=飞书群机器人 webhook（v3），企微通道可选双发。',
+      role: '企业微信考勤域：负责人群每周播报考勤打卡数据（周报卡 + CSV 明细），不碰考勤机硬件；数据源默认 import 人肉周导（v9 起），企微打卡 API 链路保留可切回；播报主通道=飞书群机器人 webhook（v3），企微通道可选双发。',
       listening: [
         '不消费任何消息事件（飞书/企微都不收，纯定时任务）',
         '仅回环 127.0.0.1 监听，LAN 拓扑探测恒 ✗ 属正常（运维台拓扑图不列该端口）',

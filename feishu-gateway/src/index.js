@@ -6,6 +6,7 @@ const { recordFeature } = require('./usage');
 const usage = require('./usage');
 const bitableSync = require('./bitable-sync');
 const { requireApiToken } = require('./auth');
+const { fetchWithTimeout, TOKEN_TIMEOUT_MS } = require('./http');
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
@@ -197,20 +198,27 @@ process.on('unhandledRejection', (err) => {
 async function subscribeDocs() {
   if (!config.docSubscribes.length || !config.feishu.appId || !config.feishu.appSecret) return;
   try {
-    const tokenRes = await fetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ app_id: config.feishu.appId, app_secret: config.feishu.appSecret }),
-    });
+    const tokenRes = await fetchWithTimeout(
+      'https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ app_id: config.feishu.appId, app_secret: config.feishu.appSecret }),
+      },
+      TOKEN_TIMEOUT_MS
+    );
     const tokenData = await tokenRes.json();
     if (tokenData.code !== 0) {
       throw new Error(tokenData.msg || '获取 tenant_access_token 失败');
     }
     for (const appToken of config.docSubscribes) {
-      const res = await fetch(`https://open.feishu.cn/open-apis/drive/v1/files/${appToken}/subscribe?file_type=bitable`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenData.tenant_access_token}` },
-      });
+      const res = await fetchWithTimeout(
+        `https://open.feishu.cn/open-apis/drive/v1/files/${appToken}/subscribe?file_type=bitable`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenData.tenant_access_token}` },
+        }
+      );
       const data = await res.json().catch(() => ({}));
       console.log(`[网关] 订阅云文档 ${appToken}: code=${data.code} ${data.msg || ''}`);
     }

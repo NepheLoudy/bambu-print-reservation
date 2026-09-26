@@ -94,7 +94,7 @@ class PrinterManager {
 
   /**
    * 状态刷新：以 gcodeState 为准映射中文状态；
-   * 只在状态真正变化时发 statusChange，gcodeState 关键变迁额外发 jobEvent
+   * gcodeState 关键变迁发 jobEvent（分发引擎靠它触发匹配与收尾）
    */
   handleStateChange(printerId, state) {
     const client = this.clients[printerId];
@@ -123,9 +123,10 @@ class PrinterManager {
       const to = status.gcodeState;
       let event = null;
       if (to === 'PRINTING' && !['RESUME'].includes(prevState)) event = 'start';
+      // 注意 FINISH → finish 分支在前，idle 分支不再判 FINISH（否则永不可达）
       else if (to === 'FINISH') event = 'finish';
       else if (to === 'FAILED') event = 'failed';
-      else if ((to === 'IDLE' || to === 'FINISH') && prevState === 'PRINTING') event = 'idle';
+      else if (to === 'IDLE' && prevState === 'PRINTING') event = 'idle';
 
       if (event) {
         console.log(`[打印机管理] ${prev.name} 任务变迁: ${prevState} → ${to} (${event})`);
@@ -143,11 +144,7 @@ class PrinterManager {
     const prev = this.printerStates[printerId];
     if (!prev) return;
     const next = { ...prev, ...patch, lastUpdate: new Date() };
-    const changed = Object.keys(patch).some((k) => patch[k] !== prev[k]);
     this.printerStates[printerId] = next;
-    if (changed) {
-      this.notifyListeners('statusChange', next);
-    }
   }
 
   on(event, callback) {
@@ -181,21 +178,17 @@ class PrinterManager {
   }
 
   /**
-   * 可承接自动分发的打印机：Bambu 系且空闲/已完成
+   * 可承接自动分发的打印机：Bambu 系、空闲/已完成、且 state 报文未失联。
+   * 幽灵空闲防护：bambu-link 从不 emit 'disconnect'，打印机断电后 connected 仍为
+   * true、状态停在最后一次的「空闲」——超时无报文（client.isStateStale，默认 3 分钟）
+   * 的机器视为不可选，避免把任务分发给失联真机
    */
   getAvailablePrinters() {
-    return Object.values(this.printerStates).filter(
-      (p) => p.autoDispatch && ['空闲', '已完成'].includes(p.status)
-    );
-  }
-
-  async getPrinterByName(name) {
-    const printer = Object.values(this.printerStates).find((p) => p.name === name);
-    if (!printer) return null;
-    return {
-      ...printer,
-      client: this.clients[printer.id],
-    };
+    return Object.values(this.printerStates).filter((p) => {
+      if (!p.autoDispatch || !['空闲', '已完成'].includes(p.status)) return false;
+      const client = this.clients[p.id];
+      return Boolean(client) && !client.isStateStale();
+    });
   }
 
   async uploadFileToPrinter(printerId, buffer, fileName) {

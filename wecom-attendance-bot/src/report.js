@@ -152,46 +152,60 @@ function renderMarkdownV2(window, report, opts = {}) {
   const maxBytes = opts.maxBytes || 3800; // 预留告警尾巴与安全边距，硬上限 4096
   const esc = (s) => String(s == null ? '' : s).replace(/\|/g, '\\|');
   const lines = [];
-  lines.push(`## 📋 考勤周报（${window.label}）`);
-  lines.push(`> 打卡 **${report.totals.punches}** 条 · 异常 **${report.totals.exceptions}** 条 · 涉及 ${report.totals.users} 人（有打卡 ${report.totals.punchUsers} 人）`);
+  let used = 0; // 已消耗字节（行内容+换行），成员表与异常明细段共享同一预算
+  const push = (l) => { lines.push(l); used += Buffer.byteLength(l, 'utf8') + 1; };
+  push(`## 📋 考勤周报（${window.label}）`);
+  push(`> 打卡 **${report.totals.punches}** 条 · 异常 **${report.totals.exceptions}** 条 · 涉及 ${report.totals.users} 人（有打卡 ${report.totals.punchUsers} 人）`);
   if (!report.totals.punches) {
-    lines.push('> 本周无打卡记录（检查名单与打卡规则是否匹配）');
+    push('> 本周无打卡记录（检查名单与打卡规则是否匹配）');
   } else {
-    lines.push('');
-    lines.push('| 成员 | 打卡天数 | 记录数 | 异常 |');
-    lines.push('| --- | --- | --- | --- |');
-    let used = lines.reduce((s, l) => s + Buffer.byteLength(l, 'utf8') + 1, 0);
+    push('');
+    push('| 成员 | 打卡天数 | 记录数 | 异常 |');
+    push('| --- | --- | --- | --- |');
     let shownUsers = 0;
     for (const u of report.users) {
       const row = `| ${esc(u.name)} | ${u.punchDays} | ${u.punches} | ${u.exceptions.length || '-'} |`;
       const rowBytes = Buffer.byteLength(row, 'utf8') + 1;
       if (used + rowBytes > maxBytes) break;
-      used += rowBytes;
-      lines.push(row);
+      push(row);
       shownUsers += 1;
     }
     if (shownUsers < report.users.length) {
-      lines.push(`> …名单过长已截断（${shownUsers}/${report.users.length} 人），完整数据见 CSV 附件`);
+      push(`> …名单过长已截断（${shownUsers}/${report.users.length} 人），完整数据见 CSV 附件`);
     }
   }
+  // 异常明细段延续同一字节预算：成员表用完后按剩余预算逐行追加，超限截断并指向 CSV
+  //（此前异常段在预算外，多异常周报仍会超企微 4096 字节上限确定性失败）
   if (report.exceptionLines.length) {
-    lines.push('');
-    lines.push('### ⚠ 异常明细');
-    const shown = report.exceptionLines.slice(0, maxDetail);
-    for (const e of shown) {
-      lines.push(`> ${esc(e.name)} ${e.time} **${esc(e.type)}**${e.group ? `（${esc(e.group)}）` : ''}`);
-    }
-    if (report.exceptionLines.length > shown.length) {
-      lines.push(`> …其余 ${report.exceptionLines.length - shown.length} 条见 CSV 附件`);
+    const head = ['', '### ⚠ 异常明细'];
+    const headBytes = head.reduce((s, l) => s + Buffer.byteLength(l, 'utf8') + 1, 0);
+    if (used + headBytes <= maxBytes) {
+      for (const l of head) push(l);
+      const shown = report.exceptionLines.slice(0, maxDetail);
+      let shownCount = 0;
+      let byteCapped = false;
+      for (const e of shown) {
+        const line = `> ${esc(e.name)} ${e.time} **${esc(e.type)}**${e.group ? `（${esc(e.group)}）` : ''}`;
+        const lineBytes = Buffer.byteLength(line, 'utf8') + 1;
+        if (used + lineBytes > maxBytes) { byteCapped = true; break; }
+        push(line);
+        shownCount += 1;
+      }
+      if (byteCapped) {
+        push(`> …异常过多已截断（${shownCount}/${report.exceptionLines.length} 条），完整明细见 CSV 附件`);
+      } else if (report.exceptionLines.length > shown.length) {
+        push(`> …其余 ${report.exceptionLines.length - shown.length} 条见 CSV 附件`);
+      }
     }
   }
-  lines.push('');
-  lines.push(`> 数据来自企业微信打卡接口 · 打卡明细见附件 CSV`);
+  push('');
+  push(`> 数据来自企业微信打卡接口 · 打卡明细见附件 CSV`);
   return lines.join('\n');
 }
 
 function csvEscape(v) {
-  const s = String(v == null ? '' : v);
+  let s = String(v == null ? '' : v);
+  if (/^[=+\-@]/.test(s)) s = `'` + s; // 公式注入防护：Excel/WPS 把 =+-@ 开头单元格当公式执行，前置 ' 中和
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 

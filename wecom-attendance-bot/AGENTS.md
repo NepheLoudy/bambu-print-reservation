@@ -29,5 +29,5 @@
   导出走 `ATTENDANCE_DATA_DIR`（部署目标上=项目外 `/home/qianli/wecom-attendance-data`）；
 - **管理/写端点必须鉴权**：`POST /api/attendance/members`、`POST /api/attendance/test-broadcast`
   挂 X-API-Token（模板=feishu-gateway/src/auth.js）；只读 GET 与 /api/health 不受限；
-- **行为改动必须过桩测试**：push 前跑 `npm run test`（六套桩），push.js 有测试闸门；
+- **行为改动必须过桩测试**：push 前跑 `npm run test`（七套桩，v5 起含 import），push.js 有测试闸门；
 - 权能/端口/窗口变动同批更新 `dashboard/registry.js`（单一事实来源）与本 README。

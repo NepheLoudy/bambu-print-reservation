@@ -3,6 +3,7 @@ const path = require('path');
 const crypto = require('crypto');
 const usage = require('./usage');
 const bitable = require('./bitable');
+const { resolveDataDir } = require('./data-dir');
 
 // ============================================================
 // 网关活跃 → 「机器人项目看板」多维表格同步（动态广场看板数据源）
@@ -22,8 +23,9 @@ const TABLES = {
 };
 const SYNC_INTERVAL_MS = 30 * 60 * 1000;
 
-const dataDir = process.env.GATEWAY_DATA_DIR || '/home/qianli/feishu-gateway-data';
-const STATE_FILE = path.join(dataDir, 'usage-sync-state.json');
+// 数据目录与 usage.js 共用同一解析（src/data-dir.js）：GATEWAY_DATA_DIR 优先、
+// 默认项目外、mkdir recursive 兜底——写 state 前目录必已存在
+const STATE_FILE = path.join(resolveDataDir(), 'usage-sync-state.json');
 let state = { sigs: {} };
 try { state = Object.assign(state, JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'))); } catch (err) { /* 首次空表 */ }
 let stateDirty = false;
@@ -32,6 +34,16 @@ setInterval(() => {
   stateDirty = false;
   fs.writeFile(STATE_FILE, JSON.stringify(state), () => {});
 }, 60 * 1000).unref();
+
+// SIGINT/SIGTERM 落盘（照 usage.js 惯例）：pm2 restart 前把未刷的签名状态写回，重启不重写全表。
+// 必须用 prependListener 插队——usage.js 的同名 handler 会 process.exit(0)，
+// 普通注册排在其后永远轮不到执行
+process.prependListener('SIGINT', () => {
+  if (stateDirty) { try { fs.writeFileSync(STATE_FILE, JSON.stringify(state)); } catch (err) { /* 退出不等落盘 */ } }
+});
+process.prependListener('SIGTERM', () => {
+  if (stateDirty) { try { fs.writeFileSync(STATE_FILE, JSON.stringify(state)); } catch (err) { /* 退出不等落盘 */ } }
+});
 
 function signature(day) {
   const userCount = Object.values(day.users || {}).reduce((s, u) => s + (u.c || 0), 0);

@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v109**（2026-09-25，随本提交落地；部署待实验室网段恢复后补）。上一版 v108（台账同步归档）。上一版 v107（报销交付包跨仓批）。上一版 v106（`2b070a4`）。上一版 v105（approval v46 复查批归档，`2b070a4`）。上一版 v104（发票采集全链路批，`cef9b2f`）。上一版 v103（值日体系全面检修，`19695bd`）。上一版 v102（值日公平性批，`7aae41e`）。上一版 v101（负载算法升级批，`97bd02b`）。上一版 v100（团队负载看板三仓联动，`11179b8`）。
+当前最新：**v110**（2026-09-26，随本提交落地；部署待实验室网段恢复后补）。上一版 v109（安全审查修复批）。上一版 v108（台账同步归档）。上一版 v107（报销交付包跨仓批）。上一版 v106（`2b070a4`）。上一版 v105（approval v46 复查批归档，`2b070a4`）。上一版 v104（发票采集全链路批，`cef9b2f`）。上一版 v103（值日体系全面检修，`19695bd`）。上一版 v102（值日公平性批，`7aae41e`）。上一版 v101（负载算法升级批，`97bd02b`）。上一版 v100（团队负载看板三仓联动，`11179b8`）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -906,3 +906,14 @@
 - 本仓改动：registry approval notes、NET_TARGETS 摘除 3002（回环后 LAN 探测恒 ✗ 属预期）、approval-bot gitlink。
 - 遗留排期（管理清单，非代码漏洞）：共享 API_TOKEN 按仓拆分、群 webhook 签名校验、台账/批次每日对账（周报带 drift 段）、审批多维表格成员编辑权限盘点、`archive/project-configs` 旧密钥轮换。
 - 部署状态：approval-bot/hub 均待实验室网段恢复后各自 `npm run push`。
+
+## v110 · 2026-09-26 · 随本提交落地 · fix（联动摘要）
+
+**七机器人项目全量审查批归档（代码审查/意图分析/结构评估/全量 debug）**
+
+- 方法：7 个只读审查子代理并行（意图-实现对照+代码审查+全量测试+结构评估），主会话甄别后派修复代理落地、主会话独立复跑全部测试把关。修复前七仓测试已全绿——问题全部藏在「意图覆盖不到的组合路径」上。
+- 战果：**P1×11**（approval regen 排序失效/笔序并发/markBatch 无状态机；bambu 打印机幽灵空闲/AMS 位图错位；duty 幂等键丢照片/补偿义务不回退/请假错班/静默冲刷连发 7 遍；wecom 周报超字节必败/水位回拨重复轰炸）+ **P2×约 40**（含安全收口×2：ticket-bot 事件帧 fail-closed + 回环监听对齐 approval v51），全部修复，各仓测试全绿、新增回归断言约 40 组。
+- 各仓版本：approval v53 / gateway v33 / duty v40 / ticket v85 / hub v117 / wecom v10 / bambu v35（明细见各仓 DEVLOG）。
+- 本仓改动：gateway+wecom+bambu 三项目代码（顶层跟踪）、dashboard/registry.js（wecom 出站口径 import 为主）、dashboard/server.js NET_TARGETS（3002/3003 回环化后摘出 LAN 探测）、各项目 DEVLOG。
+- 结构优化：低风险项已随批落地（fetchWithTimeout 工具、映射收敛、闸门自动发现等）；中高风险项（chatService 拆分、dispatcher 拆分、排班 rebalance 同日冲突、usage.js 拆分等）记录在各仓 DEVLOG，另批处理。
+- 部署状态：七仓全部待实验室网段恢复后各自 npm run push（approval v49-v53、hub v115-v117 两笔大队列一并上线）。

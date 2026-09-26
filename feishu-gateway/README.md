@@ -107,8 +107,6 @@ node scripts/stub-test-usage-mentions.js # 群聊被@统计 stub（普通成员�
                                         # 注意：push 部署闸门目前只串联跑前两支，mentions 桩需手动跑）
 node smoke-test.js                      # 本地冒烟（起 mock 消费者+无凭证网关，验证路由/模式/legacy 转换/去重；
                                         # 仅本机跑——硬编码 3010 端口，勿入 push 闸门以免与部署目标在线网关撞端口）
-node smoke-test.js                      # 本地冒烟（起 mock 消费者+无凭证网关，验证路由/模式/legacy 转换/去重；
-                                        # 仅本机跑——硬编码 3010 端口，勿入 push 闸门以免与部署目标在线网关撞端口）
 ```
 
 

@@ -1,6 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
+const { resolveDataDir } = require('./data-dir');
+const { fetchWithTimeout, TOKEN_TIMEOUT_MS } = require('./http');
 
 // ============================================================
 // 使用统计（运维台「功能使用 / 队员活跃」看板的数据源）
@@ -19,12 +21,7 @@ const config = require('./config');
 // ============================================================
 
 const KEEP_DAYS = 30;
-let dataDir = process.env.GATEWAY_DATA_DIR || '/home/qianli/feishu-gateway-data';
-try {
-  fs.mkdirSync(dataDir, { recursive: true });
-} catch (err) {
-  dataDir = __dirname; // 本地开发等写不了系统目录时退回项目内（不入 git）
-}
+const dataDir = resolveDataDir();
 const FILE = path.join(dataDir, 'usage-stats.json');
 
 let stats = { v: 1, names: {}, days: {}, funFeats: {}, funCmds: {}, mentions: {} };
@@ -200,11 +197,15 @@ async function tenantToken() {
   const appId = config.feishu.appId;
   const appSecret = config.feishu.appSecret;
   if (!appId || !appSecret) return null;
-  const res = await fetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ app_id: appId, app_secret: appSecret }),
-  });
+  const res = await fetchWithTimeout(
+    'https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ app_id: appId, app_secret: appSecret }),
+    },
+    TOKEN_TIMEOUT_MS
+  );
   const data = await res.json();
   if (data.code !== 0) throw new Error(data.msg || 'token 获取失败');
   tokenCache = { token: data.tenant_access_token, expireAt: Date.now() + ((data.expire || 3600) - 300) * 1000 };
@@ -214,9 +215,10 @@ async function tenantToken() {
 async function resolveName(openId) {
   const token = await tenantToken();
   if (!token) return null;
-  const res = await fetch(`https://open.feishu.cn/open-apis/contact/v3/users/${openId}?user_id_type=open_id`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await fetchWithTimeout(
+    `https://open.feishu.cn/open-apis/contact/v3/users/${openId}?user_id_type=open_id`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
   const data = await res.json();
   if (data.code !== 0) throw new Error(data.msg || '通讯录查询失败');
   return (data.data && data.data.user && data.data.user.name) || null;

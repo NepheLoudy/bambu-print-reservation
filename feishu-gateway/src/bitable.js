@@ -1,4 +1,5 @@
 const { tenantToken } = require('./usage');
+const { fetchWithTimeout } = require('./http');
 
 // ============================================================
 // 多维表格最小客户端（动态广场看板「网关活跃」三表专用）：
@@ -10,7 +11,7 @@ const BASE = 'https://open.feishu.cn/open-apis';
 async function api(method, p, body) {
   const token = await tenantToken();
   if (!token) throw new Error('无可用 tenant token（应用凭证未配置）');
-  const res = await fetch(`${BASE}${p}`, {
+  const res = await fetchWithTimeout(`${BASE}${p}`, {
     method,
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,

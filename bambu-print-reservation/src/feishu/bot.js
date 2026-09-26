@@ -166,61 +166,6 @@ function buildReviewResultCard(reservation, result, comment) {
   };
 }
 
-function buildPrintStatusCard(printerName, status, progress, currentFile) {
-  let statusColor = 'gray';
-  let statusIcon = '🔵';
-
-  if (status === '空闲') {
-    statusColor = 'green';
-    statusIcon = '🟢';
-  } else if (status === '打印中' || status === '准备中') {
-    statusColor = 'orange';
-    statusIcon = '🟠';
-  } else if (status === '暂停') {
-    statusColor = 'yellow';
-    statusIcon = '🟡';
-  } else if (status === '故障') {
-    statusColor = 'red';
-    statusIcon = '🔴';
-  } else if (status === '已完成') {
-    statusColor = 'turquoise';
-    statusIcon = '✅';
-  }
-
-  return {
-    config: {
-      wide_screen_mode: true,
-      enable_forward: true,
-    },
-    elements: [
-      {
-        tag: 'markdown',
-        content: `**${statusIcon} ${printerName} 状态更新**`,
-      },
-      { tag: 'hr' },
-      {
-        tag: 'markdown',
-        content: `**状态**: ${status}`,
-      },
-      {
-        tag: 'markdown',
-        content: `**当前任务**: ${currentFile || '无'}`,
-      },
-      {
-        tag: 'markdown',
-        content: `**进度**: ${progress !== null && progress !== undefined ? `${progress}%` : '未知'}`,
-      },
-    ],
-    header: {
-      template: statusColor,
-      title: {
-        content: '🖨️ 打印机状态',
-        tag: 'plain_text',
-      },
-    },
-  };
-}
-
 function taskBrief(task) {
   const material = [task.materialType, task.color].filter(Boolean).join('×') || '未指定材料';
   return `${task.applicationNo || task.recordId}｜${task.fileName || '未命名'}｜${material}`;
@@ -309,24 +254,6 @@ function buildMaterialMissingCard(waitingCount, needs) {
   };
 }
 
-async function sendTextToChat(chatId, text) {
-  const res = await requestAPI(
-    'POST',
-    '/im/v1/messages?receive_id_type=chat_id',
-    {
-      receive_id: chatId,
-      msg_type: 'text',
-      content: JSON.stringify({ text }),
-    }
-  );
-
-  if (res.code !== 0) {
-    throw new Error(`发送群消息失败: ${res.msg} (code: ${res.code})`);
-  }
-
-  return res.data;
-}
-
 async function sendTextToUser(openId, text) {
   const res = await requestAPI(
     'POST',
@@ -345,36 +272,15 @@ async function sendTextToUser(openId, text) {
   return res.data;
 }
 
-async function sendCardToChat(chatId, cardContent) {
-  const res = await requestAPI(
-    'POST',
-    '/im/v1/messages?receive_id_type=chat_id',
-    {
-      receive_id: chatId,
-      msg_type: 'interactive',
-      content: JSON.stringify(cardContent),
-    }
-  );
-
-  if (res.code !== 0) {
-    throw new Error(`发送群卡片消息失败: ${res.msg} (code: ${res.code})`);
-  }
-
-  return res.data;
-}
-
 module.exports = {
   sendMessage,
   sendTextMessage,
   buildReservationAlertCard,
   buildReviewResultCard,
-  buildPrintStatusCard,
   buildQueueCard,
   buildJobStartCard,
   buildJobFinishCard,
   buildJobFailedCard,
   buildMaterialMissingCard,
-  sendTextToChat,
   sendTextToUser,
-  sendCardToChat,
 };

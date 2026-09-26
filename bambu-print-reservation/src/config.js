@@ -61,7 +61,9 @@ module.exports = {
   feishuEvent: {
     verificationToken: process.env.FEISHU_VERIFICATION_TOKEN || '',
     encryptKey: process.env.FEISHU_ENCRYPT_KEY || '',
-    useLongConnection: process.env.FEISHU_USE_LONG_CONNECTION === 'true', // 默认 false：网关转发模式（长连接模式在本仓是空壳，误配即静默收不到全部事件）
+    // 仅作误配绊线：置 true 启动即抛（fail-fast）——本仓没有长连接实现，
+    // qianli 只允许 gateway 持长连接（顶层 AGENTS.md 对话铁律）
+    useLongConnection: process.env.FEISHU_USE_LONG_CONNECTION === 'true',
   },
 
   bot: {

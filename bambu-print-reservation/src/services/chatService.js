@@ -2,66 +2,17 @@ const config = require('../config');
 const reservationService = require('./reservation');
 const printerManager = require('../printer/manager');
 const dispatcher = require('./dispatcher');
-const { sendTextMessage } = require('../feishu/bot');
 
-const processedMessageIds = new Set();
+// ============================================================
+// 指令服务（2026-09-25 对话铁律收口）：本仓不消费消息事件、不直接回复对话，
+// 指令统一由 hub 经 POST /api/chat/command 转发进来（executeCommand 出口）。
+// 旧版 processChatMessage 直连链（im.message.receive_v1 → 直接回复）已删除。
+// ============================================================
 
 const STATUS_ICONS = {
   '空闲': '🟢', '打印中': '🟠', '准备中': '🟠', '切片中': '🟠',
   '暂停': '🟡', '已完成': '✅', '故障': '🔴', '未连接': '⚫',
 };
-
-function isMentionedBot(message) {
-  if (!message) return false;
-
-  const chatType = message.chat_type;
-  if (chatType === 'p2p') return true;
-
-  if (!message.mentions || message.mentions.length === 0) return false;
-
-  const botName = config.bot.name || '爆米花机';
-  return message.mentions.some(m => {
-    if (m.id === 'self') return true;
-    // 真实事件里 @机器人 为 mentioned_type='bot'（id 是对象），需兼容
-    if (m.mentioned_type === 'bot' || m.mentioned_type === 'app') return true;
-    if (m.name === botName) return true;
-    return false;
-  });
-}
-
-function extractTextWithoutMention(message) {
-  let text = '';
-  
-  if (message.content) {
-    try {
-      const content = typeof message.content === 'string' ? JSON.parse(message.content) : message.content;
-      text = content.text || '';
-    } catch (e) {
-      text = message.content.toString() || '';
-    }
-  } else if (message.text) {
-    text = message.text;
-  }
-
-  const botName = config.bot.name || '爆米花机';
-
-  return text
-    .replace(new RegExp(`@${botName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*`, 'g'), '')
-    .replace(/@_user_\d+\s*/g, '')
-    .replace(/@_bot_\d+\s*/g, '')
-    .replace(/@_everyone\s*/g, '')
-    .trim();
-}
-
-function parseCommand(text) {
-  if (!text || !text.startsWith('/')) return null;
-  
-  const parts = text.split(/\s+/);
-  const command = parts[0].toLowerCase();
-  const args = parts.slice(1);
-  
-  return { command, args, raw: text };
-}
 
 async function handleHelpCommand() {
   const botName = config.bot.name || '爆米花机';
@@ -283,94 +234,8 @@ const commandHandlers = {
   '/print-dispatch': handlePrintDispatchCommand,
 };
 
-async function handleNormalChat(senderName) {
-  const botName = config.bot.name || '爆米花机';
-  return `你好${senderName ? '，' + senderName : ''}！我是🖨️${botName}。
-
-我是3D打印预约助手：提交预约请到飞书多维表格（上传 3mf + 选材料/颜色），审批通过后自动匹配打印机开始打印。
-
-📋 可用指令：
-  • /print-help      查看打印相关指令
-  • /print-status    打印机状态与耗材
-  • /print-ams       耗材总览
-  • /print-list      预约列表
-  • /print-pending   待审批预约
-
-有什么需要帮忙的吗？`;
-}
-
-async function processChatMessage(event) {
-  const message = event.message;
-  if (!message) return { handled: false, reason: '无消息内容' };
-
-  const chatType = message.chat_type || message.chatMode;
-  const isGroup = chatType === 'group';
-
-  console.log('[对话服务] 收到消息 - chat_type:', chatType, 'mentions:', JSON.stringify(message.mentions || []), 'message_id:', message.message_id);
-
-  if (isGroup && !isMentionedBot(message)) {
-    console.log('[对话服务] 跳过 - 群聊未@机器人');
-    return { handled: false, reason: '群聊未@机器人' };
-  }
-
-  if (message.message_id) {
-    if (processedMessageIds.has(message.message_id)) {
-      console.log('[对话服务] 跳过重复消息:', message.message_id);
-      return { handled: true, skipped: true, reason: '重复消息' };
-    }
-    processedMessageIds.add(message.message_id);
-    if (processedMessageIds.size > 500) {
-      const firstKey = processedMessageIds.values().next().value;
-      processedMessageIds.delete(firstKey);
-    }
-  }
-
-  const text = extractTextWithoutMention(message);
-  console.log('[对话服务] 收到消息:', text, '(chat_id:', message.chat_id, ')');
-
-  const senderId = event.sender?.sender_id?.open_id || event.sender?.sender_id?.user_id || '';
-  const senderName = event.sender?.sender_id?.name || '';
-
-  let replyText = '';
-
-  const cmd = parseCommand(text);
-  if (cmd) {
-    console.log('[对话服务] 解析到指令:', cmd.command, '参数:', cmd.args);
-    const handler = commandHandlers[cmd.command];
-    if (handler) {
-      try {
-        replyText = await handler(cmd.args);
-      } catch (err) {
-        console.error('[对话服务] 指令执行失败:', err);
-        replyText = `❌ 指令执行失败：${err.message}`;
-      }
-    } else {
-      replyText = `❌ 未知指令：${cmd.command}\n发送 /help 查看可用指令`;
-    }
-  } else {
-    replyText = await handleNormalChat(senderName);
-  }
-
-  if (replyText) {
-    try {
-      await sendTextMessage(replyText);
-      console.log('[对话服务] 已回复消息');
-    } catch (err) {
-      console.error('[对话服务] 回复消息失败:', err.message);
-    }
-  }
-
-  return {
-    handled: true,
-    isCommand: !!cmd,
-    command: cmd?.command || null,
-    senderId,
-    chatId: message.chat_id,
-  };
-}
-
 /**
- * 统一指令执行入口（群聊消息与网关 /api/chat/command 转发共用）
+ * 统一指令执行入口（hub 经网关 /api/chat/command 转发的唯一对话出口）
  * @returns {Promise<string>} 回复文本
  */
 async function executeCommand(command, args) {
@@ -382,9 +247,6 @@ async function executeCommand(command, args) {
 }
 
 module.exports = {
-  processChatMessage,
-  isMentionedBot,
-  parseCommand,
   executeCommand,
   handlePrintHelpCommand,
   handlePrintStatusCommand,
