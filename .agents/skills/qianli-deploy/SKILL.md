@@ -75,7 +75,7 @@ push.js 依次做：① git add -A + commit + push（本地推 GitHub 失败不�
 | 症状 | 原因与解法 |
 | --- | --- |
 | pm2 全掉（目标机重启后机器人没起） | 小电脑开机自启=计划任务 `qianli-bots-autostart`（onstart + pm2 resurrect）；旧 NAS 备件位的 systemd 单元 `pm2-qianli` 已停。恢复：小电脑 `pm2 resurrect`，之后必须 `pm2 save`。曾因无自启单元 + 重启，三个服务静默挂了一整天才被发现 |
-| 运维台全红 + push 连不上 192.168.31.57:22 | 小电脑的 sshd 没启动（2026-09-14 踩过：服务其实在跑，纯属监控/部署通道断）。启用：工作区根 `enable-sshd.bat` 拷到小电脑右键管理员运行，或管理员 PowerShell `Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0.0; Set-Service sshd -StartupType Automatic; Start-Service sshd`。注意小电脑本地管理员账户远程 WMI/schtasks 会被 UAC 过滤拒绝，远程修不了只能本地跑 |
+| 运维台全红 + push 连不上 192.168.31.57:22 | 小电脑的 sshd 没启动（2026-09-14 踩过：服务其实在跑，纯属监控/部署通道断）。启用：`archive/enable-sshd.bat`（2026-09-28 归档）拷到小电脑右键管理员运行，或管理员 PowerShell `Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0.0; Set-Service sshd -StartupType Automatic; Start-Service sshd`。注意小电脑本地管理员账户远程 WMI/schtasks 会被 UAC 过滤拒绝，远程修不了只能本地跑 |
 | tar 报 `Cannot connect to C:` | Windows GNU tar 把 `C:` 当主机名，加 `--force-local` 或用相对名 + cwd |
 | 机器人读不到 .env | dotenv 必须显式 `path: path.join(__dirname, '..', '.env')`——pm2 启动的 cwd 不是项目目录 |
 | 部署后起来又挂 | 看 pm2 error 日志；常见是新代码引了 package.json 没有的依赖（如 dayjs 事故），补依赖重新 push |
