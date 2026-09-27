@@ -90,9 +90,11 @@ function createWanGuard(deps) {
     }
     state.current = acct;
     const ip = await authIp();
-    act(`login ${acct.user} (authIp=${ip || '?'})`);
     try {
-      await login({ user: acct.user, password: acct.password, authIp: ip });
+      const res = await login({ user: acct.user, password: acct.password, authIp: ip });
+      // eportal 响应 msg 极具诊断价值（如「IP 已经在线」=请求有效但 IP 已放行，断网场景不会出现）——记入动作日志
+      const msg = res && res.data && res.data.msg ? res.data.msg : (res && res.raw ? res.raw.slice(0, 60) : 'no-resp');
+      act(`login ${acct.user} (authIp=${ip || '?'}) → ${msg}`);
     } catch (err) {
       act(`login ${acct.user} 请求异常: ${err.message}`);
     }
@@ -178,7 +180,7 @@ function createWanGuard(deps) {
     return {
       reviving: state.reviving,
       currentUser: state.current ? state.current.user : null,
-      queueRemaining: state.queue.map((a) => a.user),
+      queueRemaining: state.reviving ? state.queue.map((a) => a.user) : [], // 非复活态不展示残留队列
       baseline: state.baseline,
       exhaustedUntil: state.exhaustedUntil ? new Date(state.exhaustedUntil + 8 * 3600 * 1000).toISOString().slice(0, 19).replace('T', ' ') + '+08:00' : null,
       pendingSlow: state.pendingSlow ? state.pendingSlow.user : null,
