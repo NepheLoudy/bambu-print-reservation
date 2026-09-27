@@ -1,14 +1,18 @@
 // ============================================================
-// 小米路由器管理客户端（实验性，2026-09-16）
+// 小米路由器管理客户端（实验性，2026-09-16；2026-09-27 适配新固件 SHA256 登录算法）
 // 用途：LAN 设备的踢出/封禁（设备禁用上网）。
 //
-// 登录算法为小米路由器公开的社区实现：
-//   1. GET  /cgi-bin/luci/web                    → 页面里取 key
-//   2. nonce = "0_<mac>_<秒级时间>_<4位随机>"
-//   3. pwd   = sha1( nonce + sha1(password + key) )
-//   4. POST  /cgi-bin/luci/api/xqsystem/login    → { token } → 后续路径带 ;stok=<token>
+// 登录算法为小米路由器公开的社区实现，**分两代（按登录页内联代码自动识别）**：
+//   共同：GET /cgi-bin/luci/web → 页面取 key 与 deviceId；
+//         nonce = "0_<deviceId>_<秒级时间>_<4位随机>"
+//   老固件：pwd = sha1( nonce + sha1(password + key) )
+//   新固件（登录页含 SHA256(this.nonce...) 字样，如 RD08 现行 ROM）：
+//           pwd = sha256( nonce + sha256(password + key) )
+//   POST /cgi-bin/luci/api/xqsystem/login → { token } → 后续路径带 ;stok=<token>
 // 设备列表：GET /cgi-bin/luci/;stok=S/api/misystem/devicelist
 // 禁用/恢复：不同固件端点有差异，按候选顺序尝试并把路由器原始响应带回给调用方调参。
+// （2026-09-27：RD08 新固件实测——老 SHA1 算法恒 not auth，SHA256 登录成功；
+//   当初误判为密码错误，实为算法代际问题，密码本身没错。）
 //
 // 凭据：路由器管理密码（调用方传入），不落盘、不进 git。
 // ============================================================
@@ -19,9 +23,24 @@ function sha1(s) {
   return crypto.createHash('sha1').update(s).digest('hex');
 }
 
+function sha256(s) {
+  return crypto.createHash('sha256').update(s).digest('hex');
+}
+
 function extractKey(html) {
   const m = /key\s*[:=]\s*'([A-Za-z0-9+/=]{8,})'/.exec(html);
   return m ? m[1] : null;
+}
+
+/** 登录页 deviceId（服务端渲染；老固件无此变量时回落调用方 mac/'test'） */
+function extractDeviceId(html) {
+  const m = /var\s+deviceId\s*=\s*'([0-9a-fA-F:]{12,17})'/.exec(html);
+  return m ? m[1] : null;
+}
+
+/** 新固件判定：登录页内联逻辑使用 SHA256 组合哈希 */
+function isNewAlgo(html) {
+  return /SHA256\(\s*this\.nonce/i.test(html);
 }
 
 async function fetchWithCookies(url, options = {}) {
@@ -43,11 +62,13 @@ async function fetchWithCookies(url, options = {}) {
 async function login({ host, password, mac = '' }) {
   if (!password) throw Object.assign(new Error('未配置路由器管理密码（ROUTER_PASSWORD）'), { code: 'NO_CONFIG' });
   const web = await fetchWithCookies(`http://${host}/cgi-bin/luci/web`, { signal: AbortSignal.timeout(8000) });
-  const key = extractKey(typeof web.body === 'string' ? web.body : JSON.stringify(web.body));
+  const html = typeof web.body === 'string' ? web.body : JSON.stringify(web.body);
+  const key = extractKey(html);
   if (!key) throw new Error('路由器登录页解析失败（未找到 key）——确认是小米路由器管理界面');
-
-  const nonce = `0_${mac || 'test'}_${Math.floor(Date.now() / 1000)}_${Math.floor(1000 + Math.random() * 9000)}`;
-  const pwd = sha1(nonce + sha1(password + key));
+  const deviceId = extractDeviceId(html) || mac || 'test';
+  const nonce = `0_${deviceId}_${Math.floor(Date.now() / 1000)}_${Math.floor(1000 + Math.random() * 9000)}`;
+  // 新固件（SHA256 组合）优先；老固件页面无该字样走 SHA1
+  const pwd = isNewAlgo(html) ? sha256(nonce + sha256(password + key)) : sha1(nonce + sha1(password + key));
   const qs = new URLSearchParams({ logtype: '2', username: 'admin', password: pwd, nonce });
   const r = await fetchWithCookies(`http://${host}/cgi-bin/luci/api/xqsystem/login?${qs}`, {
     method: 'POST', cookie: web.cookie, signal: AbortSignal.timeout(8000),
