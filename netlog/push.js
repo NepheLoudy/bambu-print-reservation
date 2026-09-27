@@ -168,9 +168,9 @@ function exec(cmd, cb) {
   });
 }
 
-// ============ [3/4] npm install + 上传 .env ============
+// ============ [3/4] npm install + 上传 .env 与账号池 ============
 function npmInstall() {
-  console.log('\n========== [3/4] npm install + 上传 .env ==========');
+  console.log('\n========== [3/4] npm install + 上传 .env 与账号池 ==========');
   exec('export PATH=/c/tools/node-v22.10.0-win-x64:/mingw64/bin:/usr/local/bin:/usr/bin:/bin:/Windows/System32:$PATH; cd ' + REMOTE_DIR + ' && npm install --omit=dev', () => {
     conn.sftp((err, sftp) => {
       if (err) {
@@ -184,9 +184,70 @@ function npmInstall() {
           conn.end();
           process.exit(1);
         }
-        console.log('✓ .env 已上传（含部署凭证与 webhook，仅存于部署目标）');
-        restart();
+        console.log('✓ .env 已上传（含部署凭证/webhook/API token，仅存于部署目标）');
+        uploadAccountPool(sftp, restart);
       });
+    });
+  });
+}
+
+// 账号池上传（含校园网账号密码，绝不进 git；目标=数据目录，代码 rm -rf 不波及）。
+// 【运行时数据保护】权威可能在部署目标侧（目标机上直接编辑过账号池）：上传前先备份现网；
+// 本地条目数 < 现网时跳过上传并把现网回填本地（PUSH_FORCE_PRIVATE=1 强制覆盖）。
+const LOCAL_POOL = path.join(__dirname, '..', 'campus-accounts.local.json');
+const REMOTE_POOL = 'C:/qianli/data/netlog/campus-accounts.local.json';
+function poolCount(content) {
+  try {
+    const obj = JSON.parse(content || 'null');
+    return Array.isArray(obj && obj.accounts) ? obj.accounts.length : null;
+  } catch { return null; }
+}
+function uploadAccountPool(sftp, done) {
+  if (!fs.existsSync(LOCAL_POOL)) {
+    console.warn('⚠ 本地无 campus-accounts.local.json，跳过账号池上传（引擎将以空池运行）');
+    return done();
+  }
+  sftp.readFile(REMOTE_POOL, 'utf8', (readErr, remoteContent) => {
+    if (readErr && readErr.code !== 'ENOENT' && readErr.code !== 2) {
+      // 非 ENOENT（ssh2 对不存在文件抛数字码 2）一律中止——读现网失败 ≠ 现网为空
+      console.error(`[账号池保护] 读取现网账号池失败（${readErr.code || '?'} ${readErr.message}），中止部署。`);
+      conn.end();
+      process.exit(1);
+    }
+    const localContent = fs.readFileSync(LOCAL_POOL, 'utf8');
+    const localCount = poolCount(localContent);
+    const remoteCount = readErr ? 0 : poolCount(remoteContent);
+    const backupThen = (next) => {
+      if (readErr || !remoteContent || !remoteContent.trim()) return next();
+      const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const backupPath = 'C:/qianli/data/netlog/campus-accounts.' + ts + '.bak.json';
+      sftp.writeFile(backupPath, remoteContent, (wErr) => {
+        if (wErr) console.warn('⚠ 现网账号池备份失败（继续）:', wErr.message);
+        else console.log('✓ 现网账号池已备份:', backupPath);
+        next();
+      });
+    };
+    backupThen(() => {
+      if (readErr) return sftpWritePool(sftp, localContent, done);
+      if (remoteCount !== null && localCount !== null && remoteCount > localCount && process.env.PUSH_FORCE_PRIVATE !== '1') {
+        console.warn(`⚠ [账号池保护] 跳过上传：本地 ${localCount} 账号 < 现网 ${remoteCount} 账号（本地种子过期，现网内容已回填本地）。确认覆盖请设 PUSH_FORCE_PRIVATE=1。`);
+        fs.writeFileSync(LOCAL_POOL, remoteContent);
+        return done();
+      }
+      return sftpWritePool(sftp, localContent, done);
+    });
+  });
+}
+function sftpWritePool(sftp, content, done) {
+  conn.exec('mkdir -p /c/qianli/data/netlog', () => {
+    sftp.writeFile(REMOTE_POOL, content, (err) => {
+      if (err) {
+        console.error('账号池上传失败:', err.message);
+        conn.end();
+        process.exit(1);
+      }
+      console.log('✓ 账号池已上传到部署目标数据目录（凭据不进 git）');
+      done();
     });
   });
 }

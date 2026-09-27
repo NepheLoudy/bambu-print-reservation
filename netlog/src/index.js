@@ -56,6 +56,10 @@ const CONFIG = {
     .split(',').map((s) => s.trim()).filter(Boolean),
   webhookUrl: process.env.NETLOG_WEBHOOK_URL || '',
   dataDir: process.env.NETLOG_DATA_DIR || path.join(os.homedir(), 'qianli-data', 'netlog'),
+  // ---- 复活引擎（v2）：账号池 + Dr.COM eportal 认证 + 慢速降级 ----
+  accountPool: process.env.NETLOG_ACCOUNT_POOL || path.join(os.homedir(), 'qianli-data', 'netlog', 'campus-accounts.local.json'),
+  apiToken: process.env.NETLOG_API_TOKEN || '', // 手动复活端点鉴权（管理端点必须鉴权；未配置=端点锁定）
+  reviveEnabled: process.env.NETLOG_REVIVE_ENABLED !== 'false', // 默认开；false 退化回纯日志探针
 };
 
 // ============================================================
@@ -69,6 +73,7 @@ function createEngine(deps) {
     failThreshold = CONFIG.failThreshold,
     heartbeatMs = CONFIG.heartbeatMs,
     egressIntervalMs = CONFIG.egressIntervalMs,
+    onTick = null, // 钩子：每轮探测完成后调用 (wanOk, lanOk)；wanGuard 复活引擎挂这里
   } = deps;
 
   const state = {
@@ -195,6 +200,8 @@ function createEngine(deps) {
     }
     // wan 恢复后补发断网期间积压的通知（通知通道与被监控网络同生死，这是主通知路径）
     if (wanOk && !prevWanUp) await flushBacklog();
+    // 复活引擎钩子（防抖后语义：探测即时结果的组合）
+    if (onTick) await onTick(wanOk, lanOk);
     state.lastLogAt = now();
   }
 
@@ -311,6 +318,45 @@ async function sendWebhook(text) {
   }
 }
 
+// ============================================================
+// wanGuard 复活引擎组装（v2）：账号池 × Dr.COM eportal × 慢速降级
+// guard 与 engine 相互需要（guard.emit → engine.emit），用后绑定解环：
+// guard 先建（emit 走占位），engine 建好后回填 emitRef。
+// ============================================================
+let guard = null;
+let emitRef = (event, detail) => console.log(`[netlog] (emit 未就绪) ${event} ${detail || ''}`);
+try {
+  const { createAccountPool } = require('./accountPool');
+  const campusAuth = require('./campusAuth');
+  const { createWanGuard } = require('./wanGuard');
+
+  const pool = createAccountPool(CONFIG.accountPool);
+
+  /** 单次 wan 探测延迟（取 wanTargets 中最先成功者，失败 null） */
+  async function probeLatency() {
+    for (const t of CONFIG.wanTargets) {
+      const start = Date.now();
+      const ok = await probeTcp(t.host, t.port, CONFIG.timeoutMs);
+      if (ok) return Date.now() - start;
+    }
+    return null;
+  }
+
+  guard = createWanGuard({
+    candidates: () => pool.listCandidates(),
+    authIp: () => campusAuth.fetchAuthIp(),
+    login: (acct) => campusAuth.login(acct),
+    probeLatency,
+    ban: (user, reason) => pool.banThisMonth(user, reason),
+    emit: (event, detail) => emitRef(event, detail),
+  });
+
+  var guardOnTick = (wanOk, lanOk) => guard.onTick(wanOk, lanOk);
+} catch (err) {
+  console.error(`[netlog] 复活引擎初始化失败（退化为纯日志探针）: ${err.message}`);
+  var guardOnTick = null;
+}
+
 const engine = createEngine({
   probeLan: () => probeTcp(CONFIG.lanHost, CONFIG.lanPort, CONFIG.timeoutMs),
   probeWan: async () => {
@@ -324,11 +370,54 @@ const engine = createEngine({
   appendLog,
   readBacklog,
   writeBacklog,
+  onTick: async (wanOk, lanOk) => {
+    if (!CONFIG.reviveEnabled || !guardOnTick) return;
+    try {
+      await guardOnTick(wanOk, lanOk);
+      if (wanOk && guard) await guard.sampleBaseline();
+    } catch (err) {
+      console.error(`[netlog] wanGuard tick 异常: ${err.message}`);
+    }
+  },
 });
+emitRef = (event, detail) => engine.emit(event, detail); // 回填：guard 事件进引擎的记录+通知链路
 
 function startServer() {
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://localhost');
+    if (url.pathname === '/api/netlog/revive') {
+      // 管理端点必须鉴权（全局工程规则）：X-API-Token，timingSafeEqual + fail-closed——未配置 token = 端点整体锁定
+      const token = req.headers['x-api-token'] || '';
+      const expected = CONFIG.apiToken;
+      let authed = false;
+      if (expected && token.length === expected.length) {
+        authed = require('crypto').timingSafeEqual(Buffer.from(token), Buffer.from(expected));
+      }
+      if (req.method !== 'POST') {
+        res.writeHead(405).end();
+        return;
+      }
+      if (!authed) {
+        console.warn(`[netlog] /api/netlog/revive 鉴权失败（token 未配置或不匹配），拒绝`);
+        res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: false, error: 'forbidden' }));
+        return;
+      }
+      if (!guard) {
+        res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: false, error: 'guard 未初始化' }));
+        return;
+      }
+      console.log('[netlog] 手动触发复活流程（API）');
+      guard.forceRevive().then(() => {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: true, note: 'revive 流程已启动，结果看 /api/netlog/summary 与事件通知' }));
+      }).catch((err) => {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: false, error: String(err.message) }));
+      });
+      return;
+    }
     if (req.method !== 'GET') {
       res.writeHead(405).end();
       return;
@@ -340,20 +429,23 @@ function startServer() {
       return;
     }
     if (url.pathname === '/api/netlog/summary') {
+      const s = engine.summary();
+      s.guard = guard ? guard.summary() : null;
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify(engine.summary(), null, 2));
+      res.end(JSON.stringify(s, null, 2));
       return;
     }
     res.writeHead(404).end();
   });
   server.listen(CONFIG.port, () => {
-    console.log(`[netlog] HTTP 端点已启动 :${CONFIG.port}（/api/health、/api/netlog/summary）`);
+    console.log(`[netlog] HTTP 端点已启动 :${CONFIG.port}（GET /api/health、/api/netlog/summary；POST /api/netlog/revive ${CONFIG.apiToken ? '已鉴权启用' : '未配置 NETLOG_API_TOKEN，已锁定'}）`);
   });
 }
 
 function main() {
   console.log(`[netlog] 启动：lan=${CONFIG.lanHost}:${CONFIG.lanPort} wan=${CONFIG.wanTargets.map((t) => `${t.host}:${t.port}`).join('/')} interval=${CONFIG.intervalMs}ms threshold=${CONFIG.failThreshold}`);
   console.log(`[netlog] 数据目录 ${CONFIG.dataDir}（net-log.jsonl + backlog.json）；webhook ${CONFIG.webhookUrl ? '已配置' : '未配置（只落盘不外发）'}`);
+  console.log(`[netlog] 复活引擎 ${CONFIG.reviveEnabled ? '启用' : '停用'}：账号池 ${CONFIG.accountPool}${guard ? `（候选 ${(guard.summary().queueRemaining.length + (guard.summary().currentUser ? 1 : 0)) || '按池文件'}，首选项见 preferred）` : '（未初始化）'}`);
   startServer();
   // 启动即尝试补发历史积压（断网期间积压但 webhook 未配置/仍断的，配置就绪重启后送达）
   engine.flushBacklog().catch((err) => console.warn(`[netlog] 启动补发积压未完成（保留待下轮）: ${err.message}`));
