@@ -54,7 +54,6 @@ const CONFIG = {
   egressIntervalMs: Number(process.env.NETLOG_EGRESS_INTERVAL_MS || 30 * 60 * 1000),
   egressUrls: (process.env.NETLOG_EGRESS_URLS || 'http://members.3322.org/dyndns/getip,http://ip.3322.net,https://api.ipify.org')
     .split(',').map((s) => s.trim()).filter(Boolean),
-  webhookUrl: process.env.NETLOG_WEBHOOK_URL || '',
   dataDir: process.env.NETLOG_DATA_DIR || path.join(os.homedir(), 'qianli-data', 'netlog'),
   // ---- 复活引擎（v2）：账号池 + Dr.COM eportal 认证 + 慢速降级 ----
   accountPool: process.env.NETLOG_ACCOUNT_POOL || path.join(os.homedir(), 'qianli-data', 'netlog', 'campus-accounts.local.json'),
@@ -116,13 +115,8 @@ function createEngine(deps) {
       pushBacklog(event, detail, 'process-event');
       return;
     }
-    if (!CONFIG.webhookUrl) {
-      // 未配置 webhook：事件仍入积压——配置补上并重启后由启动补发送达
-      pushBacklog(event, detail, 'webhook 未配置');
-      return;
-    }
     try {
-      await sendWebhook(text);
+      await sendNotify(text);
     } catch (err) {
       // 推送失败（断网时必然失败）→ 积压，恢复后汇总补发
       pushBacklog(event, detail, err.message);
@@ -172,7 +166,7 @@ function createEngine(deps) {
     const lines = backlog.map((b) => `· ${fmtTs(b.ts)} ${b.event}${b.detail ? `：${b.detail}` : ''}`);
     const text = `[netlog] 断网期间事件汇总（${backlog.length} 条，现已恢复）\n${lines.join('\n')}`;
     try {
-      await sendWebhook(text);
+      await sendNotify(text);
     } catch (err) {
       console.warn(`[netlog] 积压补发仍失败（保留待下轮）: ${err.message}`);
       return;
@@ -298,6 +292,22 @@ function writeBacklog(list) {
   }
 }
 
+/** 通知出口（v6，曼波拍板「不用 webhook 用机器人本体」）：
+ *  仅走对话型机器人（共用应用）私聊 NETLOG_NOTIFY_OPEN_IDS；
+ *  任一目标成功即视为送达；全部失败抛错（调用方积压）。 */
+async function sendNotify(text) {
+  const tasks = [];
+  for (const oid of feishu.NOTIFY_OPEN_IDS) {
+    tasks.push({ name: `dm:${oid.slice(0, 12)}`, run: () => feishu.sendTextToOpenId(oid, text) });
+  }
+  if (!tasks.length) throw new Error('未配置通知目标（NETLOG_NOTIFY_OPEN_IDS 为空）');
+  const results = await Promise.allSettled(tasks.map((t) => t.run()));
+  const failures = results.filter((r) => r.status === 'rejected').map((r) => r.reason.message);
+  const okCount = results.length - failures.length;
+  if (okCount === 0) throw new Error(failures.join(' ; ').slice(0, 240));
+  if (failures.length) console.warn(`[netlog] 部分通知目标失败（已送达 ${okCount}/${results.length}）: ${failures.join(' ; ').slice(0, 200)}`);
+}
+
 async function fetchEgressIp() {
   for (const url of CONFIG.egressUrls) {
     try {
@@ -309,26 +319,6 @@ async function fetchEgressIp() {
   return null;
 }
 
-async function sendWebhook(text) {
-  if (!CONFIG.webhookUrl) throw new Error('webhook 未配置');
-  const res = await httpRequestText(CONFIG.webhookUrl, {
-    timeoutMs: 15000,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ msg_type: 'text', content: { text } }),
-  });
-  // 飞书 webhook 成功返回 {"StatusCode":0,...} / {"code":0}，非 0 视为失败进积压
-  try {
-    const data = JSON.parse(res);
-    if ((data.code !== undefined && data.code !== 0) || (data.StatusCode !== undefined && data.StatusCode !== 0)) {
-      throw new Error(`webhook 返回失败: ${res.slice(0, 200)}`);
-    }
-  } catch (err) {
-    if (err.message.startsWith('webhook 返回失败')) throw err;
-    // 非 JSON 响应（网关拦截页等）也按失败处理
-    throw new Error(`webhook 响应异常: ${res.slice(0, 120)}`);
-  }
-}
 
 // ============================================================
 // wanGuard 复活引擎组装（v2）：账号池 × Dr.COM eportal × 慢速降级
@@ -369,6 +359,9 @@ try {
   var guardOnTick = null;
 }
 
+let feishu = { NOTIFY_OPEN_IDS: [] };
+try { feishu = require('./feishu'); } catch (err) { console.warn(`[netlog] 飞书私聊模块不可用: ${err.message}`); }
+
 const engine = createEngine({
   probeLan: () => probeTcp(CONFIG.lanHost, CONFIG.lanPort, CONFIG.timeoutMs),
   probeWan: async () => {
@@ -378,7 +371,6 @@ const engine = createEngine({
     return false;
   },
   fetchEgressIp,
-  sendWebhook,
   appendLog,
   readBacklog,
   writeBacklog,
@@ -456,7 +448,7 @@ function startServer() {
 
 function main() {
   console.log(`[netlog] 启动：lan=${CONFIG.lanHost}:${CONFIG.lanPort} wan=${CONFIG.wanTargets.map((t) => `${t.host}:${t.port}`).join('/')} interval=${CONFIG.intervalMs}ms threshold=${CONFIG.failThreshold}`);
-  console.log(`[netlog] 数据目录 ${CONFIG.dataDir}（net-log.jsonl + backlog.json）；webhook ${CONFIG.webhookUrl ? '已配置' : '未配置（只落盘不外发）'}`);
+  console.log(`[netlog] 数据目录 ${CONFIG.dataDir}（net-log.jsonl + backlog.json）；通知=机器人私聊 ${feishu.NOTIFY_OPEN_IDS.length ? feishu.NOTIFY_OPEN_IDS.length + ' 个目标' : '（未配置 NETLOG_NOTIFY_OPEN_IDS，只落盘）'}`);
   console.log(`[netlog] 复活引擎 ${CONFIG.reviveEnabled ? '启用' : '停用'}：账号池 ${CONFIG.accountPool}${guard ? `（候选 ${(guard.summary().queueRemaining.length + (guard.summary().currentUser ? 1 : 0)) || '按池文件'}，首选项见 preferred）` : '（未初始化）'}`);
   startServer();
   // 启动即尝试补发历史积压（断网期间积压但 webhook 未配置/仍断的，配置就绪重启后送达）

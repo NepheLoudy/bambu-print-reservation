@@ -12,6 +12,19 @@ const path = require('path');
 // 钉死环境（必须在 require src/index.js 之前）：本地 .env 的真实 webhook 配置会经
 // loadDotEnv 渗入模块常量 CONFIG，把「未配置→积压」「推送失败→积压」两条桩路径变成真外发
 process.env.NETLOG_WEBHOOK_URL = '';
+// feishu 模块桩：机器人本体私聊走这里（dmSent 记录送达）
+const ROOT2 = path.join(__dirname, '..');
+const feishuPath = require.resolve(path.join(ROOT2, 'src', 'feishu.js'));
+require(feishuPath);
+const dmSent = [];
+require.cache[feishuPath].exports = {
+  NOTIFY_OPEN_IDS: ['ou_test'],
+  sendTextToOpenId: async (oid, text) => {
+    if (global.__dmFail) throw new Error('模拟私聊失败（断网时发不出去）');
+    dmSent.push({ oid, text });
+    if (global.__onDm) { const fn = global.__onDm; global.__onDm = null; fn(); }
+  },
+};
 const { createEngine } = require(path.join(__dirname, '..', 'src', 'index.js'));
 
 let pass = 0, fail = 0;
@@ -65,23 +78,27 @@ function makeDeps({ threshold = 2 } = {}) {
   check('恢复记 lan_up', !!upEv);
   check('事件含历时 120s', upEv && /120s/.test(upEv.detail), upEv && upEv.detail);
 
-  console.log('\n== 3. wan 断→恢复：积压汇总补发 + 清空 ==');
+  console.log('\n== 3. wan 断→恢复：私聊失败积压 → 恢复后汇总补发 + 清空 ==');
   const d3 = makeDeps({});
   const e3 = createEngine(d3);
+  global.__dmFail = true; // 模拟断网：私聊发不出去
   d3.wan = false; d3.clock += 60_000;
-  await e3.tick(); await e3.tick(); // threshold=2 → wan_down（通知失败自动入积压）
+  await e3.tick(); await e3.tick(); // threshold=2 → wan_down
   check('wan 断开被记录', e3.state.wan === false && d3.logs.some((l) => l.event === 'wan_down'));
-  check('wan_down 通知失败自动积压 1 条', d3.backlogFile.length === 1, JSON.stringify(d3.backlogFile));
-  // 恢复 + 预置更多积压 → wan_up tick 触发 flushBacklog
+  check('私聊失败 → wan_down 积压 1 条', d3.backlogFile.length === 1, JSON.stringify(d3.backlogFile));
+  // 恢复私聊 + 预置更多积压 → wan_up tick 触发 flushBacklog
+  global.__dmFail = false;
   d3.backlogFile.push({ id: 'pre-1', ts: d3.clock, event: 'wan_down', detail: '断网前积压' });
   d3.wan = true; d3.egress = null; d3.clock += 60_000;
-  d3.onWebhook = () => { // 汇总卡发出瞬间，另一处又落了一条积压（模拟冲刷期间新事件）
+  global.__onDm = () => { // 汇总卡发出瞬间，另一处又落了一条积压（模拟冲刷期间新事件）
     d3.backlogFile.push({ id: 'during-1', ts: d3.clock + 1, event: 'lan_down', detail: '冲刷期间新落盘' });
   };
   await e3.tick();
-  check('恢复触发汇总补发（wan_up 通知 + 汇总卡）', d3.webhooks.some((t) => t.includes('断网期间事件汇总')), JSON.stringify(d3.webhooks));
+  check('恢复触发汇总补发（汇总卡经私聊发出）', dmSent.some((t) => t.text.includes('断网期间事件汇总')), JSON.stringify(dmSent.map((t) => t.text.slice(0, 30))));
   check('已发条目清除', !d3.backlogFile.some((b) => b.id === 'pre-1'));
-  check('冲刷期间新落盘的积压不被覆盖丢失', d3.backlogFile.some((b) => b.id === 'during-1'), JSON.stringify(d3.backlogFile));
+  check('冲刷期间新落盘的积压不被覆盖丢失（保留或已补发均算不丢）',
+    d3.backlogFile.some((b) => b.id === 'during-1') || dmSent.some((t) => t.text.includes('冲刷期间新落盘')),
+    `backlog=${JSON.stringify(d3.backlogFile.map((b) => b.id))} dmSent=${dmSent.length}`);
 
   console.log('\n== 4. 出口 IP 变化告警 ==');
   const d4 = makeDeps({});
@@ -108,10 +125,9 @@ function makeDeps({ threshold = 2 } = {}) {
     JSON.stringify(d5e.backlogFile.map((b) => [b.event, b.error])));
   check('过程事件不调 webhook 外发', d5e.webhooks.length === 0);
   d5e.clock += 1000;
-  await e5.emit('wan_down', '关键事件（webhook 未配置时也积压，但语义不同）');
-  check('关键事件入积压（待 webhook 配置后补发）',
-    d5e.backlogFile.length === 3 && d5e.backlogFile[2].error === 'webhook 未配置',
-    JSON.stringify(d5e.backlogFile.map((b) => b.error)));
+  await e5.emit('wan_down', '关键事件（机器人私聊送达）');
+  check('关键事件经机器人私聊送达、不积压', d5e.backlogFile.length === 2 && dmSent.length >= 1,
+    `backlog=${d5e.backlogFile.length} dmSent=${dmSent.length}`);
 
   console.log('\n== 6. 日志行 JSONL 可解析、类型齐备 ==');
   const all = [...d3.logs, ...d4.logs];
