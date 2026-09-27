@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次 git 提交 + 一次部署）。规则见顶层 [AGENTS.md](../AGENTS.md)「开发日志（DEVLOG）」节。
 
-当前最新：**v2**（2026-09-27，随本提交落地）。上一版 v1（探针开仓）。
+当前最新：**v4**（2026-09-27，实测反馈批）。上一版 v3（账号池路径校准修复）。上一版 v2（复活引擎）。上一版 v1（探针开仓）。
 
 ## v1 · 2026-09-27 · 随本提交落地 · feat
 
@@ -29,4 +29,20 @@
 - **push.js**：账号池上传带备份+条数守卫（权威在部署目标侧时跳过+回填，PUSH_FORCE_PRIVATE 才覆盖）。
 - 测试：新增 `stub-test-wanguard.js` 18 断言（首选项优先/换号/慢速 ban/宽限/冷却/lan 断不复活/手动触发），test 链=两套 32 断言全绿。
 - 部署后验证：guard 就位、revive 端点无 token 403 fail-closed ✓；真实登录未主动触发（网络健康时不无谓换绑主路由认证），等首次真断网实战或曼波手动按键。
+
+## v3 · 2026-09-27 · 随本提交落地 · fix
+
+**账号池路径校准——本地调试路径上线导致引擎读空池（手动触发实测抓到）**
+
+- 曼波要求实测复活链路，forceRevive 首触发即报 `revive_no_candidates`：push.js 全量覆盖 .env 时把本地 `.env` 的调试路径（`C:/Users/0d00/Desktop/qianli/campus-accounts.local.json`）带了上线，小电脑无此文件 → loadPool 静默空池。
+- 修：push.js 上传 .env 后强制 sed 改写目标侧 `NETLOG_ACCOUNT_POOL=C:/qianli/data/netlog/campus-accounts.local.json`（本地调试路径永不上线，目标/本地各得其所）。
+- 教训：**部署后验证必须验「池非空」**，guard 就位≠池子就位；push 全量覆盖 .env 的模式对「本机各异路径」类配置天然不安全，此类键一律 push 时校准。
+
+## v4 · 2026-09-27 · 随本提交落地 · fix
+
+**实测反馈批：动作日志带 eportal 响应 msg + summary 队列残留清理**
+
+- forceRevive 二次实测全链路通过：首选项 31108753 先试 → login（authIp=10.253.32.177）→ 44s wan 判定恢复 → 慢速判定运行（探针中位 17ms ≤ 基线 30ms×3，通过不 ban）。
+- **实测新知**：eportal 对已在线 IP 返回 `ret_code:2 "IP 已经在线！"` 拒绝二次认证——同 IP 换账号登录在在线状态不可行（断网场景无此门槛）；`wlan_user_ip` 参数不改变判定（按来源 IP）；账号密码正确性仅离线可验，留待真断网实战。
+- 修：wanGuard 动作日志记录 login 响应 msg（诊断价值高，如「已经在线」vs「密码错误」一眼可辨）；summary 的 queueRemaining 仅复活态展示（判定通过后不再残留旧队列）。
 
