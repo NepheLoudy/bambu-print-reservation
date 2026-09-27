@@ -1,0 +1,19 @@
+{
+  "name": "qianli-netlog",
+  "version": "1.0.0",
+  "description": "实验室网络日志探针：主路由(superqianli)/公网出口连通性持续探测落盘，断网事件积压恢复后飞书汇总补发，出口 IP 变化告警",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "push": "node push.js",
+    "deploy": "node push.js",
+    "test": "node scripts/stub-test-netlog.js"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {
+    "dotenv": "^16.4.5",
+    "ssh2": "^1.17.0"
+  }
+}
