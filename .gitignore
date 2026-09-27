@@ -16,3 +16,6 @@ dashboard-run.log
 **/.env
 **/.env.local
 **/.env.*.local
+
+# 依赖目录全局忽略（netlog v1 教训：新项目漏建本地 .gitignore 时 node_modules 混入提交）
+**/node_modules/

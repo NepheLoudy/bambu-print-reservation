@@ -61,7 +61,7 @@ feishu-gateway（事件接入 + 路由分工，不在本工作区）
 **`broadcastTicket` 的五层防重播**（顺序）：
 1. `broadcastedRecords` 内存 Set（进程内跨创建/更新事件去重）；
 2. 源表标记字段「已播报」（`BROADCAST_MARK_FIELD`，写时间戳+场景，跨重启防重播）；
-3. 发送前重查最新记录：补充负责人已有值 → 跳过（已有人接单）；节点已推进 → 跳过；
+3. 发送前重查最新记录：**申请状态命中死亡终态 → 跳过（终态单不补播，2026-09-27 v88）**；补充负责人已有值 → 跳过（已有人接单）；节点已推进 → 跳过；
 4. 发送后**至少一群成功**才写内存 Set + 源表标记（全败允许对账重试）；
 5. 每分钟对账兜底（见 1.4）。
 
@@ -79,6 +79,8 @@ feishu-gateway（事件接入 + 路由分工，不在本工作区）
 - **只做绑定**——状态推进和审批自动通过等本人确认后才触发。
 
 组别→群映射关系（`GROUP_ROUTES`，`parseRouteTargets` 支持 `值=chat_id|webhook_url` 新格式与旧格式）：`config.broadcast.routes`；`collectTargets` 按值匹配并按 chatId/webhook 去重，一条工单可并行分发多个组群。
+
+**终态联动撤回（2026-09-27 v88，用户需求「工单撤回时撤回接单提醒」）**：「申请状态」命中死亡终态（已撤回/已拒绝/已取消/已终止/已删除，`syncService.isDiedStatus` 与看板 `died` 映射同源）时三路联动：① `revokeTicketReminderCards` 按 `keywordCardRegistry` 登记撤回各群提醒卡（`bot.deleteMessage`，DELETE /im/v1/messages）——更新事件步骤 0 即时撤 + 每分钟对账补偿撤（`revoked` 计数），双路径幂等；② 播报守卫（上述防重播第 3 层）；③ `isTicketAwaitingKeyword` 终态短路（终态单不进队列不占「接单N」序号）。失败分支：230001/230020（消息不存在/已撤回）清登记不重试，瞬时失败保留登记对账重试至 KEYWORD_CARD_MAX_FAILS(5)。边界：登记为内存态且每群×工单只存最近一张卡，被覆盖的首播卡/重启前的卡无法追撤；webhook 卡无 message_id 不可撤。
 
 ### 1.3 接单确认（事件驱动，无轮询回扫）
 

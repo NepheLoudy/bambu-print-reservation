@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v114**（2026-09-27，扩展范围审查批归档，随本提交落地）。上一版 v113（第二轮全量对抗审查批归档）。上一版 v112（五仓部署批归档）。上一版 v111（负载宣运系数再调批归档）。上一版 v110（七仓全量审查批归档）。上一版 v109（安全审查修复批）。上一版 v108（台账同步归档）。上一版 v107（报销交付包跨仓批）。上一版 v106（`2b070a4`）。上一版 v105（approval v46 复查批归档，`2b070a4`）。上一版 v104（发票采集全链路批，`cef9b2f`）。上一版 v103（值日体系全面检修，`19695bd`）。上一版 v102（值日公平性批，`7aae41e`）。上一版 v101（负载算法升级批，`97bd02b`）。上一版 v100（团队负载看板三仓联动，`11179b8`）。
+当前最新：**v115**（2026-09-27，工单撤回联动+netlog 开仓批，随本提交落地）。上一版 v114（扩展范围审查批归档）。上一版 v113（第二轮全量对抗审查批归档）。上一版 v112（五仓部署批归档）。上一版 v111（负载宣运系数再调批归档）。上一版 v110（七仓全量审查批归档）。上一版 v109（安全审查修复批）。上一版 v108（台账同步归档）。上一版 v107（报销交付包跨仓批）。上一版 v106（`2b070a4`）。上一版 v105（approval v46 复查批归档，`2b070a4`）。上一版 v104（发票采集全链路批，`cef9b2f`）。上一版 v103（值日体系全面检修，`19695bd`）。上一版 v102（值日公平性批，`7aae41e`）。上一版 v101（负载算法升级批，`97bd02b`）。上一版 v100（团队负载看板三仓联动，`11179b8`）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -956,3 +956,13 @@
 - 本仓改动：dashboard（cwd 越界校验/LAN_KNOWN .153/mac 格式校验/watchdog 回调）、gateway nas-e2e-test 废弃横幅、tools .gitignore 补 .deps/。
 - 各仓版本：hub v121（外围横幅+NaN 清理）、sop 独立仓安全批；dashboard/tools 由本仓跟踪。
 - 关机：曼波指示审查完成后关机一次，已执行。
+
+## v115 · 2026-09-27 · 随本提交落地 · feat（联动摘要）
+
+**工单撤回联动 + netlog 网络日志探针开仓（曼波双需求批）**
+
+- 需求①「工单被撤回时把接单提醒也撤回」：ticket-bot **v88**（独立仓 `502ad50`，已推 GitHub）——「申请状态」命中死亡终态（已撤回/已拒绝/已取消/已终止/已删除，`syncService.isDiedStatus` 与 died 映射同源）三路联动：事件路径即时撤回各群提醒卡（bot.deleteMessage，DELETE /im/v1/messages）+ 每分钟对账补偿撤（幂等，防长连接 1/N 漏事件）；播报守卫（终态单不补播，防「撤了提醒又冒新卡」）；队列剔除（不占「接单N」序号）。新增 stub-test-revoke.js 19 断言，六套全绿 125 断言；multi-accept 的 syncService 桩补 isDiedStatus。已知边界：registry 内存态只存每群×工单最近一张卡，被覆盖的首播卡/重启前的卡无法追撤。
+- 需求②「给 superqianli 做网络日志」：**netlog v1 开仓**（本仓 `netlog/`，随本提交归档）——superqianli（主路由 31.1）+ 校园网出口连通性探针跑生产机（pm2 `qianli-netlog`，:3016，零 npm 依赖）；防抖记 lan/wan 断与恢复（带历时）；断网事件积压、wan 恢复瞬间飞书汇总补发（通知通道与被监控网络同生死，落盘+补报是唯一正确语义）；出口 IP 变化告警（白名单风险信号）；数据落盘部署目标 C:/qianli/data/netlog（项目外）；GET /api/health、/api/netlog/summary 只读端点。stub 14 断言全绿 + 本地真实冒烟（本机校园网直连场景 lan=false/wan=true 与现场画像一致）。
+- 配套：dashboard/registry.js 登记 netlog 卡 + ticket-bot role 更新；lab-network skill §八补「断网排查先看 netlog」；用户侧《机器人总成使用指南》HTML+MD 同批同步（工单撤回行为，成员视角）。
+- 本仓教训修复：顶层 .gitignore 补全局 `**/node_modules/`——netlog 新项目漏建本地 .gitignore，node_modules 曾混入 v1 首推（本提交移出跟踪）。
+- 部署状态：两批 git 均已推 GitHub（笔记本当下在校园网直连 CQU_WiFi，192.168.31.57 SSH 不可达，SFTP 部署步待连回主路由内网后补跑——届时 ticket-bot 会把 v87+v88 一起带上，**上线前先跑 ensure-ticket-fields.js**；netlog 重跑 `npm run push` 即补部署，无改动会跳过 commit 直走部署）。git push 首次因 GitHub 不可达失败，Watt Toolkit 加速生效后补推成功。
