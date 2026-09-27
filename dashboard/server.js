@@ -59,13 +59,13 @@ function sshExec(cmd, timeoutMs = 15000) {
   return new Promise((resolve, reject) => {
     const conn = new Client();
     const timer = setTimeout(() => { conn.end(); reject(new Error('SSH 超时')); }, timeoutMs);
-    let out = '';
+    const chunks = []; // 攒 Buffer 最后一次性解码：中文多字节字符被 TCP chunk 劈开时逐段 toString 会出乱码
     conn.on('ready', () => {
       conn.exec(cmd, (err, stream) => {
         if (err) { clearTimeout(timer); conn.end(); return reject(err); }
-        stream.on('data', (d) => { out += d.toString(); });
-        stream.stderr.on('data', (d) => { out += d.toString(); });
-        stream.on('close', () => { clearTimeout(timer); conn.end(); resolve(out); });
+        stream.on('data', (d) => chunks.push(d));
+        stream.stderr.on('data', (d) => chunks.push(d));
+        stream.on('close', () => { clearTimeout(timer); conn.end(); resolve(Buffer.concat(chunks).toString('utf-8')); });
       });
     });
     conn.on('error', (err) => { clearTimeout(timer); reject(err); });
@@ -546,7 +546,11 @@ app.post('/api/nas/api', async (req, res) => {
   // 名册通讯录同步等慢窗口需要较长超时（实测 ~6s，放宽到 30s）
   let cmd = `curl -s -m 30 -X ${method} -H 'Content-Type: application/json'`;
   if (method === 'POST') {
-    cmd += ` -d ${shQuote(JSON.stringify(req.body?.body ?? {}))}`;
+    // body 走 base64+stdin 管道（2026-09-28 乱码修复）：远端 PATH 默认 curl 是 Git 自带 mingw64 版，
+    // 实测其把命令行参数按系统 ANSI 码页(GBK)转码——-d '中文' 到 HTTP 层已变 GBK 字节；
+    // base64 全 ASCII 过命令行、远端解码后经 stdin 喂 --data-binary @-，任何 curl 都无码页可糊
+    const bodyB64 = Buffer.from(JSON.stringify(req.body?.body ?? {}), 'utf-8').toString('base64');
+    cmd = `printf '%s' ${shQuote(bodyB64)} | base64 -d | ` + cmd + ` --data-binary @-`;
     // 管理端点鉴权（2026-09-13）：POST 自动附共享 X-API-Token（凭据直读 approval-bot/.env）
     const apiToken = (readNasConfig() || {}).apiToken || '';
     if (apiToken) cmd += ` -H ` + shQuote(`X-API-Token: ${apiToken}`);

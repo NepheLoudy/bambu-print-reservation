@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次 git 提交 + 一次部署）。规则见顶层 [AGENTS.md](../AGENTS.md)「开发日志（DEVLOG）」节。
 
-当前最新：**v5**（2026-09-28，刷屏事故根治批）。上一版 v4（实测反馈批）。上一版 v3（账号池路径校准修复）。上一版 v2（复活引擎）。上一版 v1（探针开仓）。
+当前最新：**v6**（2026-09-28，机器人本体私聊通知）。上一版 v5（刷屏事故根治批）。上一版 v4（实测反馈批）。上一版 v3（账号池路径校准修复）。上一版 v2（复活引擎）。上一版 v1（探针开仓）。
 
 ## v1 · 2026-09-27 · 随本提交落地 · feat
 
@@ -54,4 +54,15 @@
 - **根治三连**：①事件分级——`NOTIFY_IMMEDIATE` 白名单（lan/wan 断通、出口 IP 变化、revive_exhausted）才尝试即时外发，过程事件（revive_start/success/no_candidates/account_throttled）只落盘+进积压（断网恢复后由汇总卡带上，平时零打扰）；②空池冷却——`revive_no_candidates` 触发与 exhausted 同款 30 分钟冷却，不再每 tick 重发；③webhook 全线静音——本地 .env 与部署目标侧 NETLOG_WEBHOOK_URL 均置空（财务群不该收 netlog 消息；等曼波指定通知群后再配）。本地残留进程已处决（PID 36720）。
 - 测试：新增事件分级回归断言（过程事件 process-event 标记积压不外发/关键事件积压语义），两套 35 断言全绿。
 - 教训：①bash 后台 job 的 `kill %1` 不可靠（node 子进程可能脱离 job 表），本地跑服务类进程后必须 `tasklist/netstat` 复核；②本地 .env 与生产共键的 webhook 类配置，本地调试前先置空；③「一直在播报」类报告先做数据对质再定责——本案生产机三方证据（日志/积压/ban 记录）全部清白。
+
+## v6 · 2026-09-28 · 随本提交落地 · feat
+
+**通知出口切换：不用 webhook，机器人本体私聊直发（曼波拍板）**
+
+- **src/feishu.js**：共用应用（对话型「爆米花机-对话型」同款应用）tenant_access_token 获取+内存缓存（提前 5min 刷新）+ IM API 私聊文本（`receive_id_type=open_id`）。性质=机器人主动播报（同 ticket-bot 私聊结单提醒先例），不消费消息事件，不违反对话铁律。webhook 通道整体移除（sendWebhook/CONFIG.webhookUrl 删除）。
+- **sendNotify 多目标分派**：NETLOG_NOTIFY_OPEN_IDS（逗号分隔多 open_id）逐个私聊，Promise.allSettled——任一成功即送达（部分失败记 warn），全失败抛错进积压（恢复后汇总补发）。事件分级（v5）不变：过程事件只落盘+积压，关键事件（断/通/IP 变化/exhausted）即时私聊。
+- 配置：`NETLOG_FEISHU_APP_ID/SECRET`（共用应用凭据，approval-bot 同源）+ `NETLOG_NOTIFY_OPEN_IDS`（当前=审批域两个候选 open_id，等曼波确认哪个是他本人后收敛）。
+- 测试：feishu 桩（require.cache 替换 + __dmFail 失败开关）——私聊失败积压/恢复汇总补发经私聊/冲刷期间新落盘不丢/过程事件不外发，两套 35 断言全绿。踩坑记录：bash heredoc 的 `
+` 多层转义会被折叠成真实换行（agent-ops-gotchas 的 chr() 教训再次应验）。
+- 实测：两个候选 open_id 各发一条通道测试私聊，均发送成功（飞书 API 200）；等曼波确认收件情况后收敛 open_id 列表。
 
