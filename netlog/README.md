@@ -62,3 +62,14 @@ node scripts/stub-test-netlog.js   # 14 断言：防抖/恢复历时/积压补�
 - 断网根因若为**生产机自身断电/系统挂**，探针同死——物理上无解，靠 pm2 resurrect + 路由器侧排查兜底；
 - lan 断而 wan 未断的组合（路由器半死）理论上可能：探测独立并行，各自如实记录；
 - egress 回显源全挂时该轮跳过（不误报 IP 变化）。
+
+## 复活引擎（v2，2026-09-27）：断网自动换账号重认证
+
+「网关实现途径」考古结论：主路由 WAN=纯 DHCP，被踢秒级自愈靠 Dr.COM **MAC 无感知认证**（无账号池无策略，失效即"根本连不上"）；真正的重连逻辑是 4A 时代保活脚本 `ping.sh`（归档桌面 `qianli-backups/4a-root-ping-archive-20260920.tar.gz`，内含两个账号），其弱点=两账号无脑都发、发完不验证、无限速检测、极端失败 reboot 路由器。v2 按同一协议（`http://10.10.8.162:801/eportal/portal/`，端口 801 是 API，80/443 只是登录页）重写为可持续维护的引擎：
+
+- **账号池**（`campus-accounts.local.json`，凭据不进 git；部署目标 `C:/qianli/data/netlog/`，push.js 带备份+条数守卫上传）：`preferred` 首选项**永远先试**（曼波钦定 31108753），其余按 priority 轮换；
+- **复活**：wan 断（防抖 2 轮）+ lan 活 → 每 tick 尝试一个账号 login，**以 wan 真恢复为成败**（不轻信 eportal 响应文案）；全用尽 → 飞书通知 + 30 分钟冷却重试；
+- **慢速降级（自适应基线，曼波拍板）**：恢复后 20s 宽限 → 3 次探针取中位数，> 健康基线（滑动 20 样本中位数，下限 30ms）×3 → 判限速 → 打「**本月不再使用**」（`bannedThisMonth`，自然月自动失效）→ 自动换号；
+- **手动触发**：`POST /api/netlog/revive`（`X-API-Token: NETLOG_API_TOKEN`，未配置=锁定）——网络已通时也可触发，供协议实测；`GET /api/netlog/summary` 的 `guard` 字段看引擎状态（基线/队列/最近动作）；
+- 认证服务器（默认即可，env 可改）：`NETLOG_AUTH_HOST=10.10.8.162`、`NETLOG_AUTH_PORT=801`、`NETLOG_AUTH_PAGE_HOST=login.cqu.edu.cn`。
+

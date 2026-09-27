@@ -124,3 +124,10 @@ description: qianli 实验室/家庭网络拓扑、设备接入与断网排查�
 - **回内网后的工作清单**：①找到插件本体（主路由→小电脑）；②读它拿认证协议细节+账号池格式；③按其形态落三项需求（强化复活：多账号轮换重试+登录后真恢复验证；首选项；慢速探针+月度弃用）；④`campus-accounts.local.json` 迁配置位；⑤顺手核对本机探测的认证结论与插件实现是否一致。
 - **受限会话指纹（排障备查）**：UDP 53 全拒（含校园网自有 DNS 202.202.2.50）、119.29.29.29/1.1.1.1:443 不通、但 223.5.5.5:443 TLS 可用（阿里 DoH `https://223.5.5.5/resolve` 可当受限环境解析通道）；traceroute 正常（第一跳 10.253.32.1 → 202.202.0.130 → 202.202.216.x，延迟 4~12ms）。
 
+### §十二.1 接续完成（2026-09-27 晚，三项设计已全部落地）
+
+- **协议实锤**（本轮实测+考古双证）：eportal API=`http://10.10.8.162:801/eportal/portal/`——**801 是 API 端口**（80/443 只是登录页静态资源，之前扫 8081/8008 等全漏）；登录=GET `login?callback=dr1005&login_method=1&user_account=%2C0%2C{学号}&user_password={明文}&wlan_user_ip={放行IP}&wlan_user_mac=000000000000&...`；状态=GET `online_list?callback=dr1005&lang=zh`（返回会话 IP/MAC/账号/时长）；放行 IP 取认证页 `GET /` 回显 `v4ip=''`（经 NAT 即主路由 WAN IP）。
+- **「网关实现途径」结论**：主路由 WAN=纯 DHCP（wan_info 实测），被踢秒级自愈=Dr.COM MAC 无感知认证（当前会话 20230104@10.253.32.177，online_list 可查）；重连真身=4A 时代 `ping.sh`（两账号无脑发/不验证/失败 reboot），**已归档**：桌面 `qianli-backups/4a-root-ping-archive-20260920.tar.gz`（=曼波所说"存两个现有账号的地方"）。4A 本体现已干净（root/cquqianli SSH 可入，/root 无残留）。主路由 miwifi SSH 未开，管理密码存 `approval-bot/.env` 的 `ROUTER_PASSWORD`（运维台 router-xiaomi.js 同通道；曼波口述密码 cquqianli 实测 not auth，待其核实）。
+- **落地形态**：netlog **v2**（生产机 pm2 `qianli-netlog` :3016）——`src/wanGuard.js` 复活状态机 + `src/campusAuth.js` 协议层 + `src/accountPool.js` 策略池；池文件=工作区根 `campus-accounts.local.json`（7 账号，31108753 首选项，**/*.local.json 已 gitignore）→ 部署目标 `C:/qianli/data/netlog/`（push.js 备份+条数守卫）；手动触发 `POST /api/netlog/revive`（X-API-Token=netlog .env）。慢速判定=自适应基线（滑动 20 样本中位数，下限 30ms）×3 →「本月不再使用」→自动换号。
+- miwifi 上网设置界面（用曼波 stok 实查）无校园网认证区块、无插件中心——路由器侧无账号池，一切以 netlog 侧引擎为准。
+

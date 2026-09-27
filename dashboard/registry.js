@@ -273,7 +273,7 @@ module.exports = {
       pm2Name: 'qianli-netlog',
       nasDir: '/c/qianli/opt/netlog',
       deploy: 'npm run push（SFTP 直传）',
-      role: '实验室网络日志探针（2026-09-27）：跑在生产机上持续探测主路由 superqianli（31.1）与公网出口连通性并落盘；断网事件积压、wan 恢复后飞书汇总补发；出口 IP 变化告警（飞书白名单风险信号）。不是飞书机器人：不收事件、不进网关 CONSUMERS、无写端点。',
+      role: '实验室网络日志探针 + 断网复活引擎（2026-09-27 v2）：持续探测主路由 superqianli（31.1）与公网出口并落盘；断网事件积压、wan 恢复后飞书汇总补发；出口 IP 变化告警。v2 复活引擎：wan 断自动按校园网账号池（31108753 首选项）经 Dr.COM eportal(10.10.8.162:801) 重认证，慢速判定（自适应基线×3）限速账号打「本月不再使用」并自动换号；POST /api/netlog/revive 手动触发（X-API-Token）。不是飞书机器人：不收事件、不进网关 CONSUMERS。',
       listening: ['出站 TCP 探测（lan 31.1:80 / wan 223.5.5.5,119.29.29.29:443）', '出站 webhook（NETLOG_WEBHOOK_URL）', 'GET :3016/api/health、/api/netlog/summary（只读）'],
       commands: [],
       permissions: [],
@@ -282,9 +282,10 @@ module.exports = {
         { id: 'install', label: 'npm install', cmd: 'npm install', cwd: '' },
       ],
       windows: [
-        { m: 'GET', p: '/api/netlog/summary', d: '当前 lan/wan 状态 + 最近 50 条网络事件（断网区间/历时/出口 IP 变化）' },
+        { m: 'GET', p: '/api/netlog/summary', d: '当前 lan/wan 状态 + 最近 50 条网络事件 + 复活引擎状态（基线/队列/最近动作）' },
+        { m: 'POST', p: '/api/netlog/revive', d: '手动触发断网复活流程（X-API-Token=netlog .env NETLOG_API_TOKEN；fail-closed）' },
       ],
-      notes: 'v1（2026-09-27）：零 npm 依赖；数据落盘部署目标 C:/qianli/data/netlog（项目外）；防抖=连续 2 次失败才记 down；通知通道与被监控网络同生死，实时通知物理不可能，「落盘+恢复补报」是唯一正确语义；webhook 当前与 approval-bot BOT_WEBHOOK_URL 同群，换群改 netlog/.env 重推',
+      notes: 'v2（2026-09-27）：断网复活引擎上线——账号池 campus-accounts.local.json（7 账号，31108753 首选项；push.js 备份守卫上传）；协议=Dr.COM eportal :801（考古自 4A ping.sh 归档）；慢速判定=自适应基线×3 →「本月不再使用」；账号池每自然月自动解禁。v1 特性全部保留（落盘/积压补发/防抖）',
     },
   ],
 };
