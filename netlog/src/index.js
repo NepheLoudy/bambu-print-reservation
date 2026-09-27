@@ -102,8 +102,20 @@ function createEngine(deps) {
 
   const BACKLOG_MAX = 50; // 积压上限：一直不配置 webhook 时防无限增长（丢最旧）
 
+  // 事件分级（2026-09-28 刷屏事故整改）：只有关键状态变化才尝试即时推送；
+  // 复活过程细节（start/success/no_candidates/throttled）只落盘+进积压（恢复汇总卡可见），
+  // 绝不即时外发——否则误判/循环触发时会对通知群每分钟刷屏。
+  const NOTIFY_IMMEDIATE = new Set([
+    'lan_down', 'lan_up', 'wan_down', 'wan_up', 'egress_ip_changed', 'revive_exhausted',
+  ]);
+
   async function notify(event, detail) {
     const text = `[netlog] ${event}${detail ? `\n${detail}` : ''}`;
+    if (!NOTIFY_IMMEDIATE.has(event)) {
+      // 过程事件：直接进积压（断网恢复后由汇总卡带上，平时不打扰通知群）
+      pushBacklog(event, detail, 'process-event');
+      return;
+    }
     if (!CONFIG.webhookUrl) {
       // 未配置 webhook：事件仍入积压——配置补上并重启后由启动补发送达
       pushBacklog(event, detail, 'webhook 未配置');

@@ -69,7 +69,11 @@ function createWanGuard(deps) {
   async function startRevive(reason) {
     const list = candidates();
     if (!list.length) {
-      await emit('revive_no_candidates', `账号池全空或当月全弃用（${reason}），等待下轮探测`);
+      // 池空=体系失能：进 30 分钟冷却（同 exhausted）——否则每个 tick 都重发一次
+      // revive_no_candidates（2026-09-28 刷屏事故：残留进程空池每分钟轰炸通知群）
+      state.reviving = false;
+      state.exhaustedUntil = now().getTime() + EXHAUSTED_COOLDOWN_MS;
+      await emit('revive_no_candidates', `账号池全空或当月全弃用（${reason}），30 分钟后自动重试`);
       return;
     }
     state.reviving = true;

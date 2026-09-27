@@ -97,7 +97,23 @@ function makeDeps({ threshold = 2 } = {}) {
   const eg = d4.logs.find((l) => l.event === 'egress_ip_changed');
   check('IP 变化记 egress_ip_changed 且含新旧值', !!eg && eg.detail.includes('222.178.10.186') && eg.detail.includes('222.178.99.1'), eg && eg.detail);
 
-  console.log('\n== 5. 日志行 JSONL 可解析、类型齐备 ==');
+  console.log('\n== 5. 事件分级：过程事件只积压不外发（2026-09-28 刷屏事故回归） ==');
+  const d5e = makeDeps({});
+  const e5 = createEngine(d5e);
+  d5e.clock += 1000;
+  await e5.emit('revive_start', '过程事件（不该外发）');
+  await e5.emit('account_throttled', '过程事件（不该外发）');
+  check('过程事件进积压且标记 process-event',
+    d5e.backlogFile.length === 2 && d5e.backlogFile.every((b) => b.error === 'process-event'),
+    JSON.stringify(d5e.backlogFile.map((b) => [b.event, b.error])));
+  check('过程事件不调 webhook 外发', d5e.webhooks.length === 0);
+  d5e.clock += 1000;
+  await e5.emit('wan_down', '关键事件（webhook 未配置时也积压，但语义不同）');
+  check('关键事件入积压（待 webhook 配置后补发）',
+    d5e.backlogFile.length === 3 && d5e.backlogFile[2].error === 'webhook 未配置',
+    JSON.stringify(d5e.backlogFile.map((b) => b.error)));
+
+  console.log('\n== 6. 日志行 JSONL 可解析、类型齐备 ==');
   const all = [...d3.logs, ...d4.logs];
   check('全部日志行可 JSON.parse 且结构齐备', all.every((l) => l && typeof l.ts === 'number' && l.type));
   check('含 state 与 event 两种类型', all.some((l) => l.type === 'state') && all.some((l) => l.type === 'event'));
