@@ -185,7 +185,12 @@ function npmInstall() {
           process.exit(1);
         }
         console.log('✓ .env 已上传（含部署凭证/webhook/API token，仅存于部署目标）');
-        uploadAccountPool(sftp, restart);
+        // 账号池路径各机各异：本地 .env 的调试路径不能带上线（2026-09-27 实测教训——
+        // 本地路径导致目标侧读空池）。上传后强制改写为部署目标的数据目录路径。
+        exec('sed -i "s|^NETLOG_ACCOUNT_POOL=.*|NETLOG_ACCOUNT_POOL=C:/qianli/data/netlog/campus-accounts.local.json|" ' + REMOTE_DIR_WIN + '/.env', () => {
+          console.log('✓ 目标侧 NETLOG_ACCOUNT_POOL 已校准为数据目录路径');
+          uploadAccountPool(sftp, restart);
+        });
       });
     });
   });
