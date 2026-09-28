@@ -39,6 +39,7 @@ description: qianli 实验室/家庭网络拓扑、设备接入与断网排查�
 ## 三、断网/连不通排查手册（按序执行，全部实战验证）
 
 0. **先查本机连的哪个网（曼波高频坑，2026-09-23 定）**：曼波网关开发时经常把笔记本连成**自己的校园网账号**（本机直连认证）——会顶掉主路由的认证会话，症状=ping 不进 192.168.31.57、SSH 握手超时，而目标机其实活得好好的。排查任何「生产机连不上」先 `ipconfig` 看本机在不在 192.168.31.x（路由器 NAT 侧），不在就是连错网了，换回主路由的 WiFi/网线再继续，别对着目标机白折腾。
+0.5. **本机"连上了却没网"，先查 Watt Toolkit（2026-09-29 实战）**：Watt（Steam++）开着时连/切 superqianli 会整网全断（系统代理被指向它的本地加速端口，换网瞬间代理栈僵死→所有走代理流量进黑洞），而**同网其他设备正常**——这个「只有本机断」的指纹直接排除路由器/认证/出口。处置：退出 Watt（托盘右键退出，不是关窗口）→ 重连即愈；需要加速 git push 时**先连稳网再开 Watt、用完即关**。检查命令：`netsh winhttp show proxy` + 注册表 `HKCU\...\Internet Settings` 的 ProxyEnable/ProxyServer（干净=当前没开或已退出）。对照排除项：Radmin VPN 虽挂着 26.0.0.1 默认网关但 metric 9257 被物理网关（metric 30）碾压，不背锅。
 1. **分层探测，ping 单独看不可信**：ICMP 回复可能是路径上路由器的 **TTL 过期假回复**（统计显示 0% 丢包但根本没到目标）。必须配合 **TCP 端口探测**（node `net.connect` 2-3s 超时）+ `traceroute -d` 看路径。
 2. **traceroute 判读**：连续两跳来回交替（如 10.100.3.25↔.26）= **路由环路**，包永远到不了目标；同网段其他地址通、唯独目标不通 = 目标自身链路/地址问题。
 3. **"网口灯亮"≠网络可达**：链路层 up 但 TCP/IP 层可能僵死。判别：同网段网关能 ping 通 + 目标不开任何端口 + ARP 无应答 → 栈僵死 → 重启整机。
@@ -96,7 +97,7 @@ description: qianli 实验室/家庭网络拓扑、设备接入与断网排查�
 - **访问方式**（IPv4 网段不同时 IPv6 必可达）：有线插它 LAN 口后走 `http://[fe80::d6da:21ff:fe0d:e285]/`（链路本地）或 `http://[fd2c:8424:6a43::1]/`（ULA）；LuCI 与 SSH（dropbear 22）root 密码=主网关管理密码（不写入 git，需要时问用户）。**插网线认准白色 LAN 口**（蓝色 WAN 口防火墙全挡，症状=收得到 RA 广播、发出去全无回音）。
 - **防火墙三规则**（2026-09-20 定稿，按现实 31.x 编址）：① `Allow-Mgmt-MainLAN`：192.168.31.0/24 → 本机 22/80/443；② 主网→打印区：31.0/24 → 192.168.2.0/24 全放行（PC 管打印机）；③ 打印区→小电脑：2.x → 仅 192.168.31.57（打印机主动回推）。lan zone 无出向转发目标（打印区→外网/其余主网主机全拒绝）。**新主网关（SuperQianLi/192.168.31.1，RD08，管理密码同 4A root）就是"平行"上级**；拓扑设计文档里的 192.168.1.x 编址未落地，一切按 31.x 现状。
 - **2026-09-20 清理记录**（改前全量备份在桌面 `qianli-backups/4a-openwrt-backup-20260920.tar.gz`）：删校园网保活脚本 `/root/ping/ping.sh`+其 cron（内含两个硬编码学号，若与主路由同账号会互顶号）、卸载 acme/adblock/socat（socat 是 acme 依赖连带装的）、清 5 条 192.168.1.x 错位租约与 6 条旧 DNAT 端口转发；`/root/test.clc` 已删（2026-09-22 定性=Clutch 云游戏数据残留——前用户曾拿此路由当游戏服务器装过 `.clutch-server/`+`snake.sh` 贪吃蛇，历史见其 `.bash_history`；用户批准删除，原件归档桌面 `qianli-backups/4a-test-clc-archive-20260922.bin`）。
-- **状态（2026-09-22 已入网）**：wan 静态 `192.168.31.98`（主网 LAN2 千兆交换机下；到小电脑/外网 0% 丢包实测，管理口 22/80/443 对 31.x 开放=Allow-Mgmt 规则生效）；运维台 `NET_TARGETS` 已加 `print4a` 条目（22/80/443 TCP 探测）。剩余：打印机入区（屏幕局域网模式 + 抄 IP/Access Code/SN）→ 4A 按 MAC 配静态租约 → `bambu-print-reservation` 的 `PRINTER_HOSTS` 填 2.x 地址 → 端到端打印分发；有线打印机超 2 台需加小交换机（4A 只有 lan1/lan2）。
+- **状态（2026-09-29 更新：已物理拔下）**：曼波亲手拔线（因「消息在路由器内部迷路」），重接前本节其余状态仅存档。⚠ 重接必须走检查单：脱机确认 LAN 段/防火墙规则未变 → wan 插回主网 LAN → 探测 `print4a`（运维台 `NET_TARGETS` 条目，暂会显示离线）→ 打印机入区流程。既有配置（wan 静态 `192.168.31.98`、防火墙三规则、SSID `Printer` 2.4G 客户端隔离）理论上未动。剩余：打印机入区（屏幕局域网模式 + 抄 IP/Access Code/SN）→ 4A 按 MAC 配静态租约 → `bambu-print-reservation` 的 `PRINTER_HOSTS` 填 2.x 地址 → 端到端打印分发；有线打印机超 2 台需加小交换机（4A 只有 lan1/lan2）。
 
 ## 十、本机（运维笔记本）双网卡与 SSH 源 IP 现象（2026-09-20 记录，待定性）
 
@@ -108,7 +109,7 @@ description: qianli 实验室/家庭网络拓扑、设备接入与断网排查�
 
 **术语先行**：本节与《网关拓扑文档.md》中"机器人"=与裁判系统连接的**物理机器人**（机甲大师场外）；开发内网 31.x 上的六仓"机器人"=飞书软件机器人服务，两者无任何关联。
 
-- **状态：已配置、未部署**。机型待补（小米系），LAN `192.168.3.1/24`、WiFi `裁判系统`（密码用户 2026-09-20 设，不写入 git）均已在手机上配好；2026-09-20 晚已入网：wan=DHCP 拿到 `192.168.31.84`（MAC `EC:C1:AB:E4:B6:56`，经交换机），WiFi `裁判系统` 广播中。
+- **状态：已配置、已拔离（2026-09-29 更新）**。曼波亲手拔线（同 4A，因「消息在路由器内部迷路」），重接前本条状态仅存档。机型待补（小米系），LAN `192.168.3.1/24`、WiFi `裁判系统`（密码用户 2026-09-20 设，不写入 git）均已在手机上配好；曾入网（2026-09-20 晚）：wan=DHCP 拿到 `192.168.31.84`（MAC `EC:C1:AB:E4:B6:56`，经交换机）。
 - **联通设计**（部署后生效）：物理机器人→小电脑(31.57) 走裁判路由器 NAT 出站 + 小电脑防火墙规则 `Referee-Zone-192.168.3.0-24`（已加，全协议放行）；小电脑→物理机器人待官方软件发布后在其后台加端口转发（主网关 miwifi 无静态路由，3.x 无回程路由）。
 - **归属勘误（2026-09-20）**：曾误把主网上 `192.168.31.80`（MAC `cc:c4:b2:46:16:2f`）当作它——用户拔线后该设备仍应答 ping（延迟 171ms 反常），证实是**另一台未知设备**，待用户认领。识别未知设备勿只看"新出现的 MAC+时间吻合"，要有 MAC 前缀级证据。
 - **血的教训**：新路由器**默认 LAN 网段常与主网相同**（小米系默认 192.168.31.1），未改段直接 LAN-LAN 插入主网 = rogue DHCP 抢答，全网断网；插线瞬间还触发过一次校园网会话互踢（同账号重复认证）。**任何新路由器先脱机改段（本工作区约定序列：2.x 打印、3.x 裁判），再入网。**
@@ -131,3 +132,21 @@ description: qianli 实验室/家庭网络拓扑、设备接入与断网排查�
 - **落地形态**：netlog **v2**（生产机 pm2 `qianli-netlog` :3016）——`src/wanGuard.js` 复活状态机 + `src/campusAuth.js` 协议层 + `src/accountPool.js` 策略池；池文件=工作区根 `campus-accounts.local.json`（7 账号，31108753 首选项，**/*.local.json 已 gitignore）→ 部署目标 `C:/qianli/data/netlog/`（push.js 备份+条数守卫）；手动触发 `POST /api/netlog/revive`（X-API-Token=netlog .env）。慢速判定=自适应基线（滑动 20 样本中位数，下限 30ms）×3 →「本月不再使用」→自动换号。
 - miwifi 上网设置界面（用曼波 stok 实查）无校园网认证区块、无插件中心——路由器侧无账号池，一切以 netlog 侧引擎为准。
 
+## 十三、Radmin VPN 远控通道（2026-09-29 建成，跨网段管理小电脑的正道）
+
+**用途**：曼波不在 31.x 内网时（烂网/离开实验室），笔记本经 Radmin VPN 隧道直达小电脑的 SSH/RDP/全部服务。**依赖边界**：小电脑自身必须有外网（校园网会话活着）；实验室整体断网时此通道与 netlog 同死，属物理限制。
+
+- **网络**：`qianli-mesh`（私有网络）；笔记本 `26.33.107.52`（LAPTOP-BGC4G36V）/ 小电脑 `26.6.74.79`（DESKTOP-FE1MIGI）。实测隧道 ping 6ms（P2P 打洞直连）。
+- **凭据**（网络名+密码）：大脑仓库 `config/radmin-mesh.local.env`（**归属勘定 2026-09-29 曼波定：网络基础设施凭据归大脑记忆区，不进业务 bot .env**；该文件已被大脑仓库 .gitignore `/config/*.local.env` 排除，不入 git）。
+- **防火墙**：小电脑已放行 26.0.0.0/8 → 本机 22（SSH-qianli-RadminVPN-26）+ 3389 TCP/UDP（RDP-qianli-RadminVPN-26-TCP/UDP）。
+- **重启自愈链**：RvControlSvc 服务自启 + GUI HKCU Run 自启 + Winlogon AutoAdminLogon=1（mechax 自动登录）→ 重启后自动回网，无需人工。
+- **安装包归档**（官网被墙+DNS 污染，重装用本地存档）：桌面 `qianli-backups/Radmin_LAN_2.1.4951.1.exe` + 小电脑 `C:/qianli/data/installers/`；Famatech Corp. 签名已验。笔记本 2.0.9 与小电脑 2.1.4951.1 混版本组网兼容。
+- **GUI 特性**：Radmin VPN 启动后缩托盘、主窗隐藏（Qt 类 `Qt51515QWindowIcon`/`CMainWnd`，UIA root 树看不到）；要显示主窗需 EnumWindows 找 hwnd + `ShowWindow(5)+SetWindowPos`。GUI 跑在交互会话里，会话 disconnect（非 logoff）进程不断。
+
+**远程自动化经验（本次实战淬炼，给 Windows 目标机无人值守操作复用）**：
+1. SSH 会话里 `cmd.exe` 整个不可用（`cmd /c echo` 都挂）——**装软件用 `powershell Start-Process -Wait`**；
+2. git-bash 吃 `/VERYSILENT` 类斜杠参数（MSYS 路径转换，§五同款）——长参数一律包进远端 bat/ps1 文件执行；
+3. **sftp.writeFile 间歇性写 0 字节文件**——传内容改用 `echo <base64> | base64 -d > 目标`；fastPut 上传大文件正常；
+4. schtasks `/tr` 带空格路径会截断——中转 bat 路径必须无空格；
+5. GUI 填表**禁用 SendKeys 逐字符**（丢字符+焦点漂移）——**Set-Clipboard + `^v` 粘贴**一次到位；`-WindowStyle Hidden` 防任务 console 抢焦点；每步截图（CopyFromScreen→b64 读回）闭环验证，不盲打；
+6. RDP 自动登录链：`cmdkey /generic:TERMSRV/<ip>` + `mstsc /v:<ip>`（凭据先存则免交互）。

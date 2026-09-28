@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v124**（2026-09-28，抢修 bat 归档+duty-bot v43 指针联动）。上一版 v123（2026-09-28，netlog 通知 open_id 定稿）。上一版 v122（运维台白名单乱码根治）。上一版 v121（netlog v6 机器人本体私聊通知）。上一版 v120（netlog v5 刷屏根治）。上一版 v119（miwifi SHA256 适配）。上一版 v118（netlog 实测反馈批）。上一版 v117（断网复活落地批）。上一版 v116（网络探测归档批；09-27 22:17 部署批已覆盖全仓当前树，七仓健康验证全绿）。上一版 v115（工单撤回联动+netlog 开仓批）。上一版 v114（扩展范围审查批归档）。上一版 v113（第二轮全量对抗审查批归档）。上一版 v112（五仓部署批归档）。上一版 v111（负载宣运系数再调批归档）。上一版 v110（七仓全量审查批归档）。上一版 v109（安全审查修复批）。上一版 v108（台账同步归档）。上一版 v107（报销交付包跨仓批）。上一版 v106（`2b070a4`）。上一版 v105（approval v46 复查批归档，`2b070a4`）。上一版 v104（发票采集全链路批，`cef9b2f`）。上一版 v103（值日体系全面检修，`19695bd`）。上一版 v102（值日公平性批，`7aae41e`）。上一版 v101（负载算法升级批，`97bd02b`）。上一版 v100（团队负载看板三仓联动，`11179b8`）。
+当前最新：**v125**（2026-09-29，Radmin 远控通道建成+skill 沉淀批）。上一版 v124（2026-09-28，抢修 bat 归档+duty-bot v43 指针联动）。上一版 v123（2026-09-28，netlog 通知 open_id 定稿）。上一版 v122（运维台白名单乱码根治）。上一版 v121（netlog v6 机器人本体私聊通知）。上一版 v120（netlog v5 刷屏根治）。上一版 v119（miwifi SHA256 适配）。上一版 v118（netlog 实测反馈批）。上一版 v117（断网复活落地批）。上一版 v116（网络探测归档批；09-27 22:17 部署批已覆盖全仓当前树，七仓健康验证全绿）。上一版 v115（工单撤回联动+netlog 开仓批）。上一版 v114（扩展范围审查批归档）。上一版 v113（第二轮全量对抗审查批归档）。上一版 v112（五仓部署批归档）。上一版 v111（负载宣运系数再调批归档）。上一版 v110（七仓全量审查批归档）。上一版 v109（安全审查修复批）。上一版 v108（台账同步归档）。上一版 v107（报销交付包跨仓批）。上一版 v106（`2b070a4`）。上一版 v105（approval v46 复查批归档，`2b070a4`）。上一版 v104（发票采集全链路批，`cef9b2f`）。上一版 v103（值日体系全面检修，`19695bd`）。上一版 v102（值日公平性批，`7aae41e`）。上一版 v101（负载算法升级批，`97bd02b`）。上一版 v100（团队负载看板三仓联动，`11179b8`）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -1045,3 +1045,13 @@
 - 曼波拍板归档：`enable-sshd.bat` / `install-openssh.bat` / `fix-duty-bot.bat` 三个抢修工具 git mv 进 `archive/`（小电脑 OpenSSH 离线安装组合与 duty-bot pm2 环境重建的历史工具，出处见历史条目；部署链路早已统一 `npm run push`，挪档防误用，真要救火翻 archive 即用）。`qianli-deploy` skill「已知坑速查」的 enable-sshd.bat 引用路径同步改 `archive/`。
 - 联动归档：duty-bot **v43**（快递表「备注」列建表脚本补列+生产 base 已执行，`af19a14`）gitlink 指针随本提交入库——「已取n/全部已取」确认自此自动记录确认人。
 - sop 公开站 link_token 位置核查（曼波反馈「没看到」）：token 非页面可见元素，藏在 `site-sop-planet/index.html:434`「千里论坛」按钮的跳转链接（源稿 qianli_sop_planet.html 同带）；实际为 applink `chatter/add_by_link`＝**添加联系人**（点击=向绑定人发好友申请），非审查初判的「入群邀请」——风险低一档，去留待曼波复核拍板。
+
+## v125 · 2026-09-29 · 随本提交落地 · docs（联动摘要）
+
+**Radmin VPN 远控通道建成 + qianli-lab-network skill 沉淀批**
+
+- **Radmin 远控通道**：曼波预见开发联网条件变差，要求给小电脑增跨网段远控且全程代办。`qianli-mesh` 网络建成（笔记本 26.33.107.52 / 小电脑 26.6.74.79，实测 6ms P2P 直连），防火墙放行 26.0.0.0/8→22/3389，SSH 公钥免密（ed25519 → administrators_authorized_keys），RDP 凭据缓存+桌面双 .rdp，重启自愈链（服务自启+GUI HKCU Run 自启+AutoAdminLogon）。小电脑 2.1.4951.1 静默安装（验签 Famatech Corp. Valid）、「加入网络」GUI 五段自动化（RDP 自动登录→EnumWindows 拉隐藏主窗→SetWindowPos 挪窗→剪贴板粘贴填表，全程截图闭环）——全程经验沉淀为 skill §十三。
+- **skill 更新**（qianli-lab-network）：§三新增 0.5 条「本机连上却没网先查 Watt Toolkit」（Watt 开着换网=代理端口僵死全断，同网他人正常=本机问题指纹）；§九/§十一 4A 打印路由器与裁判系统路由器标注「已物理拔离」（曼波因消息迷路拔下，重接走检查单）；§八 netlog 探针条目既有。
+- **凭据归属勘定**（曼波纠偏）：Radmin 组网凭据归大脑仓库 `config/radmin-mesh.local.env`（gitignore 已排除），不进 approval-bot/.env——已迁移并清零。
+- **联动 gitlink**：approval-bot **v60**（`ca9e9b5`，approval 指令通道鉴权配套，与 hub v122 跨仓同批，已推 GitHub）；ticket-pm/project-management-robot `ab7e81e`（v122 条目提交）+ `63313e0`（关键词回答表/抽奖配置表运行时回写同步）随本提交入库。
+- 相关：真断网乌龙（Watt 案）排查与 netlog 09-28 12:43 实战自愈首秀验证（55s 首选项一发命中）详见大脑仓库 network 域与 skill §三 0.5。
