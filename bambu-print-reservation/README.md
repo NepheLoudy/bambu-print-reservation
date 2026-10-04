@@ -102,7 +102,7 @@ npm run push
 
 体系的第二层：标签勾选 → **切片参数集**。`src/services/processRules.js`：
 
-- **参数白名单**（16 个，CLI 可消费的核心参数全集）：`directionStrategy/layerHeight/wallLoops/infillDensity/infillPattern/supportType/speedProfile/seamPosition/xyHoleComp/xyContourComp/ironing/brim/temperatureDelta/materialExclude/materialPrefer`；规则 `set` 引用白名单外参数、`when` 引用池外字段、缺 `reason` 一律拒收（可审计铁律）；
+- **参数白名单**（22 个，CLI 可消费的核心参数全集；2026-10-05 细化批新增顶/底面实心层数、支撑悬垂阈值角、支撑密度、裙边宽度、喷嘴温度Δ）：`directionStrategy/layerHeight/wallLoops/infillDensity/infillPattern/supportType/speedProfile/seamPosition/xyHoleComp/xyContourComp/ironing/brim/temperatureDelta/materialExclude/materialPrefer`；规则 `set` 引用白名单外参数、`when` 引用池外字段、缺 `reason` 一律拒收（可审计铁律）；
 - **应用语义**：`BASELINE`（出厂默认）为底，规则按 `priority` 升序叠加，同名参数 priority 大者赢；标签级冲突不做二次裁判——`applyRules` 入口统一走 `taxonomy.validateSelection`，errors 非空即 `blocked`（含材料类冲突，需传 `material` 才判定）；
 - **材料裁定**：`materialExclude/materialPrefer` 存 regex 源（如 `'^PLA'`），对材料字符串求值得 `materialVerdict`（选机匹配层消费；表单端 block 是第一道闸，此处是引擎端兜底）；
 - **版本**：`rulesVersion` = 规则集内容 hash 短码，与 `taxonomyVersion`、baseline 版本、Bambu Studio 版本共同构成切片产物缓存 key 四件套；

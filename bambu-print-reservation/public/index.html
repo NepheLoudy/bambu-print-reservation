@@ -221,7 +221,7 @@ function renderIdentity() {
 
 // ---------- 学习链路 ----------
 
-const PARAM_LABELS = { layerHeight: '层高', wallLoops: '墙数', infillDensity: '填充%', infillPattern: '填充图案', speedProfile: '速度档', supportType: '支撑', seamPosition: '接缝', directionStrategy: '朝向策略', ironing: '熨烫', brim: '裙边', xyHoleComp: '孔补偿', xyContourComp: '轮廓补偿', temperatureDelta: '温度Δ' };
+const PARAM_LABELS = { layerHeight: '层高', wallLoops: '墙数', topShellLayers: '顶面层', bottomShellLayers: '底面层', infillDensity: '填充%', infillPattern: '填充图案', speedProfile: '速度档', supportType: '支撑', supportThresholdAngle: '支撑阈值°', supportDensity: '支撑密度%', seamPosition: '接缝', directionStrategy: '朝向策略', ironing: '熨烫', brim: '裙边', brimWidth: '裙边mm', xyHoleComp: '孔补偿', xyContourComp: '轮廓补偿', temperatureDelta: '热床Δ°', nozzleTempDelta: '喷嘴Δ°' };
 
 /** 参数实时预览：提交前看到「本单会怎么切」（使用效率核心） */
 let previewTimer = null;
@@ -245,7 +245,7 @@ async function applyPreview() {
       return;
     }
     const p = data.params;
-    const items = ['layerHeight', 'wallLoops', 'infillDensity', 'infillPattern', 'speedProfile', 'supportType', 'seamPosition']
+    const items = ['layerHeight', 'wallLoops', 'topShellLayers', 'bottomShellLayers', 'infillDensity', 'infillPattern', 'speedProfile', 'supportType', 'supportThresholdAngle', 'supportDensity', 'seamPosition']
       .map((k) => p[k] !== undefined && `<span class="pv">${PARAM_LABELS[k]}=<b>${p[k]}</b></span>`).filter(Boolean).join('');
     const mat = data.materialVerdict ? `<span class="pv">材料裁定=<b>${data.materialVerdict.excluded ? '⛔排除' : data.materialVerdict.preferred ? '✅优先' : '—'}</b></span>` : '';
     $('paramPreview').style.display = 'block';
@@ -253,11 +253,15 @@ async function applyPreview() {
   } catch { /* 预览失败不打扰提交 */ }
 }
 
-/** 修正建议：审批人看到参数不合适时，从该单发起（自动带标签组合与单号） */
-function openCorrection(id, selection, processParams) {
+/** 修正建议：审批人看到参数不合适时，从该单发起（自动带标签组合与单号）。
+ *  单据从缓存取（window.__records）——onclick 属性里内联 JSON 会因双引号截断，禁止 */
+function openCorrection(id) {
+  const record = (window.__records || []).find((r) => r.id === id);
+  if (!record) return toast('记录已过期，刷新后重试');
+  const processParams = record.processParams || {};
   const dlg = document.createElement('dialog');
   const editable = {};
-  for (const k of ['layerHeight', 'wallLoops', 'infillDensity', 'infillPattern', 'speedProfile', 'supportType', 'seamPosition', 'ironing', 'brim', 'temperatureDelta']) {
+  for (const k of ['layerHeight', 'wallLoops', 'topShellLayers', 'bottomShellLayers', 'infillDensity', 'infillPattern', 'speedProfile', 'supportType', 'supportThresholdAngle', 'supportDensity', 'seamPosition', 'ironing', 'brim', 'brimWidth', 'temperatureDelta', 'nozzleTempDelta']) {
     if (processParams && k in processParams) editable[k] = processParams[k];
   }
   dlg.innerHTML = `<h3 style="font-size:14px;margin-bottom:8px">📝 修正建议（${id}）</h3>
@@ -277,7 +281,7 @@ async function submitCorrection(id, dlg) {
   try { set = JSON.parse(dlg.querySelector('#corrEdit').value); } catch { return toast('参数不是合法 JSON'); }
   const reason = dlg.querySelector('#corrReason').value.trim();
   if (!reason) return toast('请填写修正理由');
-  const record = (await (await fetch('/api/reservations')).json()).find((r) => r.id === id);
+  const record = (window.__records || []).find((r) => r.id === id);
   const res = await fetch('/api/print/rule-suggestions', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ when: record?.selection || {}, set, reason, source: 'correction', sourceRef: id }),
@@ -402,7 +406,12 @@ async function loadTaxonomy() {
     div.innerHTML = `<div class="gtitle" title="${(g.tooltip || '').replace(/"/g, '&quot;')}">${g.title}</div><div class="gdesc">${g.tooltip || ''}</div>${opts}`;
     box.appendChild(div);
   }
-  box.addEventListener('change', () => { collectSelection(); preflight(); schedulePreview(); saveSelMemory(); });
+  // 事件委托:勾选 chip 视觉态 .on 跟随 checkbox 实际状态(此前缺这步,点选永远无反馈)
+  box.addEventListener('change', (e) => {
+    const label = e.target.closest('.opt');
+    if (label) label.classList.toggle('on', e.target.checked);
+    collectSelection(); preflight(); schedulePreview(); saveSelMemory();
+  });
 }
 
 function collectSelection() {
@@ -468,6 +477,7 @@ async function loadList() {
   const res = await fetch('/api/reservations');
   if (res.status === 401) { ME = null; renderIdentity(); return; }
   const records = await res.json();
+  window.__records = records; // openCorrection/submitCorrection 从缓存取单（避免 onclick 内联 JSON 截断）
   const box = $('list');
   if (!Array.isArray(records) || records.length === 0) { box.innerHTML = '<div class="empty">暂无预约记录</div>'; return; }
   const rows = records.slice().reverse().map(r => {
@@ -481,7 +491,7 @@ async function loadList() {
     const reviewBtns = pending && isReviewer() ? `<div class="revbox">
           <button class="ok" onclick="review('${r.id}','approve')">通过</button>
           <button class="bad" onclick="review('${r.id}','reject')">驳回</button>
-          <button class="mini" onclick="openCorrection('${r.id}', ${JSON.stringify(r.selection || {})}, ${JSON.stringify(r.processParams || {})})">建议修正</button>
+          <button class="mini" onclick="openCorrection('${r.id}')">建议修正</button>
         </div>` : '';
     const cancelBtn = !['已完成', '已取消', '已驳回'].includes(r.status) && (mine || isReviewer())
       ? `<button class="mini" onclick="cancelReservation('${r.id}')">取消</button>` : '';

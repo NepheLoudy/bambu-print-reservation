@@ -156,6 +156,26 @@ check('rulesVersion 随规则集内容变化', () => {
   assert.equal(v1, v3);
 });
 
+check('参数细化:外观件规则带顶底壳/支撑阈值/喷嘴Δ(2026-10-05 细化批)', () => {
+  const r = applyRules({ appearance: true });
+  assert.equal(r.params.topShellLayers, 5);
+  assert.equal(r.params.bottomShellLayers, 4);
+  assert.equal(r.params.supportThresholdAngle, 45);
+  assert.equal(r.params.nozzleTempDelta, 5);
+});
+
+check('参数细化:重载档顶底加实,高速档支撑稀疏', () => {
+  assert.equal(applyRules({ load_magnitude: 'heavy' }).params.topShellLayers, 5);
+  assert.equal(applyRules({ fast_mode: true }).params.supportDensity, 15);
+});
+
+check('参数细化:白名单校验范围(topShell/支撑阈值)', () => {
+  const bad1 = upsertRule({ id: 'bad-ts', priority: 1, when: { load_magnitude: ['light'] }, set: { topShellLayers: 99 }, reason: '超范围测试' });
+  assert.equal(bad1.ok, false);
+  const bad2 = upsertRule({ id: 'bad-ang', priority: 1, when: { load_magnitude: ['light'] }, set: { supportThresholdAngle: 5 }, reason: '超范围测试' });
+  assert.equal(bad2.ok, false);
+});
+
 // ---------- 清理 tmp 规则文件 ----------
 try { require('fs').unlinkSync(process.env.PROCESS_RULES_FILE); } catch { /* 不存在即可 */ }
 

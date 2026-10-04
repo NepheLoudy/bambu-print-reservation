@@ -24,8 +24,12 @@ app.use(cors());
 // 审批事件/表单可能较大（AGENTS.md 通用坑：express.json 放宽到 2mb）
 app.use(express.json({ limit: '2mb' }));
 
-// 前端页面（同源伺服，public/index.html）
-app.use(express.static(path.join(__dirname, '..', 'public')));
+// 前端页面（同源伺服，public/index.html）；HTML 不缓存——页面迭代后浏览器不得吃旧版
+app.use(express.static(path.join(__dirname, '..', 'public'), {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
+  },
+}));
 
 // 上传目录预建
 fs.mkdirSync(reservationStore.UPLOAD_DIR, { recursive: true });

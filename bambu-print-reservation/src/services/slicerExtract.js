@@ -20,11 +20,19 @@ const BAMBU_PARAM_MAP = {
   layer_height: { param: 'layerHeight', num: true },
   initial_layer_print_height: null, // 忽略
   wall_loops: { param: 'wallLoops', num: true },
+  top_shell_layers: { param: 'topShellLayers', num: true },
+  bottom_shell_layers: { param: 'bottomShellLayers', num: true },
   sparse_infill_density: { param: 'infillDensity', pct: true },
   sparse_infill_pattern: {
     param: 'infillPattern',
     enum: { grid: 'grid', gyroid: 'gyroid', cubic: 'cubic', line: 'lines', lines: 'lines', zigzag: 'grid', honeycomb: 'grid' },
   },
+  threshold_overhang_angle: { param: 'supportThresholdAngle', num: true },
+  support_base_density: { param: 'supportDensity', pct: true },
+  support_density: { param: 'supportDensity', pct: true },
+  tree_support_branch_density: { param: 'supportDensity', pct: true },
+  brim_width: { param: 'brimWidth', num: true },
+  // nozzle_temperature 是绝对温度，材料默认各异，不做 Δ 换算（语义会错），不映射
   seam_position: {
     param: 'seamPosition',
     enum: { aligned: 'aligned', nearest: 'nearest', back: 'hidden', rear: 'hidden' },
