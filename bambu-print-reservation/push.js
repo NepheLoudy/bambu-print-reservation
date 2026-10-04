@@ -24,7 +24,7 @@ function runTestGate() {
     return true;
   }
   const { spawnSync } = require('child_process');
-  const cmd = 'node test/dispatcher-test.js && node test/dispatcher-persist-test.js && node test/dispatcher-manual-race-test.js && node test/approval-test.js';
+  const cmd = 'node test/dispatcher-test.js && node test/dispatcher-persist-test.js && node test/dispatcher-manual-race-test.js && node test/approval-test.js && node test/taxonomy-test.js && node test/process-rules-test.js && node test/local-reservation-test.js && node test/auth-test.js && node test/learning-loop-test.js';
   if (!cmd) { console.log('[测试闸门] 无测试命令，跳过'); return true; }
   console.log('[测试闸门] 运行:', cmd);
   const r = spawnSync(cmd, { shell: true, stdio: 'inherit', cwd: __dirname });

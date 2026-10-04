@@ -1,0 +1,200 @@
+/**
+ * 需求标签池（taxonomy）单测（纯逻辑，不调 API）
+ * 用法：node test/taxonomy-test.js
+ */
+const assert = require('assert');
+const {
+  TAXONOMY_VERSION,
+  groups,
+  CONFLICTS,
+  validateSelection,
+  selectionFromFormFields,
+  getTaxonomy,
+} = require('../src/services/taxonomy');
+
+let failures = 0;
+function check(name, fn) {
+  try {
+    fn();
+    console.log(`✓ ${name}`);
+  } catch (err) {
+    failures++;
+    console.error(`✗ ${name} — ${err.message}`);
+  }
+}
+
+// ---------- 结构完整性 ----------
+
+check('标签池版本为 v2（力学/耐久扩充批）', () => {
+  assert.equal(TAXONOMY_VERSION, 'v2');
+});
+
+check('每个字段具备 tooltip 与 mapsHint（可映射铁律）', () => {
+  for (const g of groups) {
+    for (const f of g.fields) {
+      assert.ok(f.tooltip && f.tooltip.length > 5, `${f.id} 缺 tooltip`);
+      assert.ok(Array.isArray(f.mapsHint) && f.mapsHint.length > 0, `${f.id} 缺 mapsHint（违反「每标签必须可映射」铁律）`);
+    }
+  }
+});
+
+check('single/multi 字段必有选项，formTitle 全池唯一', () => {
+  const titles = new Set();
+  for (const g of groups) {
+    for (const f of g.fields) {
+      if (f.type === 'single' || f.type === 'multi') {
+        assert.ok(Array.isArray(f.options) && f.options.length > 0, `${f.id} 无选项`);
+        const optIds = new Set(f.options.map((o) => o.id));
+        assert.equal(optIds.size, f.options.length, `${f.id} 选项 id 重复`);
+      }
+      assert.ok(!titles.has(f.formTitle), `formTitle 撞车: ${f.formTitle}`);
+      titles.add(f.formTitle);
+    }
+  }
+});
+
+check('v2 力学/耐久扩充字段在池', () => {
+  const ids = new Set(groups.flatMap((g) => g.fields.map((f) => f.id)));
+  for (const id of ['load_magnitude', 'service_life', 'stiffness', 'electrical_insulation', 'fastener']) {
+    assert.ok(ids.has(id), `缺少扩充字段 ${id}`);
+  }
+  const loadType = groups.flatMap((g) => g.fields).find((f) => f.id === 'load_type');
+  assert.ok(loadType.options.some((o) => o.id === 'contact'), '受力类型缺「滚压/点接触」');
+  const loadNature = groups.flatMap((g) => g.fields).find((f) => f.id === 'load_nature');
+  assert.ok(loadNature.options.some((o) => o.id === 'vibration'), '载荷性质缺「振动」');
+});
+
+// ---------- validateSelection ----------
+
+check('空勾选通过（默认不勾=常规件一键提交）', () => {
+  const r = validateSelection({});
+  assert.deepEqual(r.errors, []);
+});
+
+check('合法勾选通过', () => {
+  const r = validateSelection({
+    load_direction: 'Z',
+    load_type: ['bending', 'shear'],
+    load_magnitude: 'medium',
+    quantity: 3,
+    appearance: true,
+  });
+  assert.deepEqual(r.errors, []);
+});
+
+check('未知字段与无效选项报错', () => {
+  const r = validateSelection({ no_such_field: 1, load_magnitude: 'ultra' });
+  assert.equal(r.errors.length, 2);
+});
+
+check('multi 非数组 / number 越界报错', () => {
+  const r = validateSelection({ load_type: 'bending', quantity: 100 });
+  assert.equal(r.errors.length, 2);
+});
+
+check('硬冲突：耐温≥80°C × PLA 拦截（需提供材料）', () => {
+  const sel = { temp_class: 't120' };
+  assert.deepEqual(validateSelection(sel).errors, [], '未提供材料时不判材料类冲突');
+  const r = validateSelection(sel, { material: 'PLA-CF' });
+  assert.equal(r.errors.length, 1);
+  assert.match(r.errors[0], /PLA/);
+  assert.deepEqual(validateSelection(sel, { material: 'PETG' }).errors, []);
+});
+
+check('硬冲突：电气绝缘 × CF 系拦截', () => {
+  const r = validateSelection({ electrical_insulation: true }, { material: 'PAHT-CF' });
+  assert.equal(r.errors.length, 1);
+});
+
+check('硬冲突：长期静载 × PLA 蠕变拦截', () => {
+  const r = validateSelection(
+    { service_life: 'long_term', load_nature: 'static' },
+    { material: 'PLA' }
+  );
+  assert.equal(r.errors.length, 1);
+  // 只满足一腿不拦
+  assert.deepEqual(
+    validateSelection({ service_life: 'long_term', load_nature: 'impact' }, { material: 'PLA' }).errors,
+    []
+  );
+});
+
+check('警告级：高速 × 外观件放行但带警告', () => {
+  const r = validateSelection({ fast_mode: true, appearance: true });
+  assert.deepEqual(r.errors, []);
+  assert.equal(r.warnings.length, 1);
+});
+
+check('警告级：柔性弹性 × CF（材料条件）', () => {
+  assert.equal(validateSelection({ stiffness: 'flexible' }).warnings.length, 0);
+  assert.equal(validateSelection({ stiffness: 'flexible' }, { material: 'PLA-CF' }).warnings.length, 1);
+});
+
+// ---------- selectionFromFormFields ----------
+
+const FORM_FIELDS = [
+  { title: '受力方向', value: 'Z 轴（竖直向上）' },
+  { title: '受力类型', value: '弯曲、剪切' },
+  { title: '载荷量级', value: '中载' },
+  { title: '使用寿命', value: '长期（跨学期）' },
+  { title: '电气绝缘', value: '是' },
+  { title: '份数', value: '4' },
+  { title: '外观件', value: '否' },
+  { title: '材料类型', value: 'PETG' },
+];
+
+check('表单字段 → 标准化勾选（中文 label 反查 id）', () => {
+  const { selection } = selectionFromFormFields(FORM_FIELDS);
+  assert.equal(selection.load_direction, 'Z');
+  assert.deepEqual(selection.load_type, ['bending', 'shear']);
+  assert.equal(selection.load_magnitude, 'medium');
+  assert.equal(selection.service_life, 'long_term');
+  assert.equal(selection.electrical_insulation, true);
+  assert.equal(selection.quantity, 4);
+  assert.ok(!('appearance' in selection), '显式为否不写入勾选');
+});
+
+check('表单提取不带非本池字段（材料类型由既有解析负责）', () => {
+  const { selection } = selectionFromFormFields(FORM_FIELDS);
+  assert.ok(!('materialType' in selection) && !('材料类型' in selection));
+});
+
+check('无法识别的选项进 unmatched（宽容不丢字段）', () => {
+  const { selection, unmatched } = selectionFromFormFields([{ title: '受力方向', value: '斜着' }]);
+  assert.ok(!('load_direction' in selection));
+  assert.equal(unmatched.length, 1);
+  assert.match(unmatched[0], /受力方向/);
+});
+
+check('提取结果可直接过校验并与材料联动', () => {
+  const { selection } = selectionFromFormFields(FORM_FIELDS);
+  const r = validateSelection(selection, { material: 'PETG' });
+  assert.deepEqual(r.errors, [], '样例表单勾选组合应无冲突');
+});
+
+// ---------- 窗口输出 ----------
+
+check('getTaxonomy 输出全景：version/groups/conflicts，正则转字符串', () => {
+  const t = getTaxonomy();
+  assert.equal(t.version, TAXONOMY_VERSION);
+  assert.ok(Array.isArray(t.groups) && t.groups.length >= 8);
+  assert.ok(Array.isArray(t.conflicts) && t.conflicts.length >= 6);
+  for (const c of t.conflicts) {
+    assert.ok(c.materialMatch === null || typeof c.materialMatch === 'string');
+    assert.ok(['block', 'warn'].includes(c.level));
+  }
+  assert.ok(t.convention.includes('Z'));
+});
+
+check('冲突规则引用的字段/材料正则自洽（防规则库写错字段名）', () => {
+  const ids = new Set(groups.flatMap((g) => g.fields.map((f) => f.id)));
+  for (const rule of CONFLICTS) {
+    for (const fieldId of Object.keys(rule.when)) {
+      assert.ok(ids.has(fieldId), `冲突规则 ${rule.id} 引用了不存在的字段 ${fieldId}`);
+    }
+    assert.ok(rule.message && rule.message.length > 5, `冲突规则 ${rule.id} 缺 message`);
+  }
+});
+
+console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);
+process.exit(failures === 0 ? 0 : 1);

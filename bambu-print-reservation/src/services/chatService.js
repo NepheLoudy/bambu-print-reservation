@@ -32,23 +32,15 @@ async function handleHelpCommand() {
 async function handlePrintHelpCommand() {
   return `🖨️ 3D打印预约系统 - 指令帮助
 
-📋 查询指令：
+📋 查询指令（本聊天通道仅保留查看类；提交/审批/人工恢复请用打印预约页面）：
   /print-status    查看打印机状态（含 AMS 耗材与打印队列）
   /print-ams       查看所有打印机装载的耗材明细
   /print-list      查看当前所有预约记录
-  /print-pending   查看待审批的预约（需审批者处理）
+  /print-pending   查看待审批的预约
 
-⚙️ 管理指令：
-  /print-dispatch <申请编号> <打印机名>  手动指定打印机分发
-
-📝 预约流程（在飞书审批多维表格中操作）：
-  • 填写发起人、切片文件(3mf)、材料类型、颜色、是否加急
-  • 审批者审查切片文件后填写审批结果
-  • 审批通过秒级入队，按打印机 AMS 装料自动匹配并开始打印
-
-示例：
-  @爆米花机-对话型 /print-status
-  @爆米花机-对话型 /print-dispatch 20260903001 X1C-01`;
+📝 预约流程（自建网页提交，2026-10-05 起）：
+  • 打开打印预约页面 → 注册/登录账号 → 上传模型并勾选工况需求
+  • 审批者在页面审批；通过后自动按 AMS 装料匹配打印`;
 }
 
 async function handlePrintStatusCommand() {
@@ -116,35 +108,22 @@ async function handlePrintAmsCommand() {
   return lines.join('\n');
 }
 
-async function handlePrintDispatchCommand(args) {
-  const [target, printerName] = args;
-  if (!target || !printerName) {
-    const names = printerManager.getAllPrinterStates().map((p) => p.name).join('、');
-    return `用法: /print-dispatch <申请编号或记录ID> <打印机名>\n可用打印机: ${names || '（无）'}`;
-  }
-
-  try {
-    const result = await dispatcher.manualDispatch(target, printerName);
-    return result.manualOnly
-      ? `📝 ${result.message}`
-      : `✅ ${result.message}`;
-  } catch (err) {
-    return `❌ ${err.message}`;
-  }
-}
+// 本地化后发起人是字符串（displayName）；旧镜像记录是 {id,name} 对象——双形态兼容
+const applicantName = (applicant) =>
+  typeof applicant === 'string' ? applicant : applicant?.name || '未知';
 
 async function handlePrintListCommand() {
   const reservations = await reservationService.getAllReservations();
-  
+
   if (reservations.length === 0) {
     return '📋 暂无打印预约记录';
   }
 
   const lines = ['📋 打印预约列表', ''];
-  
+
   reservations.forEach((res, i) => {
     let statusIcon = '📋';
-    
+
     switch (res.status) {
       case config.status.PENDING_REVIEW:
         statusIcon = '⏳';
@@ -170,57 +149,59 @@ async function handlePrintListCommand() {
     }
 
     lines.push(`${i + 1}. ${statusIcon} ${res.fileName || '未命名文件'}`);
-    lines.push(`   发起人: ${res.applicant?.name || '未知'}`);
+    lines.push(`   发起人: ${applicantName(res.applicant)}`);
     lines.push(`   状态: ${res.status}`);
-    
-    if (res.applicationNo) {
-      lines.push(`   申请编号: ${res.applicationNo}`);
+
+    if (res.id || res.applicationNo) {
+      lines.push(`   单号: ${res.id || res.applicationNo}`);
     }
-    
-    if (res.startTime) {
-      lines.push(`   发起时间: ${res.startTime}`);
+
+    const startTime = res.createdAt || res.startTime;
+    if (startTime) {
+      lines.push(`   发起时间: ${String(startTime).replace('T', ' ').slice(0, 16)}`);
     }
-    
+
     if (res.isUrgent) {
       lines.push(`   ⚡ 加急`);
     }
-    
+
     if (res.isInternalProject) {
       lines.push(`   📌 千里内部项目`);
     }
-    
+
     lines.push('');
   });
-  
+
   return lines.join('\n');
 }
 
 async function handlePrintPendingCommand() {
   const reservations = await reservationService.getPendingReviewReservations();
-  
+
   if (reservations.length === 0) {
     return '✅ 暂无待审批的预约';
   }
 
   const lines = ['⏳ 待审批预约列表', ''];
-  
+
   reservations.forEach((res, i) => {
     lines.push(`${i + 1}. 📋 ${res.fileName || '未命名文件'}`);
-    lines.push(`   发起人: ${res.applicant?.name || '未知'}`);
-    if (res.applicationNo) {
-      lines.push(`   申请编号: ${res.applicationNo}`);
+    lines.push(`   发起人: ${applicantName(res.applicant)}`);
+    if (res.id || res.applicationNo) {
+      lines.push(`   单号: ${res.id || res.applicationNo}`);
     }
-    if (res.startTime) {
-      lines.push(`   发起时间: ${res.startTime}`);
+    const startTime = res.createdAt || res.startTime;
+    if (startTime) {
+      lines.push(`   发起时间: ${String(startTime).replace('T', ' ').slice(0, 16)}`);
     }
     if (res.isUrgent) {
       lines.push(`   ⚡ 加急`);
     }
     lines.push('');
   });
-  
-  lines.push('💡 提示：请在Bambu Studio中审查切片文件，确认后在多维表格中填写审批结果');
-  
+
+  lines.push('💡 提示：请在打印预约页面登录后审批（审批人账号由管理员开通）');
+
   return lines.join('\n');
 }
 
@@ -231,7 +212,8 @@ const commandHandlers = {
   '/print-ams': handlePrintAmsCommand,
   '/print-list': handlePrintListCommand,
   '/print-pending': handlePrintPendingCommand,
-  '/print-dispatch': handlePrintDispatchCommand,
+  // /print-dispatch 已移除（2026-10-05 曼波定：聊天通道仅保留查看类指令）——
+  // 人工指定分发的管理动作走 HTTP（页面/运维台，reviewer 及以上）
 };
 
 /**
@@ -253,5 +235,4 @@ module.exports = {
   handlePrintAmsCommand,
   handlePrintListCommand,
   handlePrintPendingCommand,
-  handlePrintDispatchCommand,
 };

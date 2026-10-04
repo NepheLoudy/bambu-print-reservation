@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🖨️ 拓竹打印预约</title>
+<style>
+  :root {
+    --bg: #f4f6f9; --card: #ffffff; --ink: #1c2733; --muted: #6b7a8c;
+    --line: #e3e8ee; --accent: #0e7cc2; --ok: #1d9e74; --warn: #d9822b; --bad: #d64545;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; background: var(--bg); color: var(--ink); padding: 16px; }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  .sub { color: var(--muted); font-size: 12px; }
+  .userbox { font-size: 13px; text-align: right; }
+  .userbox .role { display: inline-block; padding: 1px 8px; border-radius: 9px; color: #fff; font-size: 11px; margin: 0 4px; }
+  .r-admin { background: #7a3fd1; } .r-reviewer { background: var(--accent); } .r-member { background: #98a4b0; }
+  .userbox button { padding: 3px 10px; font-size: 12px; background: #eef2f6; color: var(--ink); border: 1px solid var(--line); border-radius: 5px; cursor: pointer; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .card h2 { font-size: 15px; margin-bottom: 12px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  input[type=text], input[type=number], input[type=password], select {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; font-size: 14px; background: #fbfcfe;
+  }
+  input[type=file] { font-size: 13px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .row > div { flex: 1; min-width: 140px; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 10px; }
+  .tabs button { flex: 1; padding: 8px; border: 1px solid var(--line); background: #fbfcfe; color: var(--muted); border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .tabs button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .group { border: 1px dashed var(--line); border-radius: 8px; padding: 10px 12px; margin-top: 12px; }
+  .group > .gtitle { font-size: 13px; font-weight: 600; margin-bottom: 4px; cursor: help; }
+  .group > .gdesc { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+  .opts { display: flex; flex-wrap: wrap; gap: 8px; }
+  .opt { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; padding: 5px 10px; border: 1px solid var(--line);
+         border-radius: 14px; cursor: pointer; user-select: none; background: #fbfcfe; }
+  .opt:hover { border-color: var(--accent); }
+  .opt.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .opt input { display: none; }
+  .hint { font-size: 12px; margin-top: 6px; min-height: 16px; }
+  .hint.warn { color: var(--warn); } .hint.bad { color: var(--bad); }
+  button.primary { padding: 9px 18px; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; background: var(--accent); color: #fff; }
+  button.ok { background: var(--ok); color: #fff; border: none; border-radius: 5px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
+  button.bad { background: var(--bad); color: #fff; border: none; border-radius: 5px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
+  button.mini { background: #eef2f6; color: var(--ink); border: 1px solid var(--line); border-radius: 5px; padding: 3px 9px; cursor: pointer; font-size: 12px; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .actions { margin-top: 16px; display: flex; gap: 10px; align-items: center; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; color: #fff; }
+  .s-待审批 { background: var(--warn); } .s-已通过 { background: var(--accent); }
+  .s-排队中 { background: #5b6ee1; } .s-打印中 { background: var(--warn); }
+  .s-已完成 { background: var(--ok); } .s-已驳回, .s-已取消 { background: #98a4b0; }
+  .pbar { height: 6px; background: #eef2f6; border-radius: 3px; overflow: hidden; margin-top: 4px; }
+  .pbar > div { height: 100%; background: var(--accent); }
+  .printer-grid { display: flex; gap: 10px; flex-wrap: wrap; }
+  .pcard { flex: 1; min-width: 260px; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 13px; }
+  .pcard .st { float: right; }
+  .detail { font-size: 12px; color: var(--muted); }
+  .detail b { color: var(--ink); }
+  .revbox { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #2b3947; color: #fff;
+           padding: 10px 18px; border-radius: 8px; font-size: 13px; display: none; max-width: 80vw; z-index: 10; }
+  .empty { color: var(--muted); font-size: 13px; padding: 16px 0; text-align: center; }
+  .convention { font-size: 11px; color: var(--muted); margin-top: 8px; }
+  select.roleSel { width: auto; padding: 3px 6px; font-size: 12px; }
+  .preview { margin-top: 12px; padding: 10px 12px; background: #f0f7fc; border: 1px solid #cfe6f5; border-radius: 8px; font-size: 12px; }
+  .preview b { color: var(--accent); }
+  .preview .pv { display: inline-block; margin: 2px 10px 2px 0; }
+  textarea.paramEdit { width: 100%; height: 110px; font-family: Consolas, monospace; font-size: 12px; padding: 8px; border: 1px solid var(--line); border-radius: 6px; }
+  .sugbox { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; font-size: 12px; }
+  .sugbox .cnt { display: inline-block; background: var(--warn); color: #fff; border-radius: 9px; padding: 0 8px; font-size: 11px; margin-left: 6px; }
+  dialog { border: 1px solid var(--line); border-radius: 10px; padding: 18px; max-width: 560px; width: 92vw; }
+  dialog::backdrop { background: rgba(0,0,0,.35); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div>
+      <h1>🖨️ 拓竹打印预约</h1>
+      <div class="sub">上传模型 → 勾选工况需求 → 规则引擎定参数 → 审批 → 自动分发打印</div>
+    </div>
+    <div class="userbox" id="userbox"></div>
+  </div>
+
+  <div class="card" id="authCard" style="display:none">
+    <h2>🔐 账号</h2>
+    <div class="tabs">
+      <button id="tabLogin" class="on" onclick="switchAuth('login')">登录</button>
+      <button id="tabRegister" onclick="switchAuth('register')">注册（首位注册者自动成为管理员）</button>
+    </div>
+    <div class="row">
+      <div><label>用户名（3–32 位字母/数字/下划线）</label><input type="text" id="authUsername"></div>
+      <div><label>显示姓名（审批卡/队列里显示）</label><input type="text" id="authDisplayName" style="display:none"></div>
+      <div><label>密码（≥6 位）</label><input type="password" id="authPassword"></div>
+      <div style="flex:0; align-self:flex-end"><button class="primary" onclick="doAuth()">确定</button></div>
+    </div>
+    <div class="hint" id="authHint"></div>
+  </div>
+
+  <div id="appBody" style="display:none">
+    <div class="card">
+      <h2>🖨️ 打印机 <span class="sub" style="display:inline">(每 15s 刷新)</span></h2>
+      <div id="printerList"><div class="empty">加载中…</div></div>
+    </div>
+
+    <div class="card">
+      <h2>📝 提交预约</h2>
+      <div class="row">
+        <div><label>材料类型 *</label><input type="text" id="materialType" placeholder="如 PLA / PETG / PLA-CF" oninput="preflight(); schedulePreview()"></div>
+        <div><label>颜色</label><input type="text" id="color" placeholder="如 黑色 / 白色"></div>
+        <div><label>份数</label><input type="number" id="quantity" value="1" min="1" max="99"></div>
+        <div><label>指定打印机（可空，默认自动匹配）</label><input type="text" id="assignedPrinter" placeholder="如 X1C-01"></div>
+      </div>
+      <div class="row">
+        <div><label>模型 / 切片文件 *（.stl / .step / .3mf，≤200MB）</label><input type="file" id="file"></div>
+      </div>
+      <div id="taxonomy"></div>
+      <div class="hint" id="conflictHint"></div>
+      <div class="convention" id="convention"></div>
+      <div class="preview" id="paramPreview" style="display:none"></div>
+      <div class="actions">
+        <button class="primary" id="submitBtn" onclick="submitReservation()">提交预约</button>
+        <span class="hint" id="submitHint"></span>
+      </div>
+    </div>
+
+    <div class="card" id="reviewCard" style="display:none">
+      <h2>🎓 学习链路 <span class="sub" style="display:inline">(审批人)——建议待审池 / 专家作品导入</span></h2>
+      <div class="row" style="margin-bottom:8px">
+        <div style="flex:2">
+          <label>导入专家手工切片 3mf（提取参数 → 与当前勾选组合生成候选规则，经待审池确认后生效）</label>
+          <input type="file" id="expert3mf" accept=".3mf">
+        </div>
+        <div style="flex:0; align-self:flex-end"><button class="mini" onclick="importExpert3mf()">提取并生成候选</button></div>
+      </div>
+      <div class="hint" id="extractHint"></div>
+      <div id="sugList"></div>
+    </div>
+
+    <div class="card" id="adminCard" style="display:none">
+      <h2>👤 用户与角色（管理员）</h2>
+      <div id="userList"></div>
+    </div>
+
+    <div class="card">
+      <h2>📋 预约记录 <span class="sub" style="display:inline">(每 15s 自动刷新)</span></h2>
+      <div id="list"></div>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+let TAXONOMY = null;
+let ME = null;
+let authMode = 'login';
+const $ = (id) => document.getElementById(id);
+
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 4000); }
+const isReviewer = () => ME && ['reviewer', 'admin'].includes(ME.role);
+const isAdmin = () => ME && ME.role === 'admin';
+
+function switchAuth(mode) {
+  authMode = mode;
+  $('tabLogin').className = mode === 'login' ? 'on' : '';
+  $('tabRegister').className = mode === 'register' ? 'on' : '';
+  $('authDisplayName').style.display = mode === 'register' ? 'block' : 'none';
+}
+
+async function doAuth() {
+  const username = $('authUsername').value.trim();
+  const password = $('authPassword').value;
+  const displayName = $('authDisplayName').value.trim();
+  const url = authMode === 'login' ? '/api/auth/login' : '/api/auth/register';
+  const body = authMode === 'login' ? { username, password } : { username, password, displayName };
+  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const data = await res.json();
+  if (!res.ok) { $('authHint').className = 'hint bad'; $('authHint').textContent = data.error; return; }
+  if (authMode === 'register') { toast('✅ 注册成功，请登录'); switchAuth('login'); return; }
+  $('authHint').textContent = '';
+  await loadMe();
+}
+
+async function logout() {
+  await fetch('/api/auth/logout', { method: 'POST' });
+  ME = null;
+  renderIdentity();
+}
+
+async function loadMe() {
+  try {
+    const res = await fetch('/api/auth/me');
+    ME = res.ok ? await res.json() : null;
+  } catch { ME = null; }
+  renderIdentity();
+}
+
+function renderIdentity() {
+  const box = $('userbox');
+  if (!ME) {
+    box.innerHTML = '';
+    $('authCard').style.display = 'block';
+    $('appBody').style.display = 'none';
+    return;
+  }
+  $('authCard').style.display = 'none';
+  $('appBody').style.display = 'block';
+  box.innerHTML = `你好，<b>${ME.displayName}</b><span class="role r-${ME.role}">${ME.role}</span>
+    <button onclick="logout()">退出</button>`;
+  $('adminCard').style.display = isAdmin() ? 'block' : 'none';
+  $('reviewCard').style.display = isReviewer() ? 'block' : 'none';
+  loadUsers();
+  if (isReviewer()) loadSuggestions();
+}
+
+// ---------- 学习链路 ----------
+
+const PARAM_LABELS = { layerHeight: '层高', wallLoops: '墙数', infillDensity: '填充%', infillPattern: '填充图案', speedProfile: '速度档', supportType: '支撑', seamPosition: '接缝', directionStrategy: '朝向策略', ironing: '熨烫', brim: '裙边', xyHoleComp: '孔补偿', xyContourComp: '轮廓补偿', temperatureDelta: '温度Δ' };
+
+/** 参数实时预览：提交前看到「本单会怎么切」（使用效率核心） */
+let previewTimer = null;
+function schedulePreview() {
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(applyPreview, 250);
+}
+async function applyPreview() {
+  const material = $('materialType').value.trim();
+  const sel = collectSelection();
+  if (!material && Object.keys(sel).length === 0) { $('paramPreview').style.display = 'none'; return; }
+  try {
+    const res = await fetch('/api/print/process-rules/preview', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ selection: sel, material }),
+    });
+    const data = await res.json();
+    if (data.blocked) {
+      $('paramPreview').style.display = 'block';
+      $('paramPreview').innerHTML = `<b>⛔ 该勾选组合存在硬冲突，无法定档</b>（提交会被打回）`;
+      return;
+    }
+    const p = data.params;
+    const items = ['layerHeight', 'wallLoops', 'infillDensity', 'infillPattern', 'speedProfile', 'supportType', 'seamPosition']
+      .map((k) => p[k] !== undefined && `<span class="pv">${PARAM_LABELS[k]}=<b>${p[k]}</b></span>`).filter(Boolean).join('');
+    const mat = data.materialVerdict ? `<span class="pv">材料裁定=<b>${data.materialVerdict.excluded ? '⛔排除' : data.materialVerdict.preferred ? '✅优先' : '—'}</b></span>` : '';
+    $('paramPreview').style.display = 'block';
+    $('paramPreview').innerHTML = `<b>⚙️ 本单参数预览</b>（命中 ${data.applied.length} 条规则）<br>${items}${mat}`;
+  } catch { /* 预览失败不打扰提交 */ }
+}
+
+/** 修正建议：审批人看到参数不合适时，从该单发起（自动带标签组合与单号） */
+function openCorrection(id, selection, processParams) {
+  const dlg = document.createElement('dialog');
+  const editable = {};
+  for (const k of ['layerHeight', 'wallLoops', 'infillDensity', 'infillPattern', 'speedProfile', 'supportType', 'seamPosition', 'ironing', 'brim', 'temperatureDelta']) {
+    if (processParams && k in processParams) editable[k] = processParams[k];
+  }
+  dlg.innerHTML = `<h3 style="font-size:14px;margin-bottom:8px">📝 修正建议（${id}）</h3>
+    <div class="detail" style="margin-bottom:6px">编辑参数后提交——生成候选规则进待审池（自动携带本单勾选组合），审核通过后生效</div>
+    <textarea class="paramEdit" id="corrEdit">${JSON.stringify(editable, null, 1)}</textarea>
+    <div style="margin-top:8px"><label>修正理由（必填，将随规则可审计）</label><input type="text" id="corrReason" placeholder="如：这个件壁太薄 2 墙不够"></div>
+    <div class="actions" style="margin-top:10px">
+      <button class="ok" onclick="submitCorrection('${id}', this.closest('dialog'))">提交建议</button>
+      <button class="mini" onclick="this.closest('dialog').close()">取消</button>
+    </div>`;
+  document.body.appendChild(dlg);
+  dlg.showModal();
+}
+
+async function submitCorrection(id, dlg) {
+  let set;
+  try { set = JSON.parse(dlg.querySelector('#corrEdit').value); } catch { return toast('参数不是合法 JSON'); }
+  const reason = dlg.querySelector('#corrReason').value.trim();
+  if (!reason) return toast('请填写修正理由');
+  const record = (await (await fetch('/api/reservations')).json()).find((r) => r.id === id);
+  const res = await fetch('/api/print/rule-suggestions', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ when: record?.selection || {}, set, reason, source: 'correction', sourceRef: id }),
+  });
+  const data = await res.json();
+  if (!res.ok) return toast('❌ ' + data.error);
+  toast(data.merged ? `✅ 已合并到既有建议（累计 ${data.suggestion.count} 次）` : '✅ 建议已入待审池');
+  dlg.close();
+  loadSuggestions();
+}
+
+async function loadSuggestions() {
+  if (!isReviewer()) return;
+  const res = await fetch('/api/print/rule-suggestions?status=pending');
+  if (!res.ok) return;
+  const list = await res.json();
+  const box = $('sugList');
+  if (!list.length) { box.innerHTML = '<div class="empty">待审池为空——修正建议与专家导入会出现在这里</div>'; return; }
+  box.innerHTML = list.sort((a, b) => b.count - a.count).map(s => `<div class="sugbox">
+    <b>${s.source === 'extraction' ? '🎓 专家导入' : '🔧 修正'}</b>${s.count > 1 ? `<span class="cnt">×${s.count}</span>` : ''}
+    <span class="detail">｜${(s.sourceRefs || []).map(x => '#' + x).join(' ') || '—'}｜${s.suggestedBy || ''}｜${(s.createdAt || '').slice(5, 16)}</span>
+    <br><span class="detail">当：</span>${JSON.stringify(s.when)}
+    <br><span class="detail">设：</span><b>${JSON.stringify(s.set)}</b>
+    <br><span class="detail">${s.reason}</span>
+    <div class="revbox">
+      <button class="ok" onclick="decide('${s.id}','adopt')">采纳生效</button>
+      <button class="bad" onclick="decide('${s.id}','reject')">拒绝</button>
+    </div>
+  </div>`).join('');
+}
+
+async function decide(id, action) {
+  const res = await fetch(`/api/print/rule-suggestions/${id}/${action}`, { method: 'POST' });
+  const data = await res.json();
+  if (!res.ok) return toast('❌ ' + data.error);
+  toast(action === 'adopt' ? `✅ 已转正为生效规则 ${data.ruleId}` : '✅ 已拒绝');
+  loadSuggestions();
+}
+
+/** 专家 3mf 导入：提取参数 diff → 以当前勾选组合为条件生成候选 */
+async function importExpert3mf() {
+  const file = $('expert3mf').files[0];
+  if (!file) return toast('选择专家切片的 3mf');
+  const sel = collectSelection();
+  if (!Object.keys(sel).length) return toast('请先在上方勾选该作品的工况需求（将作为候选规则的条件）');
+  const fd = new FormData();
+  fd.append('file', file);
+  $('extractHint').textContent = '解析中…';
+  const res = await fetch('/api/print/slicer-extract', { method: 'POST', body: fd });
+  const data = await res.json();
+  if (!res.ok) { $('extractHint').className = 'hint bad'; $('extractHint').textContent = data.error; return; }
+  const diffKeys = Object.keys(data.diff || {});
+  if (!diffKeys.length) {
+    $('extractHint').className = 'hint';
+    $('extractHint').textContent = '提取成功但与出厂基线无差异，无需生成候选';
+    return;
+  }
+  const res2 = await fetch('/api/print/rule-suggestions', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ when: sel, set: data.diff, reason: `专家作品提取（${data.source}）：${file.name}`, source: 'extraction', sourceRef: file.name }),
+  });
+  const data2 = await res2.json();
+  if (!res2.ok) { $('extractHint').className = 'hint bad'; $('extractHint').textContent = '候选提交失败: ' + data2.error; return; }
+  $('extractHint').className = 'hint';
+  $('extractHint').textContent = `✅ 已生成候选：${diffKeys.map(k => (PARAM_LABELS[k] || k) + '=' + data.diff[k]).join('、')}——待审池确认后生效`;
+  loadSuggestions();
+}
+
+async function loadUsers() {
+  if (!isAdmin()) return;
+  const res = await fetch('/api/auth/users');
+  if (!res.ok) return;
+  const users = await res.json();
+  $('userList').innerHTML = `<table><tr><th>用户名</th><th>姓名</th><th>角色</th><th>操作</th></tr>` +
+    users.map(u => `<tr><td>${u.username}</td><td>${u.displayName}</td>
+      <td><select class="roleSel" onchange="setRole('${u.id}', this.value)">
+        ${['member','reviewer','admin'].map(r => `<option ${u.role === r ? 'selected' : ''}>${r}</option>`).join('')}
+      </select></td>
+      <td class="detail">${(u.lastLoginAt || '').replace('T', ' ').slice(0, 16) || '从未登录'}</td></tr>`).join('') + '</table>';
+}
+
+async function setRole(id, role) {
+  const res = await fetch(`/api/auth/users/${id}/role`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role }) });
+  const data = await res.json();
+  toast(res.ok ? `✅ 已调整为 ${data.role}` : '❌ ' + data.error);
+}
+
+// ---------- 提交与列表 ----------
+
+/** 勾选记忆：上次的选择自动恢复，只改不同的（高频提交效率） */
+function saveSelMemory() {
+  try { localStorage.setItem('bambu-sel-memory', JSON.stringify(collectSelection())); } catch { /* 隐私模式忽略 */ }
+}
+function restoreSelMemory() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('bambu-sel-memory') || 'null');
+    if (!saved) return;
+    document.querySelectorAll('.opt input').forEach(inp => {
+      const label = inp.closest('.opt');
+      const f = label.dataset.field, o = label.dataset.opt, t = label.dataset.type;
+      const want = t === 'bool' ? saved[f] === true : t === 'multi' ? (saved[f] || []).includes(o) : saved[f] === o;
+      inp.checked = want;
+      label.classList.toggle('on', want);
+    });
+  } catch { /* 忽略 */ }
+}
+
+async function loadTaxonomy() {
+  const res = await fetch('/api/print/taxonomy');
+  TAXONOMY = await res.json();
+  $('convention').textContent = 'ℹ️ ' + TAXONOMY.convention;
+  const box = $('taxonomy');
+  for (const g of TAXONOMY.groups) {
+    const div = document.createElement('div');
+    div.className = 'group';
+    const opts = g.fields.map(f => {
+      const optHtml = (f.options || [{ id: '__bool_on', label: f.title }]).map(o =>
+        `<label class="opt" title="${(f.tooltip || '').replace(/"/g, '&quot;')}" data-field="${f.id}" data-opt="${o.id}" data-type="${f.type}">
+           <input type="checkbox" value="${o.id}">${o.label}</label>`).join('');
+      return `<div><div class="gtitle" title="${(f.tooltip || '').replace(/"/g, '&quot;')}">${f.title}</div><div class="opts">${optHtml}</div></div>`;
+    }).join('');
+    div.innerHTML = `<div class="gtitle" title="${(g.tooltip || '').replace(/"/g, '&quot;')}">${g.title}</div><div class="gdesc">${g.tooltip || ''}</div>${opts}`;
+    box.appendChild(div);
+  }
+  box.addEventListener('change', () => { collectSelection(); preflight(); schedulePreview(); saveSelMemory(); });
+}
+
+function collectSelection() {
+  const sel = {};
+  document.querySelectorAll('.opt.on').forEach(l => {
+    const f = l.dataset.field, o = l.dataset.opt, t = l.dataset.type;
+    if (t === 'bool') sel[f] = true;
+    else if (t === 'multi') (sel[f] = sel[f] || []).push(o);
+    else if (t === 'single') sel[f] = o;
+  });
+  return sel;
+}
+
+function preflight() {
+  const hint = $('conflictHint');
+  const material = $('materialType').value.trim();
+  const sel = collectSelection();
+  const hits = [];
+  for (const c of (TAXONOMY?.conflicts || [])) {
+    if (c.level !== 'block') continue;
+    const whenOk = Object.entries(c.when).every(([f, vals]) => Array.isArray(sel[f]) ? sel[f].some(x => vals.includes(x)) : vals.includes(sel[f]));
+    if (!whenOk) continue;
+    if (c.materialMatch && (!material || !(new RegExp(c.materialMatch, 'i')).test(material))) continue;
+    hits.push(c.message);
+  }
+  hint.className = 'hint ' + (hits.length ? 'bad' : '');
+  hint.textContent = hits.join('；');
+  $('submitBtn').disabled = hits.length > 0;
+  return hits;
+}
+
+async function submitReservation() {
+  const file = $('file').files[0];
+  if (!file) return toast('请选择模型/切片文件');
+  if (!$('materialType').value.trim()) return toast('材料类型必填（用于冲突判定与规则映射）');
+  if (preflight().length) return toast('存在硬冲突，请先调整勾选');
+
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('materialType', $('materialType').value.trim());
+  fd.append('color', $('color').value.trim());
+  fd.append('assignedPrinter', $('assignedPrinter').value.trim());
+  fd.append('quantity', $('quantity').value || 1);
+  fd.append('selection', JSON.stringify(collectSelection()));
+
+  const btn = $('submitBtn'); btn.disabled = true; $('submitHint').textContent = '提交中…';
+  try {
+    const res = await fetch('/api/reservations', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (res.status === 401) { ME = null; renderIdentity(); throw new Error('登录已过期，请重新登录'); }
+    if (!res.ok) throw new Error((data.details || []).concat([data.error]).filter(Boolean).join('；'));
+    toast(`✅ 已提交 ${data.id}，等待审批`);
+    $('file').value = ''; $('submitHint').textContent = '';
+    saveSelMemory();
+    loadList();
+  } catch (err) {
+    toast('❌ ' + err.message);
+    $('submitHint').textContent = '';
+  } finally { btn.disabled = false; preflight(); }
+}
+
+async function loadList() {
+  const res = await fetch('/api/reservations');
+  if (res.status === 401) { ME = null; renderIdentity(); return; }
+  const records = await res.json();
+  const box = $('list');
+  if (!Array.isArray(records) || records.length === 0) { box.innerHTML = '<div class="empty">暂无预约记录</div>'; return; }
+  const rows = records.slice().reverse().map(r => {
+    const mine = ME && r.submittedBy === ME.id;
+    const params = r.processParams ? Object.entries(r.processParams)
+      .filter(([k, v]) => !['materialExclude', 'materialPrefer'].includes(k) && v !== '' && v !== null && !(Array.isArray(v) && !v.length))
+      .map(([k, v]) => `${k}=${Array.isArray(v) ? v.join('|') : v}`).join(' · ') : '';
+    const rules = (r.appliedRules || []).map(x => x.reason).join('；');
+    const hist = (r.history || []).map(h => `${(h.at || '').replace('T', ' ').slice(5, 16)} ${h.to}${h.note ? '（' + h.note + '）' : ''}`).reverse().join('<br>');
+    const pending = r.status === '待审批';
+    const reviewBtns = pending && isReviewer() ? `<div class="revbox">
+          <button class="ok" onclick="review('${r.id}','approve')">通过</button>
+          <button class="bad" onclick="review('${r.id}','reject')">驳回</button>
+          <button class="mini" onclick="openCorrection('${r.id}', ${JSON.stringify(r.selection || {})}, ${JSON.stringify(r.processParams || {})})">建议修正</button>
+        </div>` : '';
+    const cancelBtn = !['已完成', '已取消', '已驳回'].includes(r.status) && (mine || isReviewer())
+      ? `<button class="mini" onclick="cancelReservation('${r.id}')">取消</button>` : '';
+    return `<tr>
+      <td><b>${r.id}</b><br><span class="detail">${(r.createdAt || '').replace('T', ' ').slice(0, 16)}</span></td>
+      <td><span class="badge s-${r.status}">${r.status}</span>${r.printer ? '<br><span class="detail">' + r.printer + '</span>' : ''}</td>
+      <td>${r.applicant || '?'}${mine ? '<br><span class="detail">(我)</span>' : ''}<br><span class="detail">${r.fileName || ''}</span></td>
+      <td>${r.materialType || '?'}${r.color ? '×' + r.color : ''}${r.isUrgent ? ' ⚡' : ''}${r.quantity > 1 ? ' ×' + r.quantity + '件' : ''}</td>
+      <td class="detail">${params ? '<b>参数</b> ' + params + '<br>' : ''}${rules ? '<b>依据</b> ' + rules + '<br>' : ''}${hist}</td>
+      <td>${reviewBtns}${cancelBtn}</td>
+    </tr>`;
+  }).join('');
+  box.innerHTML = `<table>
+    <tr><th>单号</th><th>状态</th><th>发起人/文件</th><th>需求</th><th>参数与轨迹</th><th>操作</th></tr>
+    ${rows}</table>`;
+}
+
+async function review(id, action) {
+  if (!isReviewer()) return toast('仅审批人可操作');
+  const comment = prompt(action === 'approve' ? '审批意见（可空）' : '驳回理由：') || '';
+  const res = await fetch(`/api/reservations/${id}/${action}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ comment }),
+  });
+  const data = await res.json();
+  if (res.status === 401) { ME = null; renderIdentity(); return toast('登录已过期'); }
+  if (!res.ok) return toast('❌ ' + data.error);
+  toast(`✅ ${id} ${action === 'approve' ? '已通过并入队' : '已驳回'}`);
+  loadList();
+}
+
+async function cancelReservation(id) {
+  if (!confirm(`确认取消 ${id}？`)) return;
+  const res = await fetch(`/api/reservations/${id}/cancel`, { method: 'POST' });
+  const data = await res.json();
+  if (!res.ok) return toast('❌ ' + data.error);
+  toast(`✅ ${id} 已取消`);
+  loadList();
+}
+
+async function loadPrinters() {
+  if (!ME) return;
+  const res = await fetch('/api/printers');
+  if (res.status === 401) return;
+  const printers = await res.json();
+  const box = $('printerList');
+  if (!Array.isArray(printers) || !printers.length) { box.innerHTML = '<div class="empty">暂无登记的打印机（.env PRINTER_HOSTS）</div>'; return; }
+  const ST = { '空闲': 'var(--ok)', '打印中': 'var(--warn)', '暂停': '#d9b32b', '已完成': 'var(--ok)', '故障': 'var(--bad)', '未连接': '#98a4b0', '准备中': 'var(--warn)', '切片中': 'var(--warn)' };
+  box.innerHTML = `<div class="printer-grid">` + printers.map(p => {
+    const color = ST[p.status] || '#5b6ee1';
+    const ams = (p.ams || []).filter(t => t.type).map(t => `${t.type}${t.colorHex ? '<span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:' + t.colorHex + ';vertical-align:middle"></span>' : ''}`).join('、') || '—';
+    const job = p.activeTask ? `<div class="detail">任务 <b>${p.activeTask.applicationNo || ''}</b> ${p.activeTask.fileName || ''}</div>` : p.currentJob ? `<div class="detail">文件 ${p.currentJob}</div>` : '';
+    const prog = (p.status === '打印中' || p.status === '暂停') && p.progress
+      ? `<div class="pbar"><div style="width:${Math.min(100, p.progress)}%"></div></div><div class="detail">${p.progress}%${p.remainingMinutes ? '，剩余 ' + p.remainingMinutes + ' 分钟' : ''}</div>` : '';
+    return `<div class="pcard">
+      <b>${p.name}</b> <span class="detail">${p.model}</span><span class="st badge" style="background:${color}">${p.status}</span>
+      ${job}${prog}
+      <div class="detail" style="margin-top:4px">AMS: ${ams}${p.autoDispatch ? '' : '｜⚙️ 人工机型'}</div>
+    </div>`;
+  }).join('') + '</div>';
+}
+
+(async function init() {
+  await loadMe();
+  await loadTaxonomy();
+  restoreSelMemory();
+  preflight();
+  schedulePreview();
+  if (ME) { await loadList(); loadPrinters(); }
+  setInterval(() => { if (ME) { loadList(); loadPrinters(); } }, 15000);
+})();
+</script>
+</body>
+</html>

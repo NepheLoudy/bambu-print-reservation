@@ -1,14 +1,22 @@
 const express = require('express');
-const { requireApiToken } = require('./auth');
+const { requireApiToken, requireUser, parseCookies } = require('./auth');
+const authStore = require('./services/authStore');
 const cors = require('cors');
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
 const config = require('./config');
 const reservationService = require('./services/reservation');
-const approvalService = require('./services/approvalService');
+const reservationStore = require('./services/reservationStore');
+const processRules = require('./services/processRules');
 const dispatcher = require('./services/dispatcher');
 const printerManager = require('./printer/manager');
-const { startEventSubscription, processBitableEvent, processApprovalEvent, processApprovalTaskEvent } = require('./feishu/eventSubscription');
 // 指令唯一出口：hub 经 POST /api/chat/command 转发（对话铁律——本仓不消费消息事件）
 const { executeCommand } = require('./services/chatService');
+
+// 2026-10-05 路线 A（断飞书审批链）：feishu/eventSubscription（审批实例/任务/表格
+// 事件消费 + 审批对账）与 /api/feishu/event 端点整体退役；预约真相源改为本地存储
+// （reservationStore），审批动作为本服务 HTTP 端点，飞书仅剩群 webhook 播报。
 
 const app = express();
 
@@ -16,13 +24,107 @@ app.use(cors());
 // 审批事件/表单可能较大（AGENTS.md 通用坑：express.json 放宽到 2mb）
 app.use(express.json({ limit: '2mb' }));
 
+// 前端页面（同源伺服，public/index.html）
+app.use(express.static(path.join(__dirname, '..', 'public')));
+
+// 上传目录预建
+fs.mkdirSync(reservationStore.UPLOAD_DIR, { recursive: true });
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, reservationStore.UPLOAD_DIR),
+    filename: (req, file, cb) =>
+      cb(null, `${Date.now()}-${Math.round(Math.random() * 1e6)}${path.extname(file.originalname || '')}`),
+  }),
+  limits: { fileSize: 200 * 1024 * 1024 }, // 模型/切片文件上限 200MB
+});
+
+// multer/busby 编码实测（2026-10-05，干净进程 codepoint 插桩定案）：
+//   file.originalname 按 latin1 解（需显式还原 UTF-8）；
+//   multipart 文本字段 busboy 已按 UTF-8 解好——勿二次转换（否则中文反而乱码）
+
+/** 取消/删除权限：本人（按提交时账号 id，displayName 非唯一键）或 reviewer/admin */
+function assertCanManage(user, reservation) {
+  if (!reservation) {
+    const err = new Error('预约记录不存在');
+    err.statusCode = 404;
+    throw err;
+  }
+  if (reservation.submittedBy === user.id || ['reviewer', 'admin'].includes(user.role)) return;
+  const err = new Error('只能操作自己的预约');
+  err.statusCode = 403;
+  throw err;
+}
+
 app.get('/api/health', (req, res) => {
+  // 数据面文件状态（运维可见性：部署漏配项目外路径时在这里一眼看出）
+  const fs = require('fs');
+  const fileState = (p) => { try { return fs.existsSync(p) ? fs.statSync(p).size : null; } catch { return 'err'; } };
   res.json({
     status: 'ok',
     time: new Date().toISOString(),
+    version: require('../package.json').version,
+    phase: 'local-webapp', // 路线 A 自建前后端（2026-10-05）
     printers: config.printers.length,
     quietHours: require('./utils/quietHours').getStatus(),
+    stores: {
+      reservations: fileState(reservationStore.STORE_FILE),
+      uploadsDir: fs.existsSync(reservationStore.UPLOAD_DIR),
+      auth: fileState(require('./services/authStore').AUTH_FILE),
+      rules: fileState(require('./services/processRules').getRulesSnapshot().rulesFile),
+      ruleSuggestions: fileState(require('./services/ruleSuggestions').FILE),
+    },
   });
+});
+
+// ---------- 账号体系（2026-10-05 第二批：防止未授权使用） ----------
+// 注册开放（首位注册者自动 admin，之后均 member）；审批人由 admin 在页面升权。
+
+app.post('/api/auth/register', (req, res) => {
+  try {
+    const { username, password, displayName, inviteCode } = req.body || {};
+    res.json(authStore.register({ username, password, displayName, inviteCode }));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/auth/login', (req, res) => {
+  try {
+    const { username, password } = req.body || {};
+    const user = authStore.login(username, password);
+    const token = authStore.createSession(user.id);
+    res.setHeader('Set-Cookie',
+      `bambu_session=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${30 * 24 * 3600}`);
+    res.json(user);
+  } catch (err) {
+    res.status(401).json({ error: err.message });
+  }
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  const token = parseCookies(req).bambu_session;
+  if (token) authStore.destroySession(token);
+  res.setHeader('Set-Cookie', 'bambu_session=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0');
+  res.json({ success: true });
+});
+
+app.get('/api/auth/me', (req, res) => {
+  const user = authStore.resolveSession(parseCookies(req).bambu_session);
+  if (!user) return res.status(401).json({ error: '未登录' });
+  res.json(user);
+});
+
+// 用户管理（admin）：名册 + 角色升降
+app.get('/api/auth/users', requireUser('admin'), (req, res) => {
+  res.json(authStore.listUsers());
+});
+
+app.post('/api/auth/users/:id/role', requireUser('admin'), (req, res) => {
+  try {
+    res.json(authStore.setRole(req.params.id, (req.body || {}).role));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 // ---------- 定制窗口（规则见顶层 AGENTS「机器人后端定制窗口」）：定制项全景只读 ----------
@@ -40,11 +142,12 @@ app.get('/api/print/policy', (req, res) => {
       available: (() => { try { return printerManager.getAvailablePrinters().length; } catch { return null; } })(),
     },
     approval: {
-      primaryChannel: config.approval.enabled,
+      primaryChannel: false, // 2026-10-05 路线 A 退役：审批走自建页面，事件/对账链路已下线（字段保留仅供旧面板兼容）
       approvalCodeConfigured: Boolean(config.approval.approvalCode),
-      autoApprove: Boolean(config.approval.autoApproverId),
+      autoApprove: false,
       reconcileMinutes: config.approval.reconcileMinutes,
       reconcileWindowMinutes: config.approval.reconcileWindowMinutes,
+      retired: true,
     },
     dispatch: {
       colorDistanceThreshold: config.dispatch.colorDistanceThreshold,
@@ -53,13 +156,97 @@ app.get('/api/print/policy', (req, res) => {
       useAms: config.dispatch.useAms,
       maxRetries: config.dispatch.maxRetries,
       retryCooldownMs: config.dispatch.retryCooldownMs,
+      givenUpCount: (() => { try { return dispatcher.listGivenUp().length; } catch { return null; } })(),
     },
     queue: { waiting: Array.isArray(queue) ? queue.length : null, printingCount: printing ? (Array.isArray(printing) ? printing.length : Object.keys(printing).length) : null },
     reviewResult: config.reviewResult,
   });
 });
 
-app.get('/api/reservations', async (req, res) => {
+// 需求标签池窗口（「勾选 → 规则引擎 → 切片」体系第一层，只读全景）：
+// 标签定义/映射提示/冲突规则，供运维台展示与「打标指南」文档页取数
+app.get('/api/print/taxonomy', (req, res) => {
+  res.json(require('./services/taxonomy').getTaxonomy());
+});
+
+// ---------- 工艺映射规则库窗口（体系第二层：标签 → 切片参数） ----------
+// 读窗口：基线参数/白名单/规则集全景（含版本，进切片产物缓存 key）
+app.get('/api/print/process-rules', (req, res) => {
+  res.json(require('./services/processRules').getRulesSnapshot());
+});
+// 写窗口（管理端点，X-API-Token 鉴权）：热改规则，内存即时生效并写回规则文件
+// body: { op: 'upsert' | 'remove' | 'reset', rule?, id? }
+app.post('/api/print/process-rules', requireApiToken, (req, res) => {
+  const { op, rule, id } = req.body || {};
+  const rules = require('./services/processRules');
+  let result;
+  if (op === 'upsert') result = rules.upsertRule(rule);
+  else if (op === 'remove') result = rules.removeRule(id);
+  else if (op === 'reset') result = rules.resetRules();
+  else return res.status(400).json({ error: 'op 必须是 upsert/remove/reset' });
+  res.status(result.ok ? 200 : 400).json(result);
+});
+
+// ---------- 学习链路（2026-10-05 第三批）：预览 / 修正建议池 / 专家 3mf 导入 ----------
+
+// 参数实时预览（登录用户）：提交页勾选变化即调，让用户/审批人提交前看到「本单会怎么切」
+app.post('/api/print/process-rules/preview', requireUser(), (req, res) => {
+  const { selection, material } = req.body || {};
+  res.json(processRules.applyRules(selection || {}, { material }));
+});
+
+// 修正建议池（登录用户可提交——使用/审批中发现参数不合适即可提；待审池聚合，reviewer 采纳）
+app.post('/api/print/rule-suggestions', requireUser(), (req, res) => {
+  try {
+    const { when, set, reason, source, sourceRef } = req.body || {};
+    const result = require('./services/ruleSuggestions').add({
+      when, set, reason, source, sourceRef, suggestedBy: req.user.displayName,
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message, details: err.details });
+  }
+});
+
+app.get('/api/print/rule-suggestions', requireUser('reviewer', 'admin'), (req, res) => {
+  res.json(require('./services/ruleSuggestions').list(req.query.status));
+});
+
+app.post('/api/print/rule-suggestions/:id/adopt', requireUser('reviewer', 'admin'), (req, res) => {
+  try {
+    const { priority } = req.body || {};
+    res.json(require('./services/ruleSuggestions').adopt(req.params.id, req.user.displayName, priority));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/print/rule-suggestions/:id/reject', requireUser('reviewer', 'admin'), (req, res) => {
+  try {
+    res.json(require('./services/ruleSuggestions').reject(req.params.id, req.user.displayName));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// 专家 3mf 作品导入（reviewer+）：提取参数 diff 生成候选草稿——不入库，前端确认后走建议池
+app.post('/api/print/slicer-extract', requireUser('reviewer', 'admin'), upload.single('file'), (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: '缺少 3mf 文件（multipart 字段名 file）' });
+    if (!/\.3mf$/i.test(req.file.originalname || '')) {
+      try { fs.unlinkSync(req.file.path); } catch { /* 已不存在 */ }
+      return res.status(400).json({ error: '仅接受 .3mf（专家切片产物/工程导出）' });
+    }
+    const result = require('./services/slicerExtract').extractFrom3mf(fs.readFileSync(req.file.path));
+    try { fs.unlinkSync(req.file.path); } catch { /* 已不存在 */ }
+    res.json(result);
+  } catch (err) {
+    if (req.file) { try { fs.unlinkSync(req.file.path); } catch { /* 已不存在 */ } }
+    res.status(400).json({ error: `3mf 解析失败: ${err.message}` });
+  }
+});
+
+app.get('/api/reservations', requireUser(), async (req, res) => {
   try {
     const reservations = await reservationService.getAllReservations();
     res.json(reservations);
@@ -69,7 +256,7 @@ app.get('/api/reservations', async (req, res) => {
   }
 });
 
-app.get('/api/reservations/:id', async (req, res) => {
+app.get('/api/reservations/:id', requireUser(), async (req, res) => {
   try {
     const { id } = req.params;
     const reservation = await reservationService.getReservationById(id);
@@ -83,17 +270,54 @@ app.get('/api/reservations/:id', async (req, res) => {
   }
 });
 
-app.post('/api/reservations', requireApiToken, async (req, res) => {
+// 提交预约（登录用户；v28「用户链路不挂 token」口径更新为挂**账号会话**——防止冒名提交）：
+// multipart 上传源文件 + 标签勾选；发起人取登录身份（body.applicant 不再被信任）；
+// 提交即过规则引擎定档（参数快照随单存档供审批人审），硬冲突当场打回
+app.post('/api/reservations', requireUser(), upload.single('file'), async (req, res) => {
   try {
-    const reservation = await reservationService.createReservation(req.body);
+    if (!req.file) return res.status(400).json({ error: '缺少文件（multipart 字段名 file）' });
+    const body = req.body || {};
+    let selection = {};
+    try {
+      selection = body.selection ? JSON.parse(body.selection) : {};
+    } catch {
+      return res.status(400).json({ error: 'selection 不是合法 JSON' });
+    }
+
+    const applied = processRules.applyRules(selection, { material: body.materialType });
+    if (applied.blocked) {
+      try { fs.unlinkSync(req.file.path); } catch { /* 已不存在 */ }
+      return res.status(400).json({ error: '需求勾选存在硬冲突', details: applied.errors, warnings: applied.warnings });
+    }
+
+    const reservation = await reservationService.createReservation({
+      applicant: req.user.displayName, // 发起人 = 登录身份（防冒名），body.applicant 忽略
+      submittedBy: req.user.id,        // 归属判定键（本人取消等）
+      // 仅文件名需 latin1→UTF-8 还原（文本字段 busboy 已按 UTF-8 解好）
+      fileName: Buffer.from(req.file.originalname || 'unnamed', 'latin1').toString('utf8'),
+      filePath: req.file.path,
+      fileSize: req.file.size,
+      materialType: body.materialType,
+      color: body.color,
+      assignedPrinter: body.assignedPrinter,
+      // 高速打印标签联动加急排队（2026-10-05 标签定稿口径）
+      isUrgent: body.isUrgent === 'true' || body.isUrgent === '1' || selection.fast_mode === true,
+      quantity: body.quantity,
+      selection,
+      processParams: applied.params,
+      appliedRules: applied.applied,
+    });
+
+    reservationService.notifyReviewers(reservation).catch(() => {}); // fire-and-forget
     res.json(reservation);
   } catch (err) {
-    console.error('创建预约失败:', err);
-    res.status(500).json({ error: err.message });
+    console.error('提交预约失败:', err);
+    if (req.file) { try { fs.unlinkSync(req.file.path); } catch { /* 已不存在 */ } }
+    res.status(400).json({ error: err.message, details: err.details, warnings: err.details?.warnings || [] });
   }
 });
 
-app.put('/api/reservations/:id', requireApiToken, async (req, res) => {
+app.put('/api/reservations/:id', requireUser('admin'), async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
@@ -102,58 +326,90 @@ app.put('/api/reservations/:id', requireApiToken, async (req, res) => {
       return res.status(400).json({ error: '状态不能为空' });
     }
 
-    const reservation = await reservationService.getReservationById(id);
+    const reservation = reservationStore.get(id);
     if (!reservation) {
       return res.status(404).json({ error: '预约记录不存在' });
     }
 
     if (status === config.status.REVIEW_APPROVED) {
-      await reservationService.handleReviewResult(id, config.reviewResult.APPROVED, '', '');
+      await reservationService.approveReservation(id, 'HTTP', '');
     } else if (status === config.status.CANCELLED) {
       await reservationService.cancelReservation(id);
     } else {
-      const bitableApi = require('./feishu/bitable');
-      await bitableApi.updateRecord(config.bitable.reservationTableId, id, {
-        '申请状态': status,
-      });
+      reservationStore.updateStatus(id, status, 'HTTP 状态变更（状态机校验）');
     }
 
-    res.json(await reservationService.getReservationById(id));
+    res.json(reservationStore.get(id));
   } catch (err) {
     console.error('更新预约失败:', err);
-    res.status(500).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 
-app.delete('/api/reservations/:id', requireApiToken, async (req, res) => {
+app.delete('/api/reservations/:id', requireUser(), async (req, res) => {
   try {
     const { id } = req.params;
+    assertCanManage(req.user, reservationStore.get(id));
     await reservationService.cancelReservation(id);
     res.json({ success: true });
   } catch (err) {
     console.error('取消预约失败:', err);
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 400).json({ error: err.message });
   }
 });
 
-app.post('/api/reservations/:id/review', requireApiToken, async (req, res) => {
+// ---------- 审批动作（reviewer 及以上；运维台 X-API-Token 走 admin 通道不受影响） ----------
+
+app.post('/api/reservations/:id/approve', requireUser('reviewer', 'admin'), async (req, res) => {
+  try {
+    const { comment } = req.body || {};
+    res.json(await reservationService.approveReservation(req.params.id, req.user.displayName, comment));
+  } catch (err) {
+    console.error('审批通过失败:', err);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/reservations/:id/reject', requireUser('reviewer', 'admin'), async (req, res) => {
+  try {
+    const { comment } = req.body || {};
+    res.json(await reservationService.rejectReservation(req.params.id, req.user.displayName, comment));
+  } catch (err) {
+    console.error('审批驳回失败:', err);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// 兼容旧端点：/review 按结果转发 approve/reject
+app.post('/api/reservations/:id/review', requireUser('reviewer', 'admin'), async (req, res) => {
   try {
     const { id } = req.params;
-    const { reviewResult, reviewComment, reviewer } = req.body;
-    
+    const { reviewResult, reviewComment } = req.body;
     if (!reviewResult) {
       return res.status(400).json({ error: '审查结果不能为空' });
     }
-
-    const result = await reservationService.handleReviewResult(id, reviewResult, reviewComment, reviewer);
+    const result = reviewResult === config.reviewResult.APPROVED
+      ? await reservationService.approveReservation(id, req.user.displayName, reviewComment)
+      : await reservationService.rejectReservation(id, req.user.displayName, reviewComment);
     res.json(result);
   } catch (err) {
     console.error('处理审查结果失败:', err);
-    res.status(500).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 
-app.get('/api/reservations/status/pending-review', async (req, res) => {
+// 取消：本人取消自己的单，或 reviewer/admin 代管（用户自助取消）
+app.post('/api/reservations/:id/cancel', requireUser(), async (req, res) => {
+  try {
+    assertCanManage(req.user, reservationStore.get(req.params.id));
+    res.json(await reservationService.cancelReservation(req.params.id));
+  } catch (err) {
+    console.error('取消预约失败:', err);
+    res.status(err.statusCode || 400).json({ error: err.message });
+  }
+});
+
+app.get('/api/reservations/status/pending-review', requireUser(), async (req, res) => {
   try {
     const reservations = await reservationService.getPendingReviewReservations();
     res.json(reservations);
@@ -163,7 +419,7 @@ app.get('/api/reservations/status/pending-review', async (req, res) => {
   }
 });
 
-app.get('/api/reservations/status/printing', async (req, res) => {
+app.get('/api/reservations/status/printing', requireUser(), async (req, res) => {
   try {
     const reservations = await reservationService.getPrintingReservations();
     res.json(reservations);
@@ -173,7 +429,7 @@ app.get('/api/reservations/status/printing', async (req, res) => {
   }
 });
 
-app.get('/api/reservations/status/completed', async (req, res) => {
+app.get('/api/reservations/status/completed', requireUser(), async (req, res) => {
   try {
     const reservations = await reservationService.getCompletedReservations();
     res.json(reservations);
@@ -183,7 +439,8 @@ app.get('/api/reservations/status/completed', async (req, res) => {
   }
 });
 
-app.get('/api/printers', (req, res) => {
+// 打印机实时状态（含内网 IP/温度/AMS，登录可见——不放匿名面）
+app.get('/api/printers', requireUser(), (req, res) => {
   try {
     const printers = printerManager.getAllPrinterStates();
     res.json(printers);
@@ -193,7 +450,7 @@ app.get('/api/printers', (req, res) => {
   }
 });
 
-app.get('/api/printers/available', (req, res) => {
+app.get('/api/printers/available', requireUser(), (req, res) => {
   try {
     const printers = printerManager.getAvailablePrinters();
     res.json(printers);
@@ -203,7 +460,7 @@ app.get('/api/printers/available', (req, res) => {
   }
 });
 
-app.get('/api/printers/:id', (req, res) => {
+app.get('/api/printers/:id', requireUser(), (req, res) => {
   try {
     const { id } = req.params;
     const printer = printerManager.getPrinterState(parseInt(id));
@@ -217,7 +474,7 @@ app.get('/api/printers/:id', (req, res) => {
   }
 });
 
-app.post('/api/printers/:id/print', requireApiToken, async (req, res) => {
+app.post('/api/printers/:id/print', requireUser('admin'), async (req, res) => {
   try {
     const { id } = req.params;
     const { filePath } = req.body;
@@ -234,7 +491,7 @@ app.post('/api/printers/:id/print', requireApiToken, async (req, res) => {
   }
 });
 
-app.post('/api/printers/:id/pause', requireApiToken, async (req, res) => {
+app.post('/api/printers/:id/pause', requireUser('admin'), async (req, res) => {
   try {
     const { id } = req.params;
     await printerManager.pausePrintOnPrinter(parseInt(id));
@@ -245,7 +502,7 @@ app.post('/api/printers/:id/pause', requireApiToken, async (req, res) => {
   }
 });
 
-app.post('/api/printers/:id/resume', requireApiToken, async (req, res) => {
+app.post('/api/printers/:id/resume', requireUser('admin'), async (req, res) => {
   try {
     const { id } = req.params;
     await printerManager.resumePrintOnPrinter(parseInt(id));
@@ -256,7 +513,7 @@ app.post('/api/printers/:id/resume', requireApiToken, async (req, res) => {
   }
 });
 
-app.post('/api/printers/:id/stop', requireApiToken, async (req, res) => {
+app.post('/api/printers/:id/stop', requireUser('admin'), async (req, res) => {
   try {
     const { id } = req.params;
     await printerManager.stopPrintOnPrinter(parseInt(id));
@@ -267,77 +524,8 @@ app.post('/api/printers/:id/stop', requireApiToken, async (req, res) => {
   }
 });
 
-app.post('/api/feishu/event', async (req, res) => {
-  const { type, challenge, token, header, event } = req.body;
-
-  if (config.feishuEvent.verificationToken && token !== config.feishuEvent.verificationToken) {
-    return res.status(403).json({ error: 'Invalid verification token' });
-  }
-
-  // fail-closed（2026-09-24 安全复查批，同 ticket-bot 口径）：token 未配置时旧实现整段跳过校验
-  // （fail-open），伪造的审批事件可驱动分发链。未配置 token 一律 403 拒绝审批事件帧；
-  // url_verification 握手与表格事件（后备镜像通道）不受影响
-  const eventType = header?.event_type || '';
-  if (!config.feishuEvent.verificationToken
-    && (eventType === 'approval_instance' || eventType === 'approval_task')) {
-    console.error(`[HTTP回调] 未配置 FEISHU_VERIFICATION_TOKEN，拒绝 ${eventType} 事件帧（fail-closed）`);
-    return res.status(403).json({ error: 'Verification token not configured; event frames rejected' });
-  }
-
-  if (type === 'url_verification') {
-    return res.json({ challenge });
-  }
-
-  // 官方审批实例事件（网关转发，秒级）：审批状态直接驱动分发
-  if (header?.event_type === 'approval_instance') {
-    setImmediate(async () => {
-      try {
-        await processApprovalEvent(event || {});
-      } catch (err) {
-        console.error('处理审批事件失败:', err);
-      }
-    });
-  }
-
-  // 官方审批任务事件（网关转发，秒级）：自动审批入口
-  if (header?.event_type === 'approval_task') {
-    setImmediate(async () => {
-      try {
-        await processApprovalTaskEvent(event || {});
-      } catch (err) {
-        console.error('处理审批任务事件失败:', err);
-      }
-    });
-  }
-
-  if (header?.event_type === 'bitable.record.create' || header?.event_type === 'bitable.record.update') {
-    setImmediate(async () => {
-      try {
-        const tableId = event?.table_id;
-        const recordId = event?.record?.record_id;
-        const actionType = header?.event_type === 'bitable.record.create' ? 'create' : 'update';
-        const fields = event?.record?.fields;
-
-        if (tableId && recordId && fields) {
-          const bitableEvent = {
-            table_id: tableId,
-            record_id: recordId,
-            action_type: actionType,
-            fields: fields,
-          };
-          await processBitableEvent(bitableEvent);
-        }
-      } catch (err) {
-        console.error('处理飞书事件失败:', err);
-      }
-    });
-  }
-
-  // 注意：不再处理 im.message.receive_v1——qianli 对话铁律规定消息事件只经
-  // feishu-gateway → hub 分发，本仓指令唯一入口是 POST /api/chat/command
-
-  res.json({ code: 0, msg: 'success' });
-});
+// /api/feishu/event 端点已随 2026-10-05 路线 A 退役（审批实例/任务/表格事件不再消费）；
+// url_verification 握手随事件订阅一并成为历史。
 
 app.post('/api/chat/command', async (req, res) => {
   try {
@@ -361,7 +549,7 @@ app.get('/api/dispatch/queue', (req, res) => {
   res.json({ queue: dispatcher.getQueueSnapshot(), printing: dispatcher.getPrintingSnapshot() });
 });
 
-app.post('/api/dispatch/manual', requireApiToken, async (req, res) => {
+app.post('/api/dispatch/manual', requireUser('reviewer', 'admin'), async (req, res) => {
   try {
     const { recordId, printerName } = req.body;
     if (!recordId || !printerName) {
@@ -375,36 +563,30 @@ app.post('/api/dispatch/manual', requireApiToken, async (req, res) => {
   }
 });
 
-app.post('/api/dispatch/reconcile', requireApiToken, async (req, res) => {
-  try {
-    await dispatcher.reconcile();
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// 审批源对账（手动触发）：重拉失败登记 + 补扫窗口内漏收事件的审批实例
-app.post('/api/approval/reconcile', requireApiToken, async (req, res) => {
-  try {
-    const handled = await approvalService.reconcileApprovals();
-    res.json({ success: true, handled });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
 function startServer() {
   const server = app.listen(config.port, () => {
-    console.log(`🚀 拓竹3D打印预约系统运行在 http://localhost:${config.port}`);
+    console.log(`🚀 拓竹3D打印预约系统（自建前后端）运行在 http://localhost:${config.port}`);
     console.log(`📚 API 健康检查: http://localhost:${config.port}/api/health`);
     console.log(`🖨️ 打印机数量: ${config.printers.length}`);
+    if (!config.bitable.appToken) console.log('ℹ️ 未配置 BITABLE_APP_TOKEN（路线 A 已不依赖表格，保持空即可）');
   });
 
-  startEventSubscription();
+  // 2026-10-05 路线 A：startEventSubscription()（审批/表格事件订阅 + 审批对账）已退役
 
   // 晚间静默：启动时若有积压通知，按当前时点调度补发（过点立即、未过点等到窗口结束整点）
   require('./utils/quietHours').initQuietHoursFlush();
+
+  // 上传源文件生命周期：启动清一轮 + 每 6h 一轮（终态单超保留期的源文件，0=禁用）
+  const retentionCleanup = () => {
+    try {
+      const r = reservationStore.cleanupExpiredUploads();
+      if (r.removed > 0) console.log(`[存储维护] 已清理 ${r.removed} 个过期上传源文件`);
+    } catch (err) {
+      console.warn('[存储维护] 清理失败:', err.message);
+    }
+  };
+  retentionCleanup();
+  setInterval(retentionCleanup, 6 * 3600 * 1000);
 
   process.on('SIGINT', async () => {
     console.log('\n正在关闭服务器...');

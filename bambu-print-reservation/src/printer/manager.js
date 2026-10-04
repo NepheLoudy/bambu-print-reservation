@@ -55,7 +55,8 @@ class PrinterManager {
       setTimeout(() => this.connectPrinter(printer.id), printer.id * 2000);
     }
 
-    await this.syncPrinterStatusToBitable();
+    // 2026-10-05 路线 A：打印机状态写多维表格的同步已停用（表格不再是数据面）；
+    // syncPrinterStatusToBitable 方法保留备查，不再由 init/定时器调用
   }
 
   async connectPrinter(printerId) {
@@ -315,8 +316,10 @@ class PrinterManager {
 
 const printerManager = new PrinterManager();
 
-setInterval(() => {
-  printerManager.syncPrinterStatusToBitable();
-}, 60000);
+// 2026-10-05 路线 A：60s 打印机状态 upsert 多维表格的定时器已停用（白耗写配额，
+// 且表格不再是数据面）；状态查询走 GET /api/printers（内存态）
+// setInterval(() => {
+//   printerManager.syncPrinterStatusToBitable();
+// }, 60000);
 
 module.exports = printerManager;

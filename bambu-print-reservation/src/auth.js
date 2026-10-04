@@ -25,4 +25,46 @@ function requireApiToken(req, res, next) {
   next();
 }
 
-module.exports = { requireApiToken };
+// ============================================================
+// 用户会话鉴权（2026-10-05 路线 A 第二批）：双通道——
+//   ① 页面会话： bambu_session cookie（authStore.resolveSession 校验）
+//   ② 运维台/脚本：X-API-Token 头（视作 admin，既有管理链路不破）
+// 挂法：requireUser()（登录即可）/ requireUser('reviewer')（reviewer 及以上）
+// ============================================================
+
+const authStore = require('./services/authStore');
+
+function parseCookies(req) {
+  const header = req.headers.cookie || '';
+  const out = {};
+  for (const part of header.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx > 0) out[part.slice(0, idx).trim()] = decodeURIComponent(part.slice(idx + 1).trim());
+  }
+  return out;
+}
+
+function requireUser(...allowedRoles) {
+  return (req, res, next) => {
+    // 通道②：运维台/管理脚本直调（API_TOKEN = admin 级）
+    const apiToken = process.env.API_TOKEN;
+    if (apiToken && safeEqual(req.get('X-API-Token') || '', apiToken)) {
+      req.user = { id: 'api-token', username: 'api-token', displayName: '管理Token', role: 'admin' };
+      return next();
+    }
+    // 通道①：页面会话
+    const token = parseCookies(req).bambu_session;
+    const user = authStore.resolveSession(token);
+    if (!user) {
+      return res.status(401).json({ error: '未登录或会话已过期' });
+    }
+    // admin 为超级角色：任何角色端点都放行（reviewer 及以上语义）
+    if (allowedRoles.length > 0 && user.role !== 'admin' && !allowedRoles.includes(user.role)) {
+      return res.status(403).json({ error: `权限不足（需要 ${allowedRoles.join('/')}，当前 ${user.role}）` });
+    }
+    req.user = user;
+    next();
+  };
+}
+
+module.exports = { requireApiToken, requireUser, parseCookies };

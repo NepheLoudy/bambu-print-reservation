@@ -7,7 +7,7 @@
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "deploy": "node push.js",
-    "test": "node test/dispatcher-test.js && node test/dispatcher-persist-test.js && node test/dispatcher-manual-race-test.js && node test/approval-test.js",
+    "test": "node test/dispatcher-test.js && node test/dispatcher-persist-test.js && node test/dispatcher-manual-race-test.js && node test/approval-test.js && node test/taxonomy-test.js && node test/process-rules-test.js && node test/local-reservation-test.js && node test/auth-test.js && node test/learning-loop-test.js",
     "push": "node push.js"
   },
   "keywords": [
@@ -20,12 +20,14 @@
   "license": "MIT",
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.2.0",
+    "adm-zip": "^0.6.1",
     "bambu-link": "^1.1.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "ftp": "^0.3.10",
     "lowdb": "^7.0.1",
+    "multer": "^2.4.0",
     "node-cron": "^3.0.3",
     "ssh2": "^1.17.0",
     "ws": "^8.17.1"

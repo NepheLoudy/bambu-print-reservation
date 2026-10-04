@@ -15,3 +15,10 @@ build/
 # 晚间静默积压文件（运行时状态，勿提交）
 .quiet-backlog.json
 .dispatch-state.json
+# 工艺映射规则库本地文件（热改写回，勿提交；生产走项目外数据目录）
+.process-rules.json
+# 本地预约存储与上传文件（路线 A 数据面，勿提交；生产走项目外数据目录）
+.reservations.json
+data/
+# 账号存储（口令哈希/会话，勿提交；生产走项目外数据目录）
+.auth-users.json

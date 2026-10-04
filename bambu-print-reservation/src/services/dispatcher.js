@@ -7,7 +7,54 @@ const { sendMessage } = require('../feishu/bot');
 const quietHours = require('../utils/quietHours');
 const printerManager = require('../printer/manager');
 const reservationService = require('./reservation');
+const reservationStore = require('./reservationStore');
 const plaza = require('./plaza');
+
+// 任务来源谓词（2026-10-05 本地化改造）：
+//   'approval' = 旧飞书审批实例源（不写任何表，状态由引擎内存/状态文件追踪）
+//   'local'    = 自建前后端预约源（状态回写 reservationStore；文件在本地 uploads）
+//   其余（无 fileSource / 'mirror'）= 旧多维表格镜像源（写镜像表，遗留兼容）
+const isApprovalTask = (t) => t.fileSource === 'approval';
+const isLocalTask = (t) => t.fileSource === 'local';
+const isMirrorTask = (t) => !isApprovalTask(t) && !isLocalTask(t);
+
+/** 本地预约记录 → 分发任务（审批通过入队 / manualDispatch 恢复共用） */
+function buildLocalTask(reservation) {
+  return {
+    recordId: reservation.id,
+    applicationNo: reservation.id,
+    fileSource: 'local',
+    filePath: reservation.filePath,
+    fileName: reservation.fileName,
+    fileToken: null, // 本地文件不走飞书下载
+    materialType: reservation.materialType,
+    color: reservation.color,
+    assignedPrinter: reservation.assignedPrinter,
+    isUrgent: reservation.isUrgent,
+    quantity: reservation.quantity,
+    applicant: { id: '', name: reservation.applicant || '' },
+  };
+}
+
+/** 按任务来源取切片/模型文件 buffer */
+async function loadTaskFile(task) {
+  if (isApprovalTask(task)) {
+    return downloadApprovalAttachment(task.fileToken, task.fileName);
+  }
+  if (isLocalTask(task)) {
+    return fs.promises.readFile(task.filePath);
+  }
+  return downloadFile(task.fileToken);
+}
+
+/** 本地预约状态回写（store 同步抛错，吞掉以保证分发链不因存储抖动中断） */
+function storeSafe(fn, label) {
+  try {
+    fn();
+  } catch (err) {
+    console.error(`[分发] 预约状态回写失败(${label}):`, err.message);
+  }
+}
 
 // ============================================================
 // 队列/打印中状态持久化（2026-09-13 口径：重启不丢队列）
@@ -467,12 +514,15 @@ class Dispatcher {
 
     // 审批撤销复查（2026-09-27）：cancelled 由 dequeue 置位，写表/上传/下发各
     // 步骤前复查，命中即中止分发——撤销落在分钟级 await 链窗口内不再被静默丢失
-    const fromApproval = task.fileSource === 'approval';
+    const fromApproval = isApprovalTask(task);
+    const fromLocal = isLocalTask(task);
     let mirrorWritten = false; // 已把镜像表写成「打印中」（中止时需回写已取消）
     const checkCancelled = async (stage) => {
       if (!task.cancelled) return false;
       console.log(`[分发] 任务 ${task.recordId} 在${stage}前检测到已撤销（审批终态），中止分发`);
-      if (!fromApproval && mirrorWritten) {
+      if (fromLocal) {
+        storeSafe(() => reservationStore.updateStatus(task.recordId, config.status.CANCELLED, `分发中止（${stage}前检测到撤销）`), 'cancel');
+      } else if (!fromApproval && mirrorWritten) {
         await bitableApi
           .updateRecord(config.bitable.reservationTableId, task.recordId, {
             '申请状态': config.status.CANCELLED,
@@ -487,12 +537,18 @@ class Dispatcher {
       console.log(`[分发] 开始分发: ${task.applicationNo || task.recordId} → ${printer.name}`);
 
       // 先校验附件再写「打印中」：缺附件的任务不该在镜像表里经历 打印中→已通过 的假抖动
-      if (!task.fileToken) throw new Error('任务缺少切片文件附件');
+      if (isMirrorTask(task) && !task.fileToken) throw new Error('任务缺少切片文件附件');
+      if (fromLocal && !task.filePath) throw new Error('任务缺少本地文件路径');
 
       // 审批来源不写镜像表（那是审批系统的同步数据，写入会被覆盖且无权限）；
-      // 状态追踪由引擎内存完成
+      // 状态追踪由引擎内存完成；本地来源状态回写预约存储
       if (await checkCancelled('写表')) return;
-      if (!fromApproval) {
+      if (fromLocal) {
+        storeSafe(() => {
+          reservationStore.updateStatus(task.recordId, config.status.PRINTING, `开始打印 → ${printer.name}`);
+          reservationStore.setPrinter(task.recordId, printer.name);
+        }, 'printing');
+      } else if (!fromApproval) {
         await bitableApi.updateRecord(config.bitable.reservationTableId, task.recordId, {
           '申请状态': config.status.PRINTING,
           [config.dispatch.printerField]: printer.name,
@@ -503,9 +559,7 @@ class Dispatcher {
       // 远端文件名用 recordId，避免中文名/空格在 FTP URL 里出编码问题
       const remoteName = `print_${task.recordId}.3mf`;
       if (await checkCancelled('上传')) return;
-      const buffer = fromApproval
-        ? await downloadApprovalAttachment(task.fileToken, task.fileName)
-        : await downloadFile(task.fileToken);
+      const buffer = await loadTaskFile(task);
       await printerManager.uploadFileToPrinter(printer.id, buffer, remoteName);
 
       if (await checkCancelled('下发')) return;
@@ -531,7 +585,9 @@ class Dispatcher {
     } catch (err) {
       console.error(`[分发] 分发失败 ${task.recordId}:`, err.message);
       // 回滚状态并重新排队（下一轮再试）；审批来源无表状态可回滚
-      if (task.fileSource !== 'approval') {
+      if (fromLocal) {
+        storeSafe(() => reservationStore.updateStatus(task.recordId, config.status.QUEUED, `分发失败回滚：${err.message}`), 'fail-rollback');
+      } else if (isMirrorTask(task)) {
         await bitableApi
           .updateRecord(config.bitable.reservationTableId, task.recordId, {
             '申请状态': config.status.REVIEW_APPROVED,
@@ -547,10 +603,13 @@ class Dispatcher {
         // 保留到 givenUp（2026-09-13）：审批源任务 recordId=instance_code 不在镜像表，
         // 不保留则 /print-dispatch 永远找不到它——人工恢复通道（B4）
         this.givenUp.set(task.recordId, task);
-        // 镜像表写回「排队中」（照 failTask 口径，2026-09-27）：分发失败前已把表
-        // 写成「打印中」，非审批源不回滚会让镜像表永久停在假「打印中」，
-        // /print-dispatch 恢复链路的状态校验也对不上
-        if (!fromApproval) {
+        if (fromLocal) {
+          // 重试耗尽转人工：store 回「排队中」，manualDispatch 的状态白名单才放行恢复
+          storeSafe(() => reservationStore.updateStatus(task.recordId, config.status.QUEUED, '分发重试耗尽，转人工恢复'), 'given-up');
+        } else if (isMirrorTask(task)) {
+          // 镜像表写回「排队中」（照 failTask 口径，2026-09-27）：分发失败前已把表
+          // 写成「打印中」，非审批源不回滚会让镜像表永久停在假「打印中」，
+          // /print-dispatch 恢复链路的状态校验也对不上
           await bitableApi
             .updateRecord(config.bitable.reservationTableId, task.recordId, {
               '申请状态': config.status.QUEUED,
@@ -596,7 +655,9 @@ class Dispatcher {
     this.completedCount.set(printer.id, (this.completedCount.get(printer.id) || 0) + 1);
     printerManager.updateState(printer.id, { activeTask: null });
 
-    if (task.fileSource !== 'approval') {
+    if (isLocalTask(task)) {
+      storeSafe(() => reservationStore.updateStatus(task.recordId, config.status.COMPLETED, `打印完成 @ ${printer.name}`), 'complete');
+    } else if (isMirrorTask(task)) {
       await bitableApi
         .updateRecord(config.bitable.reservationTableId, task.recordId, {
           '申请状态': config.status.COMPLETED,
@@ -617,7 +678,9 @@ class Dispatcher {
     this.printing.delete(printer.id);
     printerManager.updateState(printer.id, { activeTask: null });
 
-    if (task.fileSource !== 'approval') {
+    if (isLocalTask(task)) {
+      storeSafe(() => reservationStore.updateStatus(task.recordId, config.status.QUEUED, `打印失败重排：${reason}`), 'fail');
+    } else if (isMirrorTask(task)) {
       await bitableApi
         .updateRecord(config.bitable.reservationTableId, task.recordId, {
           '申请状态': config.status.QUEUED,
@@ -702,7 +765,9 @@ class Dispatcher {
         this.completedCount.set(printerId, (this.completedCount.get(printerId) || 0) + 1);
         printerManager.updateState(printerId, { activeTask: null });
         // 审批源不写镜像表（同 completeTask 守卫）：写 instance_code 必然失败，白刷错误日志
-        if (task.fileSource !== 'approval') {
+        if (isLocalTask(task)) {
+          storeSafe(() => reservationStore.updateStatus(task.recordId, config.status.COMPLETED, `巡检补完成 @ ${state.name || printerId}`), 'sweep-complete');
+        } else if (isMirrorTask(task)) {
           await bitableApi
             .updateRecord(config.bitable.reservationTableId, task.recordId, { '申请状态': config.status.COMPLETED })
             .catch((err) => console.error('[分发] 巡检补完成写表失败:', err.message));
@@ -729,6 +794,17 @@ class Dispatcher {
     }));
   }
 
+  /** 重试耗尽待人工恢复的单（观测面 + /print-dispatch 恢复的前置查询） */
+  listGivenUp() {
+    return [...this.givenUp.entries()].map(([recordId, task]) => ({
+      recordId,
+      applicationNo: task.applicationNo,
+      fileName: task.fileName,
+      retries: task.dispatchRetries,
+      error: task.dispatchError || '',
+    }));
+  }
+
   /** 人工强制指定分发（/print-dispatch） */
   async manualDispatch(recordId, printerName) {
     const printer = printerManager.getAllPrinterStates().find(
@@ -744,9 +820,22 @@ class Dispatcher {
       fromGivenUp = true;
     }
     if (!task) {
-      // 不在队列里（可能还在审批中）→ 拉记录直接分发。
-      // 状态白名单（2026-09-27 审批绕过修复，P0）：仅「已通过/排队中」可人工直发——
-      // 待审批/已驳回/已取消/已完成等状态一律拒绝，表格编辑不能绕过审批流驱动真机
+      // 本地预约单（2026-10-05 本地化主通道）：状态白名单同 2026-09-27 审批绕过修复——
+      // 仅「已通过/排队中」可人工直发，待审批/已驳回/已完成一律拒绝
+      const localRecord = reservationStore.get(recordId);
+      if (localRecord) {
+        const dispatchableStatuses = [config.status.REVIEW_APPROVED, config.status.QUEUED];
+        if (!dispatchableStatuses.includes(localRecord.status)) {
+          throw new Error(
+            `预约「${recordId}」当前状态「${localRecord.status}」不允许直接分发` +
+            `（仅「${dispatchableStatuses.join('」/「')}」可人工直发；待审批单请先完成审批）`
+          );
+        }
+        task = buildLocalTask(localRecord);
+      }
+    }
+    if (!task) {
+      // 遗留兼容：镜像表拉单（本地化后镜像源已无新增入口，仅服务历史单据）
       const records = await bitableApi.getAllRecords(config.bitable.reservationTableId);
       const record = records.find(
         (r) => r.record_id === recordId || r.fields['申请编号'] === recordId
@@ -773,7 +862,12 @@ class Dispatcher {
       this.givenUp.delete(task.recordId);
       // 审批源任务不写镜像表（recordId=instance_code 不是镜像表 record_id，写入必抛错且任务
       // 已出队会静默丢失；同 dispatchLocked 守卫口径）：状态由引擎内存追踪，人工按提示上传即可
-      if (task.fileSource !== 'approval') {
+      if (isLocalTask(task)) {
+        storeSafe(() => {
+          reservationStore.updateStatus(task.recordId, config.status.QUEUED, `人工指定 ${printer.name}，需手动上传打印`);
+          reservationStore.setPrinter(task.recordId, printer.name);
+        }, 'manual-manual-only');
+      } else if (isMirrorTask(task)) {
         await bitableApi.updateRecord(config.bitable.reservationTableId, task.recordId, {
           '申请状态': config.status.QUEUED,
           [config.dispatch.printerField]: printer.name,
@@ -815,3 +909,4 @@ const dispatcher = new Dispatcher();
 module.exports = dispatcher;
 module.exports.colorDistance = colorDistance;
 module.exports.materialMatch = materialMatch;
+module.exports.buildLocalTask = buildLocalTask;

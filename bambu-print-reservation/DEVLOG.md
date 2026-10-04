@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次部署）。本项目 push.js 为纯 SFTP 直传、无 git 步骤，**版本锚点取顶层 monorepo 中触碰本路径的归档提交**——两次归档之间的个别部署可能无版本记录。v1~v14 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v36**（2026-09-27，已上线）。上一版 v33（2026-09-24）。更早：v32（PLAZA_ENABLED 停写批）。
+当前最新：**v37**（2026-10-05，已上线）。上一版 v36（2026-09-27，第二轮全量对抗审查修复批）。
 
 ## 阶段五 · 审批事件字段对齐与分发健壮化（2026-09-05）
 
@@ -273,3 +273,17 @@
 - **P2**：dispatchRetries 成功后清零（防抖动凑满 3 次进 givenUp）；givenUp 时非审批源镜像表回写排队中；dequeue 落在分发 await 链窗口的取消丢失（task.cancelled 标记+各步前复查）；approvalService 实例详情 approval_code 与配置比对（与事件路径双重校验对称化）；recoverInstance 查分发痕迹防 24h 窗口重打；quietHours 00:00-02:00 重启积压立即冲刷（原最长拖 31h）；syncPrinterStatusToBitable 状态签名去重（60s 全量 upsert 配额白耗）。
 - 测试：四套全绿；manual-race 套新增状态守卫/idle 幽灵收尾用例。
 - 提醒：.env 仍缺 APPROVAL_CODE（任何含附件审批通过即驱动真机的窗口仍在）——桌面存疑清单三.1。
+
+## v37 · 2026-10-05 · 顶层归档随本提交 · feat
+
+**路线 A 大版本：断飞书审批链 → 自建前后端 + 账号体系 + 学习链路 + 审查优化批**
+
+- 提交说明：feat: 路线A——断飞书审批链,自建前后端(本地预约存储/账号体系/学习链路/审查优化批)
+- **① 架构转向（曼波拍板「断掉飞书相关设计,做服务器的前后端」）**：预约真相源从「飞书审批实例事件+表格镜像」整体转为本地存储——`reservationStore`（状态机 7 态全约束/终态锁定/`Ryyyymmdd-nnn` 单号/项目外持久化）；审批动作改为页面+HTTP 端点；dispatcher 新增 `local` 任务来源（本地读文件/状态回写 store/`isMirrorTask` 谓词收口全部写表点/`manualDispatch` 支持从 store 恢复）；`approvalService`/`eventSubscription`/`/api/feishu/event` 整链退役（文件保留不再接线）；打印机状态写表停用；飞书仅剩群 webhook 播报与查看类指令。
+- **② 账号体系（防冒名/防未授权）**：member/reviewer/admin 三级角色（首位注册者自动 admin bootstrap）；scrypt+盐+timingSafeEqual 口令、5 次失败锁 10 分钟、30 天会话 cookie 落盘重启不掉线；发起人强制取登录身份（`submittedBy` 归属键）——body 冒名一律忽略；鉴权双通道（页面 session / 运维台 X-API-Token=admin,既有管理链路不破）；`/api/printers*` 收紧登录（内网 IP/温度不再匿名暴露）。
+- **③ 需求标签池 + 工艺映射规则库（自动切片铺路）**：`taxonomy.js` v2（8 组 24 字段,受力参照系=模型上传姿态,力学/载荷/耐久扩充,7 条 block/warn 冲突规则）；`processRules.js`（16 参数白名单+出厂种子 23 条+priority 升序叠加引擎+热改 CRUD）；读窗口 `GET /api/print/taxonomy`、读写窗口 `/api/print/process-rules`。
+- **④ 学习链路（「机器学人」落地）**：`ruleSuggestions` 待审池（相同 when+set 聚合计数/采纳转正/拒绝,审核闸门强制）；`slicerExtract` 3mf 参数提取器（project_settings.config/gcode 头部双通道,Bambu 参数映射+baseline diff——映射表首次真机导入需校准）；页面参数实时预览/勾选记忆/修正建议弹窗/教学导入卡。
+- **⑤ 全量审查优化批（3mf 链路除外）**：修聊天列表发起人恒「未知」（store 字符串 applicant 兼容）；注册邀请码 `REGISTER_INVITE_CODE`（空=开放）；上传源文件生命周期（终态单超 `UPLOAD_RETENTION_DAYS`=30 天清理,记录保留标记 `fileCleaned`）；health 增强版（phase/版本/五数据面文件状态）；policy 标注审批链退役+givenUp 计数；README 指令表/播报口径同步。
+- **测试**：九套 116 项全绿（新增 taxonomy 19/process-rules 17/local-reservation 15/auth 14/learning-loop 10 五套,全部并入 npm test 与 push 闸门）；HTTP e2e 三轮（上传中文编码定案:仅 originalname 需 latin1 还原/鉴权全生命周期十步/学习闭环采纳即时生效）；修复：重复审批绕过、限速计数被清零、测试隔离污染规则文件。
+- **部署注意**：生产 .env 已补五数据面路径（RESERVATIONS/AUTH/RULES/SUGGESTIONS→C:/home/qianli/bambu-data/）+ UPLOAD_RETENTION_DAYS=30；上线后曼波第一个注册（自动 admin）→ 页面给审批人升 reviewer；`REGISTER_INVITE_CODE` 未配（开放注册,仅内网屏障）,需要时配置后重启生效。
+- 附记：本条目涵盖 2026-10-05 四个会话批次（本地化/账号/学习链路/审查优化）,因同批首次部署合并记录;版本锚点=本条目自身的顶层归档提交（git log 以 feat: bambu-print-reservation v37 检索即得）。

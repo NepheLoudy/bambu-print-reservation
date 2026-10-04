@@ -1,30 +1,138 @@
 const config = require('../config');
-const bitableApi = require('../feishu/bitable');
-const { sendMessage, sendTextToUser, buildReservationAlertCard, buildReviewResultCard } = require('../feishu/bot');
+const store = require('./reservationStore');
+const { sendMessage, buildReservationAlertCard, buildReviewResultCard } = require('../feishu/bot');
 const quietHours = require('../utils/quietHours');
 
+// ============================================================
+// 预约服务（2026-10-05 路线 A 本地化改造）：
+//   真相源 = reservationStore（本地 JSON 存储），不再读写多维表格镜像、
+//   不再依赖审批实例事件；飞书仅剩群 webhook 播报（通知通道，非数据依赖）。
+//   旧镜像表记录转换（formatReservation）保留，兼容状态文件里的历史任务与
+//   /print-dispatch 对遗留单据的定位。
 // 注意：本模块被 dispatcher.js 依赖，对 dispatcher 的引用必须惰性 require（避免循环加载）
+// ============================================================
 
 class ReservationService {
-  async getAllReservations() {
-    if (!config.bitable.reservationTableId) {
-      throw new Error('未配置预约表ID');
-    }
+  // ---------- 查询（全部走本地存储） ----------
 
-    const records = await bitableApi.getAllRecords(config.bitable.reservationTableId);
-    return records.map(this.formatReservation);
+  getAllReservations() {
+    return Promise.resolve(store.list());
   }
 
-  async getReservationById(recordId) {
-    if (!config.bitable.reservationTableId) {
-      throw new Error('未配置预约表ID');
-    }
-
-    const record = await bitableApi.getRecord(config.bitable.reservationTableId, recordId);
-    if (!record) return null;
-    return this.formatReservation(record);
+  getReservationById(id) {
+    return Promise.resolve(store.get(id));
   }
 
+  async getPendingReviewReservations() {
+    return store.list().filter((r) => r.status === config.status.PENDING_REVIEW);
+  }
+
+  async getPrintingReservations() {
+    return store.list().filter((r) => r.status === config.status.PRINTING);
+  }
+
+  async getCompletedReservations() {
+    return store.list().filter((r) => r.status === config.status.COMPLETED);
+  }
+
+  // ---------- 提交（index.js 的上传端点在落盘文件后调用） ----------
+
+  createReservation(input) {
+    return Promise.resolve(store.create(input));
+  }
+
+  /** 提交后提醒审批人（群播卡片；飞书私聊退役——本地系统无 open_id） */
+  async notifyReviewers(reservation) {
+    try {
+      const card = buildReservationAlertCard({
+        fields: {
+          '发起人': [{ id: '', name: reservation.applicant }],
+          '发起时间': reservation.createdAt,
+          '切片文件': [{ name: reservation.fileName }],
+          '是否加急': reservation.isUrgent,
+          [config.dispatch.materialField]: reservation.materialType,
+          [config.dispatch.colorField]: reservation.color,
+        },
+      });
+      if (!quietHours.gatePayload('webhook-card', card, `预约审批提醒卡 ${reservation.id}`)) {
+        await sendMessage(card);
+      }
+    } catch (err) {
+      console.error('[预约服务] 通知审批人失败:', err.message);
+    }
+  }
+
+  // ---------- 审批（管理动作，端点侧挂 X-API-Token） ----------
+
+  /** 审批通过：状态流转 + 群播结果卡 + 入队（本地任务，fileSource=local） */
+  async approveReservation(id, reviewer, comment) {
+    const reservation = store.get(id);
+    if (!reservation) throw new Error('预约记录不存在');
+    // 显式状态门槛：仅「待审批」可批。不能只依赖状态机——排队中→已通过是
+    // 分发失败回滚的合法流转，放行会让已入队的单被重复审批（2026-10-05 测试暴露）
+    if (reservation.status !== config.status.PENDING_REVIEW) {
+      throw new Error(`预约当前状态「${reservation.status}」，仅待审批单可审批`);
+    }
+
+    store.updateStatus(id, config.status.REVIEW_APPROVED, `审批人：${reviewer || '未署名'}${comment ? `｜意见：${comment}` : ''}`);
+    store.setReview(id, { reviewer: reviewer || '', comment: comment || '', result: config.reviewResult.APPROVED });
+    await this.notifyReviewResult(store.get(id), config.reviewResult.APPROVED, comment);
+
+    // 入队（幂等；重复审批被状态机挡在上一行）
+    const dispatcher = require('./dispatcher');
+    const fresh = store.get(id);
+    const enqueued = dispatcher.enqueue(dispatcher.buildLocalTask(fresh));
+    if (enqueued) store.updateStatus(id, config.status.QUEUED, '已进入打印队列');
+
+    return store.get(id);
+  }
+
+  async rejectReservation(id, reviewer, comment) {
+    const reservation = store.get(id);
+    if (!reservation) throw new Error('预约记录不存在');
+    if (reservation.status !== config.status.PENDING_REVIEW) {
+      throw new Error(`预约当前状态「${reservation.status}」，仅待审批单可驳回`);
+    }
+
+    store.updateStatus(id, config.status.REVIEW_REJECTED, `审批人：${reviewer || '未署名'}${comment ? `｜意见：${comment}` : ''}`);
+    store.setReview(id, { reviewer: reviewer || '', comment: comment || '', result: config.reviewResult.REJECTED });
+    await this.notifyReviewResult(reservation, config.reviewResult.REJECTED, comment);
+
+    return store.get(id);
+  }
+
+  async notifyReviewResult(reservation, result, comment) {
+    try {
+      const card = buildReviewResultCard({
+        fields: {
+          '发起人': [{ id: '', name: reservation.applicant }],
+          '切片文件': [{ name: reservation.fileName }],
+        },
+      }, result, comment);
+      if (!quietHours.gatePayload('webhook-card', card, `审批结果卡 ${reservation.id}`)) {
+        await sendMessage(card);
+      }
+    } catch (err) {
+      console.error('[预约服务] 审批结果播报失败:', err.message);
+    }
+  }
+
+  // ---------- 取消 ----------
+
+  async cancelReservation(id) {
+    const reservation = store.get(id);
+    if (!reservation) throw new Error('预约记录不存在');
+
+    store.updateStatus(id, config.status.CANCELLED, '取消预约');
+    const dispatcher = require('./dispatcher');
+    dispatcher.dequeue(id); // 队列中/分发中/打印中（停机）统一由 dequeue 处理
+
+    return { success: true };
+  }
+
+  // ---------- 遗留兼容 ----------
+
+  /** 旧镜像表记录 → 展示形态（历史数据/状态文件遗留任务用；不再有新镜像单） */
   formatReservation(record) {
     const fields = record.fields || {};
     const sliceFile = fields['切片文件'] && fields['切片文件'].length > 0 ? fields['切片文件'][0] : null;
@@ -44,171 +152,12 @@ class ReservationService {
       fileUrl: sliceFile?.url,
       screenshot: fields['切片文件详情截图'],
       isUrgent: fields['是否加急'],
-      // 分发引擎字段（审批表单补齐后生效）
       materialType: fields[config.dispatch.materialField] || '',
       color: fields[config.dispatch.colorField] || '',
       assignedPrinter: fields[config.dispatch.printerField] || '',
       createdAt: record.created_time,
       updatedAt: record.updated_time,
     };
-  }
-
-  async createReservation(fields) {
-    if (!config.bitable.reservationTableId) {
-      throw new Error('未配置预约表ID');
-    }
-
-    const validation = this.validateReservation(fields);
-    if (!validation.valid) {
-      throw new Error(validation.message);
-    }
-
-    const record = await bitableApi.createRecord(config.bitable.reservationTableId, fields);
-
-    const reservation = this.formatReservation(record);
-
-    await this.notifyReviewers(reservation);
-
-    return reservation;
-  }
-
-  validateReservation(fields) {
-    if (!fields['发起人'] || !fields['发起人'].length) {
-      return { valid: false, message: '发起人不能为空' };
-    }
-    if (!fields['发起时间']) {
-      return { valid: false, message: '发起时间不能为空' };
-    }
-    if (!fields['切片文件'] || !fields['切片文件'].length) {
-      return { valid: false, message: '切片文件不能为空' };
-    }
-
-    return { valid: true, message: '' };
-  }
-
-  async notifyReviewers(reservation) {
-    try {
-      const card = buildReservationAlertCard({
-        fields: {
-          '发起人': reservation.applicant ? [{ id: reservation.applicant.id, name: reservation.applicant.name }] : [],
-          '发起时间': reservation.startTime,
-          '切片文件': reservation.fileName ? [{ name: reservation.fileName, file_token: reservation.fileToken }] : [],
-          '是否加急': reservation.isUrgent,
-          [config.dispatch.materialField]: reservation.materialType,
-          [config.dispatch.colorField]: reservation.color,
-        },
-      });
-
-      // 晚间静默：预约通知属群播/私聊通知，静默窗口内落盘积压，窗口结束补发
-      if (!quietHours.gatePayload('webhook-card', card, `预约审批提醒卡 ${reservation.recordId || ''}`)) {
-        await sendMessage(card);
-      }
-
-      if (config.reviewers && config.reviewers.length > 0) {
-        for (const reviewerId of config.reviewers) {
-          try {
-            const text = `有新的打印预约需要您审批，请在飞书多维表格中查看并处理。\n文件：${reservation.fileName}`;
-            if (!quietHours.gatePayload('dm-text', { openId: reviewerId, text }, `预约审批提醒私聊 ${reviewerId}`)) {
-              await sendTextToUser(reviewerId, text);
-            }
-          } catch (err) {
-            console.error(`[预约服务] 通知审批者 ${reviewerId} 失败:`, err.message);
-          }
-        }
-      }
-    } catch (err) {
-      console.error('[预约服务] 通知审批者失败:', err.message);
-    }
-  }
-
-  async handleReviewResult(recordId, reviewResult, reviewComment, reviewer) {
-    if (!config.bitable.reservationTableId) {
-      throw new Error('未配置预约表ID');
-    }
-
-    const reservation = await this.getReservationById(recordId);
-    if (!reservation) {
-      throw new Error('预约记录不存在');
-    }
-
-    const status = reviewResult === config.reviewResult.APPROVED
-      ? config.status.REVIEW_APPROVED
-      : config.status.REVIEW_REJECTED;
-
-    await bitableApi.updateRecord(config.bitable.reservationTableId, recordId, {
-      '申请状态': status,
-    });
-
-    await this.notifyApplicant(reservation, reviewResult, reviewComment);
-
-    if (reviewResult === config.reviewResult.APPROVED) {
-      // 状态写回会触发表格事件 → 由事件监听统一入队；这里主动入一次兜底（幂等）
-      const dispatcher = require('./dispatcher');
-      const fresh = await this.getReservationById(recordId);
-      dispatcher.enqueue(fresh, { silent: true });
-    }
-
-    return { success: true };
-  }
-
-  async notifyApplicant(reservation, reviewResult, reviewComment) {
-    try {
-      const card = buildReviewResultCard({
-        fields: {
-          '发起人': reservation.applicant ? [{ id: reservation.applicant.id, name: reservation.applicant.name }] : [],
-          '切片文件': reservation.fileName ? [{ name: reservation.fileName }] : [],
-        },
-      }, reviewResult, reviewComment);
-
-      if (!quietHours.gatePayload('webhook-card', card, `审批结果卡 ${reservation.recordId || ''}`)) {
-        await sendMessage(card);
-      }
-
-      if (reservation.applicant && reservation.applicant.id) {
-        try {
-          const message = reviewResult === config.reviewResult.APPROVED
-            ? `您的打印预约已通过审批，已进入打印队列，将按材料自动匹配打印机。\n文件：${reservation.fileName}`
-            : `您的打印预约未通过审批，请查看审批意见并修改后重新提交。\n文件：${reservation.fileName}\n意见：${reviewComment}`;
-          if (!quietHours.gatePayload('dm-text', { openId: reservation.applicant.id, text: message }, `审批结果私聊 ${reservation.applicant.id}`)) {
-            await sendTextToUser(reservation.applicant.id, message);
-          }
-        } catch (err) {
-          console.error(`[预约服务] 通知发起人 ${reservation.applicant.id} 失败:`, err.message);
-        }
-      }
-    } catch (err) {
-      console.error('[预约服务] 通知发起人失败:', err.message);
-    }
-  }
-
-  async cancelReservation(recordId) {
-    if (!config.bitable.reservationTableId) {
-      throw new Error('未配置预约表ID');
-    }
-
-    await bitableApi.updateRecord(config.bitable.reservationTableId, recordId, {
-      '申请状态': config.status.CANCELLED,
-    });
-
-    const dispatcher = require('./dispatcher');
-    dispatcher.dequeue(recordId);
-
-    return { success: true };
-  }
-
-  async getPendingReviewReservations() {
-    const reservations = await this.getAllReservations();
-    return reservations.filter((r) => r.status === config.status.PENDING_REVIEW);
-  }
-
-  async getPrintingReservations() {
-    const reservations = await this.getAllReservations();
-    return reservations.filter((r) => r.status === config.status.PRINTING);
-  }
-
-  async getCompletedReservations() {
-    const reservations = await this.getAllReservations();
-    return reservations.filter((r) => r.status === config.status.COMPLETED);
   }
 }
 
