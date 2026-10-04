@@ -25,7 +25,7 @@ require.cache[feishuPath].exports = {
     if (global.__onDm) { const fn = global.__onDm; global.__onDm = null; fn(); }
   },
 };
-const { createEngine, offlineGapInfo } = require(path.join(__dirname, '..', 'src', 'index.js'));
+const { createEngine, offlineGapInfo, dohResponseOk } = require(path.join(__dirname, '..', 'src', 'index.js'));
 
 let pass = 0, fail = 0;
 function check(name, cond, extra = '') {
@@ -197,6 +197,12 @@ function makeDeps({ threshold = 2 } = {}) {
   check('10.2 小时断电按小时表述', g3 && g3.human === '10.2 小时', JSON.stringify(g3));
   const g4 = offlineGapInfo(NOW - 26 * 3600 * 1000, NOW, 15 * 60000);
   check('26 小时断电按天表述', g4 && g4.human === '1.1 天', JSON.stringify(g4));
+
+  console.log('\n== 11. wan 探测 HTTPS 数据面判定（v12）：TCP 代答假阴性免疫 ==');
+  check('DoH 合法响应（200 + Status 字段）→ true', dohResponseOk(200, '{"Status":0,"TC":false,"AD":false}'));
+  check('captive portal 劫持页（200 但非 DoH JSON）→ false', !dohResponseOk(200, '<html><body>Portal Login</body></html>'));
+  check('重定向/拦截（非 200）→ false', !dohResponseOk(302, '') && !dohResponseOk(500, '{"Status":0}'));
+  check('空 body / 非 body → false', !dohResponseOk(200, '') && !dohResponseOk(200, null));
 
   console.log(`\n结果: ${pass} 通过, ${fail} 失败`);
   process.exit(fail > 0 ? 1 : 0);

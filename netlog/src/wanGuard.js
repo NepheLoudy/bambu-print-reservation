@@ -10,6 +10,10 @@
  *   ②首选项：31108753 永远先试（accountPool.listCandidates 已保证）；
  *   ③慢速降级：复活恢复后 20s 宽限 → 连 3 次探针取中位数，超过健康基线 3 倍
  *     → 判该账号被限速 → 打「本月不再使用」→ 自动换下一个账号复活。
+ *   ④成功判定核会话归属（v12）：复活成功前用 online_list 验证当前账号真在线——
+ *     出口本通（TCP 代答/他人会话放行）时 login 被「IP 已经在线」拒而 wan 探测照样过，
+ *     不核归属会把假阳性记成复活成功（2026-10-05 05:28 事故）；归属非本账号 →
+ *     revive_session_mismatch 终止本轮（换号无效，需人工核对）。
  *
  * 基线：wan 健康期间的探测延迟滑动样本（最近 20 个成功值取中位数，下限 BASELINE_FLOOR）。
  */
@@ -35,12 +39,14 @@ function median(arr) {
  *   authIp() → Promise<string|null> 要放行的 IP（主路由 WAN IP）
  *   login({user,password,authIp}) → Promise 登录请求（成败由 wan 验证裁决）
  *   probeLatency() → Promise<number|null> 单次探测延迟 ms（失败 null）
+ *   verifySession(user) → Promise<boolean> online_list 会话归属核验（v12：user 在线=true；
+ *     无会话/他人会话=false；异常抛出由 guard 捕获降级）——未注入时退化为按 wan 探测放行
  *   ban(user, reason) → 打当月弃用
  *   emit(event, detail) → 事件上报（engine 的 record+notify）
  *   now() → Date；tickMs 探测周期
  */
 function createWanGuard(deps) {
-  const { candidates, authIp, login, probeLatency, ban, emit, now = () => new Date(), tickMs = 60000 } = deps;
+  const { candidates, authIp, login, probeLatency, verifySession, ban, emit, now = () => new Date(), tickMs = 60000 } = deps;
 
   const state = {
     reviving: false,
@@ -171,6 +177,28 @@ function createWanGuard(deps) {
     if (state.reviving) {
       if (wanOk && trafficOk) {
         const user = state.current ? state.current.user : '?';
+        // v12 成功判定核会话归属：出口本通时（TCP 代答假阴性 / IP 已被其它账号放行），
+        // login 会被「IP 已经在线」拒绝而 wan 探测照样通过——「复活成功」是假阳性
+        // （2026-10-05 05:28 事故实锤）。归属核验通过才算真复活。
+        let mine = null;
+        if (typeof verifySession === 'function') {
+          try {
+            mine = await verifySession(user);
+          } catch (err) {
+            act(`会话归属验证异常（${err.message}），按 wan 探测降级放行`);
+          }
+        }
+        if (mine === false) {
+          // 冷却防刷屏：出口本通时 onTick 的触发条件不满足，但「断网+IP 被占」组合下
+          // 每轮都会重启复活又立刻 mismatch——挂 30 分钟冷却，给人工介入窗口
+          state.reviving = false;
+          state.exhaustedUntil = now().getTime() + EXHAUSTED_COOLDOWN_MS;
+          await emit('revive_session_mismatch', `出口恢复但在线会话归属非 ${user}（IP 已被其它账号放行，换号无效，本轮终止，30 分钟后自动重试）。人工核对/换号 SOP：qianli-lab-network skill §十二.1`);
+          return;
+        }
+        if (mine === null && typeof verifySession === 'function') {
+          act(`会话归属未确认（接口异常），账号 ${user} 按 wan 探测降级放行`);
+        }
         state.reviving = false;
         act(`wan 恢复（账号 ${user}），进入慢速判定`);
         state.pendingSlow = { user, at: now().getTime() };

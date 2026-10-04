@@ -50,6 +50,10 @@ const CONFIG = {
   wanTargets: (process.env.NETLOG_WAN_TARGETS || '223.5.5.5:443,119.29.29.29:443')
     .split(',').map((s) => s.trim()).filter(Boolean)
     .map((s) => { const [host, port] = s.split(':'); return { host, port: Number(port || 443) }; }),
+  // HTTPS 层验证目标（v12）：TCP 握手会被认证网关代答（认证死掉照样握手成功=假阴性，
+  // 2026-10-05 05:28 事故），DoH 端点走真 TLS+HTTP 数据面，200 且返回合法 DoH JSON 才算出网
+  httpsTargets: (process.env.NETLOG_HTTPS_TARGETS || 'https://223.5.5.5/resolve?name=qq.com&type=1')
+    .split(',').map((s) => s.trim()).filter(Boolean),
   // 流量探测（v9，曼波「握手通但网页刷不开」实况）：TCP 握手测不出软踢/限速——
   // generate_204 源走完整 HTTP 往返，status=204 即「用户意义上的网络可用」。
   // 多候选任一 204 即通过；被认证网关劫持重定向（非 204）按失败计
@@ -115,6 +119,7 @@ function createEngine(deps) {
   const NOTIFY_IMMEDIATE = new Set([
     'lan_down', 'lan_up', 'wan_down', 'wan_up', 'traffic_down', 'traffic_up',
     'egress_ip_changed', 'revive_exhausted', 'boot_after_offline',
+    'revive_session_mismatch', // v12：出口本通但会话被他人账号放行，换号无效需人工——低频且必须知晓
   ]);
 
   async function notify(event, detail) {
@@ -263,11 +268,11 @@ function probeTcp(host, port, timeoutMs) {
   });
 }
 
-function httpRequestText(url, { timeoutMs = 5000, method = 'GET', body = null, headers = {} } = {}) {
+function httpRequestText(url, { timeoutMs = 5000, method = 'GET', body = null, headers = {}, tls = {} } = {}) {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
     const mod = u.protocol === 'https:' ? https : http;
-    const req = mod.request(u, { method, headers, timeout: timeoutMs }, (res) => {
+    const req = mod.request(u, { method, headers, timeout: timeoutMs, ...tls }, (res) => {
       let data = '';
       res.on('data', (c) => { data += c; });
       res.on('end', () => {
@@ -280,6 +285,24 @@ function httpRequestText(url, { timeoutMs = 5000, method = 'GET', body = null, h
     if (body) req.write(body);
     req.end();
   });
+}
+
+/** DoH 响应判定（v12 纯函数，可测）：TLS+HTTP 数据面真伪——200 且 body 为 DoH JSON（含 Status 字段）。
+ *  认证网关代答只能伪造 TCP 握手，伪造不了 TLS 上的合法 DoH 响应；captive portal 劫持页即使
+ *  握手成功（自签证书），body 也不是 DoH JSON → false */
+function dohResponseOk(status, body) {
+  return status === 200 && typeof body === 'string' && body.includes('"Status"');
+}
+
+/** HTTPS 层探测（v12）：DoH 端点完整 TLS+HTTP 往返。rejectUnauthorized 关闭仅因目标以裸 IP
+ *  访问（223.5.5.5 证书 SAN 为域名不匹配），身份无涉探测语义，数据面真伪由 dohResponseOk 把关 */
+async function probeHttps(url, timeoutMs = CONFIG.timeoutMs * 2) {
+  try {
+    const body = await httpRequestText(url, { timeoutMs, tls: { rejectUnauthorized: false } });
+    return dohResponseOk(200, body);
+  } catch {
+    return false;
+  }
 }
 
 const DATA_FILE = path.join(CONFIG.dataDir, 'net-log.jsonl');
@@ -377,11 +400,12 @@ try {
 
   const pool = createAccountPool(CONFIG.accountPool);
 
-  /** 单次 wan 探测延迟（取 wanTargets 中最先成功者，失败 null） */
+  /** 单次 wan 探测延迟（v12 走 HTTPS 数据面：TCP 代答握手只有几 ms，会把基线压到
+   *  下限 30ms 使慢速判定永远通过；TLS 往返才反映真实链路质量） */
   async function probeLatency() {
-    for (const t of CONFIG.wanTargets) {
+    for (const url of CONFIG.httpsTargets) {
       const start = Date.now();
-      const ok = await probeTcp(t.host, t.port, CONFIG.timeoutMs);
+      const ok = await probeHttps(url);
       if (ok) return Date.now() - start;
     }
     return null;
@@ -392,11 +416,18 @@ try {
     authIp: () => campusAuth.fetchAuthIp(),
     login: (acct) => campusAuth.login(acct),
     probeLatency,
+    // v12 成功判定核会话归属：online_list 里当前账号真在线才算复活成功
+    verifySession: async (user) => {
+      const list = await campusAuth.onlineList();
+      return Array.isArray(list) && list.some((s) => s.user === user);
+    },
     ban: (user, reason) => pool.banThisMonth(user, reason),
     emit: (event, detail) => emitRef(event, detail),
   });
 
-  var guardOnTick = (wanOk, lanOk) => guard.onTick(wanOk, lanOk);
+  // v12 修复：trafficOk 此前在接线处被丢弃（wrapper 只收两参），软踢/认证死场景
+  // guard 永远收到 true → 复活引擎整晚安睡（2026-10-05 05:28 事故元凶）
+  var guardOnTick = (wanOk, lanOk, trafficOk = true) => guard.onTick(wanOk, lanOk, trafficOk);
 } catch (err) {
   console.error(`[netlog] 复活引擎初始化失败（退化为纯日志探针）: ${err.message}`);
   var guardOnTick = null;
@@ -408,8 +439,15 @@ try { feishu = require('./feishu'); } catch (err) { console.warn(`[netlog] 飞�
 const engine = createEngine({
   probeLan: () => probeTcp(CONFIG.lanHost, CONFIG.lanPort, CONFIG.timeoutMs),
   probeWan: async () => {
+    // v12：TCP 预检（真断网时快速失败）→ HTTPS 数据面验证（戳穿认证网关代答的握手假阴性：
+    // 认证死掉后 TCP 223.5.5.5:443 照样握手成功，但 TLS 上的合法 DoH 响应伪造不了）
+    let tcpOk = false;
     for (const t of CONFIG.wanTargets) {
-      if (await probeTcp(t.host, t.port, CONFIG.timeoutMs)) return true;
+      if (await probeTcp(t.host, t.port, CONFIG.timeoutMs)) { tcpOk = true; break; }
+    }
+    if (!tcpOk) return false;
+    for (const url of CONFIG.httpsTargets) {
+      if (await probeHttps(url)) return true;
     }
     return false;
   },
@@ -530,4 +568,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { createEngine, CONFIG, fmtShanghai: (ts) => new Date(ts + 8 * 3600 * 1000).toISOString(), offlineGapInfo };
+module.exports = { createEngine, CONFIG, fmtShanghai: (ts) => new Date(ts + 8 * 3600 * 1000).toISOString(), offlineGapInfo, dohResponseOk, probeHttps };

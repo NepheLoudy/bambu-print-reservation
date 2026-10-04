@@ -26,7 +26,7 @@ function makePoolFile(accounts, preferred) {
   return f;
 }
 
-function makeDeps({ poolUsers, preferred = '31108753', baseline = 100 } = {}) {
+function makeDeps({ poolUsers, preferred = '31108753', baseline = 100, verifySession } = {}) {
   const d = {
     clock: 1_700_000_000_000,
     events: [],
@@ -46,6 +46,7 @@ function makeDeps({ poolUsers, preferred = '31108753', baseline = 100 } = {}) {
     authIp: async () => '10.253.32.177',
     login: async (acct) => { d.logins.push(acct.user); },
     probeLatency: async () => (d.latencyQueue.length ? d.latencyQueue.shift() : baseline),
+    verifySession,
     ban: (user, reason) => d.banned.push({ user, reason }),
     emit: (event, detail) => d.events.push({ event, detail }),
     now: () => new Date(d.clock),
@@ -179,6 +180,41 @@ function makeDeps({ poolUsers, preferred = '31108753', baseline = 100 } = {}) {
   d12.trafficOk = true;
   await d12.nextTick();
   check('窗口外掉线仍首选 31108753（不做无谓轮换）', d12.logins[d12.logins.length - 1] === '31108753', JSON.stringify(d12.logins));
+
+  console.log('\n== 13. 成功判定核会话归属（v12）：出口本通/IP 已被他人放行时拒绝假阳性 ==');
+  // 13a: 归属非本账号 → revive_session_mismatch，无假阳性 success、无 lastRevive、挂 30 分钟冷却
+  const d13 = makeDeps({ poolUsers: [['31108753', 'pw1', 1]], verifySession: async () => false });
+  d13.wanOk = false;
+  await d13.nextTick(); // 复活启动 + login 31108753
+  check('13a 复活已启动且已 login', d13.logins.length === 1, JSON.stringify(d13.logins));
+  d13.wanOk = true; // 「恢复」实为 TCP 代答假阴性（他人会话放行出口）
+  await d13.nextTick();
+  check('13a 归属非本账号 → revive_session_mismatch', d13.events.some((e) => e.event === 'revive_session_mismatch'), JSON.stringify(d13.events.map((e) => e.event)));
+  check('13a 不产生假阳性 revive_success', !d13.events.some((e) => e.event === 'revive_success'), JSON.stringify(d13.events.map((e) => e.event)));
+  check('13a 不登记 lastRevive', d13.guard.summary().lastRevive === null, JSON.stringify(d13.guard.summary().lastRevive));
+  check('13a 挂 30 分钟冷却', !!d13.guard.summary().exhaustedUntil, d13.guard.summary().exhaustedUntil);
+  // 冷却内又掉线（软踢）也不重启复活——防 mismatch 每分钟刷屏
+  d13.clock += 60 * 1000;
+  d13.trafficOk = false;
+  await d13.nextTick();
+  check('13a 冷却期内不重启复活（防刷屏）', d13.logins.length === 1, JSON.stringify(d13.logins));
+
+  // 13b: 归属本账号 → 正常成功路径
+  const d13b = makeDeps({ poolUsers: [['31108753', 'pw1', 1]], verifySession: async () => true });
+  d13b.wanOk = false;
+  await d13b.nextTick();
+  d13b.wanOk = true;
+  await d13b.nextTick();
+  check('13b 归属本账号 → 正常 revive_success', d13b.events.some((e) => e.event === 'revive_success'), JSON.stringify(d13b.events.map((e) => e.event)));
+  check('13b lastRevive 正常登记', d13b.guard.summary().lastRevive && d13b.guard.summary().lastRevive.user === '31108753', JSON.stringify(d13b.guard.summary().lastRevive));
+
+  // 13c: 验证接口异常 → 降级按 wan 探测放行（不因 online_list 抖动卡死复活）
+  const d13c = makeDeps({ poolUsers: [['31108753', 'pw1', 1]], verifySession: async () => { throw new Error('online_list unreachable'); } });
+  d13c.wanOk = false;
+  await d13c.nextTick();
+  d13c.wanOk = true;
+  await d13c.nextTick();
+  check('13c 验证接口异常 → 降级放行照常 revive_success', d13c.events.some((e) => e.event === 'revive_success'), JSON.stringify(d13c.events.map((e) => e.event)));
 
   console.log(`\n结果: ${pass} 通过, ${fail} 失败`);
   process.exit(fail > 0 ? 1 : 0);

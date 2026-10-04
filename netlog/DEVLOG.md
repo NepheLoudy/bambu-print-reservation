@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次 git 提交 + 一次部署）。规则见顶层 [AGENTS.md](../AGENTS.md)「开发日志（DEVLOG）」节。
 
-当前最新：**v11**（2026-10-05，随本提交落地，断电感知批）。上一版 v10（2026-10-05，被踢轮换批）。上一版 v9（2026-10-05，真实流量探测批）。上一版 v8（2026-10-04，复活通知滞留根治批；v7 为 open_id 定稿补记）。上一版 v6（2026-09-28，机器人本体私聊通知）。上一版 v5（刷屏事故根治批）。上一版 v4（实测反馈批）。上一版 v3（账号池路径校准修复）。上一版 v2（复活引擎）。上一版 v1（探针开仓）。
+当前最新：**v12**（2026-10-05，随本提交落地，复活引擎假阳性根治批：接线丢参+wan HTTPS 层验证+成功判定核会话归属）。上一版 v11（2026-10-05，断电感知批）。上一版 v10（2026-10-05，被踢轮换批）。上一版 v9（2026-10-05，真实流量探测批）。上一版 v8（2026-10-04，复活通知滞留根治批；v7 为 open_id 定稿补记）。上一版 v6（2026-09-28，机器人本体私聊通知）。上一版 v5（刷屏事故根治批）。上一版 v4（实测反馈批）。上一版 v3（账号池路径校准修复）。上一版 v2（复活引擎）。上一版 v1（探针开仓）。
 
 ## v1 · 2026-09-27 · 随本提交落地 · feat
 
@@ -112,3 +112,13 @@
 - 实现：启动时读 jsonl 上一进程最后心跳时刻，与当前间隔超 `NETLOG_OFFLINE_NOTIFY_MS`（默认 15 分钟，秒级常规重启不触发）→ emit `boot_after_offline`（即时外发白名单；启动时若网络未就绪则自动落积压随恢复补发），卡文案带离线时长与断电后自检提示（BIOS「After Power Failure=Power On」+ CMOS 电池）。
 - 断电自活的自动通电部分=硬件侧：目标机为 Intel NUC10i7FNK（vPro，LMS 服务在跑），BIOS「After Power Failure」无远程接口需现场一次（F2 → Power）；CMOS 电池疑失效（RTC 曾停在 09-30），建议同场更换 CR2032，否则 BIOS 设置断电即丢、来电自启白设。MEBx/AMT 初始化（可远程开机）留档待议。
 - 测试：stub 35+29=64 断言全绿；新增 offlineGapInfo 六断言（首跑/秒级重启/阈值边界/分钟·小时·天表述）。
+
+## v12 · 2026-10-05 · 随本提交落地 · fix
+
+**复活引擎假阳性根治批（2026-10-05 05:28 掉线事故复盘三连修）**
+
+- 事故：05:26 traffic_down 判定后引擎整晚安睡（lastRevive=null），曼波手动登号才恢复；复盘发现 10-04 夜间 6+ 段断网的「自愈」全是干等校园网放行，引擎从未参与。
+- 修复①（元凶·接线丢参）：`index.js` 的 guard 挂载 wrapper 只收 `(wanOk, lanOk)` 两参，engine 传的 trafficOk 被丢弃 → guard 恒收 true，**v9 软踢复活从未生效过**。补齐三参透传。
+- 修复②（wan 探测假阴性）：TCP connect 223.5.5.5:443 在认证死掉后仍被网关代答握手成功 → wan 恒 true。升级为「TCP 预检 + HTTPS DoH 数据面验证」：新增 `probeHttps`/`dohResponseOk`（200 且 body 含 DoH `Status` 字段才算出网——代答伪造不了 TLS 上的合法响应，captive portal 劫持页 body 也不是 DoH JSON）；`httpRequestText` 加 `tls` 选项透传（裸 IP 访问 223.5.5.5 证书 SAN 不匹配）；`probeLatency` 基线采样同步走 HTTPS（TCP 代答握手几 ms 会把基线压到下限、慢速判定失真）。新 env：`NETLOG_HTTPS_TARGETS`（默认 DoH 223.5.5.5）。
+- 修复③（成功判定假阳性）：出口本通时 forceRevive 的 login 被「IP 已经在线」拒、wan 探测照样过 → 误记 revive_success。复活成功判定新增 `verifySession(user)`（online_list 归属核验，guard 依赖注入）；归属非本账号 → 新事件 `revive_session_mismatch`（即时外发白名单）+ 30 分钟冷却（防「断网+IP 被占」每分钟重试刷屏）；验证接口异常 → 降级按 wan 探测放行（不因 online_list 抖动卡死复活）；未注入 verifySession 时完全向后兼容旧语义。
+- 测试：stub 39+38=77 断言全绿（+13：dohResponseOk 四断言；归属核验三场景——mismatch 无假阳性+冷却防刷屏、正常归属成功、接口异常降级）。
