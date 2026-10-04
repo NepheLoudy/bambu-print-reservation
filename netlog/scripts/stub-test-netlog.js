@@ -25,7 +25,7 @@ require.cache[feishuPath].exports = {
     if (global.__onDm) { const fn = global.__onDm; global.__onDm = null; fn(); }
   },
 };
-const { createEngine } = require(path.join(__dirname, '..', 'src', 'index.js'));
+const { createEngine, offlineGapInfo } = require(path.join(__dirname, '..', 'src', 'index.js'));
 
 let pass = 0, fail = 0;
 function check(name, cond, extra = '') {
@@ -184,6 +184,19 @@ function makeDeps({ threshold = 2 } = {}) {
   const e9 = createEngine(d9);
   await e9.tick();
   check('traffic 恒真且无 traffic_* 事件', e9.state.traffic === true && !d9.logs.some((l) => String(l.event || '').startsWith('traffic')));
+
+  console.log('\n== 10. 断电感知判定（v11）：离线间隔超阈值 → 报告；常规重启/首跑 → null ==');
+  const NOW = 1_760_000_000_000;
+  check('首跑无历史返回 null', offlineGapInfo(0, NOW, 15 * 60000) === null);
+  check('秒级常规重启返回 null', offlineGapInfo(NOW - 8 * 1000, NOW, 15 * 60000) === null);
+  const g1 = offlineGapInfo(NOW - 10 * 60000, NOW, 15 * 60000);
+  check('10 分钟间隔低于阈值（15 分钟）返回 null', g1 === null);
+  const g2 = offlineGapInfo(NOW - 20 * 60000, NOW, 15 * 60000);
+  check('20 分钟间隔触发报告且按分钟表述', g2 && g2.human === '20 分钟', JSON.stringify(g2));
+  const g3 = offlineGapInfo(NOW - 10.2 * 3600 * 1000, NOW, 15 * 60000);
+  check('10.2 小时断电按小时表述', g3 && g3.human === '10.2 小时', JSON.stringify(g3));
+  const g4 = offlineGapInfo(NOW - 26 * 3600 * 1000, NOW, 15 * 60000);
+  check('26 小时断电按天表述', g4 && g4.human === '1.1 天', JSON.stringify(g4));
 
   console.log(`\n结果: ${pass} 通过, ${fail} 失败`);
   process.exit(fail > 0 ? 1 : 0);

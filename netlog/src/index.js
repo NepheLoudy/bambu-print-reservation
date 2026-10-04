@@ -56,6 +56,9 @@ const CONFIG = {
   trafficUrls: (process.env.NETLOG_TRAFFIC_URLS || 'http://connect.rom.miui.com/generate_204,http://wifi.vivo.com.cn/generate_204')
     .split(',').map((s) => s.trim()).filter(Boolean),
   heartbeatMs: Number(process.env.NETLOG_HEARTBEAT_MS || 15 * 60 * 1000),
+  // 断电感知（v11）：启动时与上一进程最后心跳的间隔超过阈值 → 发「离线后重新上线」卡
+  // （10-03 断电 10h 无声无息，恢复后无人知晓——通知永远只该迟到，不该缺席）
+  offlineNotifyMs: Number(process.env.NETLOG_OFFLINE_NOTIFY_MS || 15 * 60 * 1000),
   egressIntervalMs: Number(process.env.NETLOG_EGRESS_INTERVAL_MS || 30 * 60 * 1000),
   egressUrls: (process.env.NETLOG_EGRESS_URLS || 'http://members.3322.org/dyndns/getip,http://ip.3322.net,https://api.ipify.org')
     .split(',').map((s) => s.trim()).filter(Boolean),
@@ -111,7 +114,7 @@ function createEngine(deps) {
   // 绝不即时外发——否则误判/循环触发时会对通知群每分钟刷屏。
   const NOTIFY_IMMEDIATE = new Set([
     'lan_down', 'lan_up', 'wan_down', 'wan_up', 'traffic_down', 'traffic_up',
-    'egress_ip_changed', 'revive_exhausted',
+    'egress_ip_changed', 'revive_exhausted', 'boot_after_offline',
   ]);
 
   async function notify(event, detail) {
@@ -302,6 +305,27 @@ function readBacklog() {
     return [];
   }
 }
+
+/** 上一进程最后一条日志的心跳时刻（断电感知用：文件尾部倒序找第一条可解析 ts） */
+function lastLogTs() {
+  try {
+    const lines = fs.readFileSync(DATA_FILE, 'utf8').trim().split('\n');
+    for (let i = lines.length - 1; i >= 0; i--) {
+      try { const o = JSON.parse(lines[i]); if (Number(o.ts) > 0) return Number(o.ts); } catch { /* 跳过半截行 */ }
+    }
+  } catch { /* 无日志文件（首跑） */ }
+  return 0;
+}
+
+/** 离线间隔判定（纯函数，stub 可测）：间隔超阈值返回信息对象，否则 null */
+function offlineGapInfo(lastTs, nowMs, thresholdMs) {
+  if (!lastTs || lastTs <= 0) return null; // 首跑无历史
+  const ms = nowMs - lastTs;
+  if (ms < thresholdMs) return null; // 常规重启（秒级）不算离线
+  const minutes = ms / 60000;
+  const human = minutes >= 1440 ? `${(minutes / 1440).toFixed(1)} 天` : minutes >= 60 ? `${(minutes / 60).toFixed(1)} 小时` : `${Math.round(minutes)} 分钟`;
+  return { lastTs, now: nowMs, ms, human };
+}
 function writeBacklog(list) {
   try {
     ensureDataDir();
@@ -491,6 +515,13 @@ function main() {
   console.log(`[netlog] 数据目录 ${CONFIG.dataDir}（net-log.jsonl + backlog.json）；通知=机器人私聊 ${feishu.NOTIFY_OPEN_IDS.length ? feishu.NOTIFY_OPEN_IDS.length + ' 个目标' : '（未配置 NETLOG_NOTIFY_OPEN_IDS，只落盘）'}`);
   console.log(`[netlog] 复活引擎 ${CONFIG.reviveEnabled ? '启用' : '停用'}：账号池 ${CONFIG.accountPool}${guard ? `（候选 ${(guard.summary().queueRemaining.length + (guard.summary().currentUser ? 1 : 0)) || '按池文件'}，首选项见 preferred）` : '（未初始化）'}`);
   startServer();
+  // 断电感知（v11）：与上一进程最后心跳间隔超阈值 → 「离线后重新上线」卡
+  // （机器断电时本服务同死，无法实时报警；这是恢复后立刻补报的唯一正确语义）
+  const gap = offlineGapInfo(lastLogTs(), Date.now(), CONFIG.offlineNotifyMs);
+  if (gap) {
+    engine.emit('boot_after_offline', `设备离线 ${gap.human} 后重新上线（${fmtTs(gap.lastTs)} → ${fmtTs(gap.now)}，疑似断电；若为断电请核实 BIOS「After Power Failure=Power On」与 CMOS 电池）`)
+      .catch((err) => console.warn(`[netlog] 断电感知通知失败（已积压待恢复补发）: ${err.message}`));
+  }
   // 启动即尝试补发历史积压（断网期间积压但通知未送达的，配置就绪重启后送达）
   engine.flushBacklog().catch((err) => console.warn(`[netlog] 启动补发积压未完成（保留待下轮）: ${err.message}`));
   engine.tick().catch((err) => console.error(`[netlog] 首轮探测异常: ${err.message}`));
@@ -499,4 +530,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { createEngine, CONFIG, fmtShanghai: (ts) => new Date(ts + 8 * 3600 * 1000).toISOString() };
+module.exports = { createEngine, CONFIG, fmtShanghai: (ts) => new Date(ts + 8 * 3600 * 1000).toISOString(), offlineGapInfo };

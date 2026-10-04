@@ -22,7 +22,8 @@
 
 ## 事件与通知
 
-- 事件：`lan_down` / `lan_up` / `wan_down` / `wan_up` / `traffic_down` / `traffic_up` / `egress_ip_changed` / `revive_exhausted`（即时外发白名单，v9 起含流量维度）+ 过程事件 `revive_start` / `revive_success` / `revive_no_candidates` / `account_throttled`（只落盘+积压）；
+- 事件：`lan_down` / `lan_up` / `wan_down` / `wan_up` / `traffic_down` / `traffic_up` / `egress_ip_changed` / `revive_exhausted` / `boot_after_offline`（即时外发白名单，v9 起含流量维度、v11 起含断电感知）
+- **断电感知（v11）**：启动时与上一进程最后心跳间隔超 `NETLOG_OFFLINE_NOTIFY_MS`（默认 15 分钟，秒级常规重启不算）→ 发「设备离线 X 后重新上线（疑似断电）」卡。机器断电时本服务同死无法实时报警，恢复后立刻补报是唯一正确语义（10-03 断电 10h 无声无息的教训）。+ 过程事件 `revive_start` / `revive_success` / `revive_no_candidates` / `account_throttled`（只落盘+积压）；
 - **事件分级（v5，刷屏事故整改）**：只有白名单内的关键事件才即时私聊；过程事件绝不即时外发——否则误判/循环触发时会对通知人每分钟刷屏；
 - 通知出口（v6，曼波拍板「不用 webhook 用机器人本体」）：私聊 `NETLOG_NOTIFY_OPEN_IDS`（当前=曼波本人），任一目标送达即成功；
 - **断网时即时私聊必然推不出去，自动入积压**（`backlog.json`，上限 50 条丢最旧）；wan 恢复瞬间把积压**汇总成一张卡**补发（哪断的、断了几段、各多久，一眼看完）；
@@ -61,9 +62,9 @@ pm2 名 `qianli-netlog`，`pm2 save` 后并入小电脑 `qianli-bots-autostart`�
 ## 测试
 
 ```bash
-node scripts/stub-test-netlog.js    # 29 断言：防抖/恢复历时/积压补发/冲刷竞态回归/egress 变化/事件分级/复活自愈冲刷+DownSince清零/JSONL 结构
+node scripts/stub-test-netlog.js    # 35 断言：防抖/恢复历时/积压补发/冲刷竞态回归/egress 变化/事件分级/复活自愈冲刷+DownSince清零/JSONL 结构
 node scripts/stub-test-wanguard.js  # 29 断言：复活引擎（首选项优先/换号/慢速判定/exhausted 冷却/手动触发/基线）
-# npm test = 两套合计 58 断言（push 闸门）
+# npm test = 两套合计 64 断言（push 闸门）
 ```
 
 ## 已知限制
