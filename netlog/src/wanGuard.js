@@ -2,8 +2,8 @@
  * wanGuard —— netlog v2 断网复活引擎（协议无关状态机，依赖注入可测）
  *
  * 职责（曼波 2026-09-27 三项设计）：
- *   ①复活强化：wan 断（防抖后）+ lan 活 → 按账号池顺序逐个调 eportal login，
- *     每个 tick 尝试一个账号，wan 真恢复才算成功；全用尽 → 通知 + 30 分钟冷却重试；
+ *   ①复活强化：wan 断（当轮原始信号，抢在防抖判定前自愈）+ lan 活 → 按账号池顺序逐个调
+ *     eportal login，每个 tick 尝试一个账号，wan 真恢复才算成功；全用尽 → 通知 + 30 分钟冷却重试；
  *   ②首选项：31108753 永远先试（accountPool.listCandidates 已保证）；
  *   ③慢速降级：复活恢复后 20s 宽限 → 连 3 次探针取中位数，超过健康基线 3 倍
  *     → 判该账号被限速 → 打「本月不再使用」→ 自动换下一个账号复活。
@@ -138,7 +138,8 @@ function createWanGuard(deps) {
 
   /**
    * 主循环每 tick 调用。
-   * @param {boolean} wanOk 防抖后的 wan 状态（engine 传入）
+   * @param {boolean} wanOk 当轮原始探测结果（engine 传入；有意不用防抖态——抢在
+   *   2 轮防抖判定前自愈，单轮抖动也会触发复活，由 eportal 应答与池冷却兜底）
    * @param {boolean} lanOk lan 状态（lan 断=路由器问题，登录无意义，不复活）
    */
   async function onTick(wanOk, lanOk) {

@@ -134,6 +134,28 @@ function makeDeps({ threshold = 2 } = {}) {
   check('全部日志行可 JSON.parse 且结构齐备', all.every((l) => l && typeof l.ts === 'number' && l.type));
   check('含 state 与 event 两种类型', all.some((l) => l.type === 'state') && all.some((l) => l.type === 'event'));
 
+  console.log('\n== 7. 复活自愈型断网：无状态机翻转也冲积压 + DownSince 清零（2026-10-04） ==');
+  const d7 = makeDeps({});
+  const e7 = createEngine(d7);
+  await e7.tick(); // 首轮 up
+  // guard 式自愈：单轮 wan 失败（原始信号触发复活，2 轮防抖未命中 → 状态机从未翻 down）
+  d7.wan = false; d7.clock += 60_000;
+  await e7.tick();
+  await e7.emit('revive_start', '复活启动（过程事件）');
+  await e7.emit('revive_success', '复活成功（过程事件）');
+  check('单轮失败不翻 down（复活先于防抖的场景）', e7.state.wan === true && !d7.logs.some((l) => l.event === 'wan_down'));
+  check('过程事件滞留积压', d7.backlogFile.length === 2, JSON.stringify(d7.backlogFile.map((b) => b.event)));
+  d7.wan = true; d7.clock += 60_000;
+  await e7.tick(); // wanOk → 每轮冲刷（不依赖 down→up 翻转）
+  check('无翻转恢复也补发汇总卡（复活通知送达）', dmSent.some((t) => t.text.includes('复活成功')), JSON.stringify(dmSent.map((t) => t.text.slice(0, 40))));
+  check('积压清空（滞留自愈）', d7.backlogFile.length === 0, JSON.stringify(d7.backlogFile.map((b) => b.event)));
+  // DownSince 清零：真 down→up 后 summary 不再挂旧断开时刻
+  d7.wan = false; d7.clock += 60_000;
+  await e7.tick(); await e7.tick(); // threshold=2 → wan_down
+  d7.wan = true; d7.clock += 60_000;
+  await e7.tick(); // wan_up
+  check('恢复后 wanDownSince 清零（summary 不挂旧时刻）', e7.summary().wanDownSince === null, String(e7.summary().wanDownSince));
+
   console.log(`\n结果: ${pass} 通过, ${fail} 失败`);
   process.exit(fail > 0 ? 1 : 0);
 })().catch((err) => {

@@ -15,7 +15,7 @@
  *
  * 防抖：连续 NETLOG_FAIL_THRESHOLD 次失败才记 down（单次抖动不刷屏）；一次成功即记 up。
  * 日志：状态变化必记 + 无变化每 15 分钟心跳记一行（JSONL，量级 ~100 行/天，不做轮转）。
- * 端点（只读 GET，无鉴权项；本服务无任何写端点）：/api/health、/api/netlog/summary。
+ * 端点：GET /api/health、/api/netlog/summary（只读）；POST /api/netlog/revive（管理端点，X-API-Token 鉴权，未配置=锁定）。
  *
  * 结构：createEngine(deps) 纯状态机（依赖注入，stub 可测）；本文件尾部组装真实依赖。
  */
@@ -153,8 +153,10 @@ function createEngine(deps) {
     state[`fail${key.charAt(0).toUpperCase()}${key.slice(1)}`] = 0;
     if (isDown) {
       const dur = now() - state[`${key}DownSince`];
+      const downSinceTs = state[`${key}DownSince`];
       state[key] = true;
-      await emit(`${key}_up`, `${meta} 恢复，断开历时 ${Math.round(dur / 1000)}s（${fmtTs(state[`${key}DownSince`])} → ${fmtTs(now())}）`);
+      state[`${key}DownSince`] = 0; // 清零：否则 summary 在恢复后仍挂着旧断开时刻（2026-10-04 发现）
+      await emit(`${key}_up`, `${meta} 恢复，断开历时 ${Math.round(dur / 1000)}s（${fmtTs(downSinceTs)} → ${fmtTs(now())}）`);
     } else if (state[key] === null) {
       state[key] = true; // 首轮探测直接成功：只落状态不报事件
     }
@@ -185,7 +187,7 @@ function createEngine(deps) {
     const prev = state.egressIp;
     state.egressIp = ip;
     if (prev && prev !== ip) {
-      await emit('egress_ip_changed', `出口 IP ${prev} → ${ip}（${reason}）——校园网会话可能重连过，若开 IP 白名单需比对（/api/egress-ip 参照）`);
+      await emit('egress_ip_changed', `出口 IP ${prev} → ${ip}（${reason}）——校园网会话可能重连过，若开 IP 白名单需比对（运维台 /api/egress-ip 参照）`);
     }
   }
 
@@ -204,9 +206,15 @@ function createEngine(deps) {
     if (wanOk && (state.wan !== prevWanUp || now() - state.lastEgressCheck >= egressIntervalMs || !state.lastEgressCheck)) {
       await checkEgress(state.wan !== prevWanUp ? '断网恢复' : '定期心跳');
     }
-    // wan 恢复后补发断网期间积压的通知（通知通道与被监控网络同生死，这是主通知路径）
-    if (wanOk && !prevWanUp) await flushBacklog();
-    // 复活引擎钩子（防抖后语义：探测即时结果的组合）
+    // 积压冲刷：wan 通着就每轮尝试（空积压零成本）。不能只在 down→up 翻转时冲——
+    // 复活引擎自愈的短暂断网用原始单轮信号触发，常抢在 2 轮防抖判定之前，状态机
+    // 从未翻转 → revive_start/success 过程事件永远滞留积压、复活通知永远发不出
+    // （2026-10-04 20:21 实况：55s 自愈成功但通知卡滞留）。wanOk 时冲刷同时自愈
+    // 这类历史滞留。
+    if (wanOk) await flushBacklog();
+    // 复活引擎钩子（传当轮原始探测结果——有意不用防抖态：wan 首轮失败即启动复活，
+    // 抢在 2 轮防抖判定之前自愈；代价是单轮抖动也会触发一次 login，由 eportal 应答
+    // 与账号池冷却兜底。wanGuard 侧文档同此口径）
     if (onTick) await onTick(wanOk, lanOk);
     state.lastLogAt = now();
   }
@@ -451,7 +459,7 @@ function main() {
   console.log(`[netlog] 数据目录 ${CONFIG.dataDir}（net-log.jsonl + backlog.json）；通知=机器人私聊 ${feishu.NOTIFY_OPEN_IDS.length ? feishu.NOTIFY_OPEN_IDS.length + ' 个目标' : '（未配置 NETLOG_NOTIFY_OPEN_IDS，只落盘）'}`);
   console.log(`[netlog] 复活引擎 ${CONFIG.reviveEnabled ? '启用' : '停用'}：账号池 ${CONFIG.accountPool}${guard ? `（候选 ${(guard.summary().queueRemaining.length + (guard.summary().currentUser ? 1 : 0)) || '按池文件'}，首选项见 preferred）` : '（未初始化）'}`);
   startServer();
-  // 启动即尝试补发历史积压（断网期间积压但 webhook 未配置/仍断的，配置就绪重启后送达）
+  // 启动即尝试补发历史积压（断网期间积压但通知未送达的，配置就绪重启后送达）
   engine.flushBacklog().catch((err) => console.warn(`[netlog] 启动补发积压未完成（保留待下轮）: ${err.message}`));
   engine.tick().catch((err) => console.error(`[netlog] 首轮探测异常: ${err.message}`));
   setInterval(() => engine.tick().catch((err) => console.error(`[netlog] 探测轮异常: ${err.message}`)), CONFIG.intervalMs);

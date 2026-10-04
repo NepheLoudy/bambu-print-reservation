@@ -4,9 +4,9 @@
 
 ## 定位与边界
 
-**superqianli = 主路由 192.168.31.1（RD08）**，全家唯一校园网出口（学生账号认证会话，qianli-lab-network skill §一/§四）。路由器本体是 miwifi 固件，装不了自定义日志工具，且断网时路由器自身日志也取不出来——所以本服务跑在**生产机（小电脑 DESKTOP-FE1MIGI）**上，从内网侧持续探测「superqianli 活着没 + 校园网出口活着没」，落盘记录，恢复后把断网期间的事件汇总补发到飞书群。**通知通道与被监控网络同生死：实时通知物理上不可能，「落盘 + 恢复补报」是唯一正确语义**（断网一结束、wan 一通，汇总卡即达）。
+**superqianli = 主路由 192.168.31.1（RD08）**，全家唯一校园网出口（学生账号认证会话，qianli-lab-network skill §一/§四）。路由器本体是 miwifi 固件，装不了自定义日志工具，且断网时路由器自身日志也取不出来——所以本服务跑在**生产机（小电脑 DESKTOP-FE1MIGI）**上，从内网侧持续探测「superqianli 活着没 + 校园网出口活着没」，落盘记录，恢复后把断网期间的事件汇总卡补发到通知人私聊（机器人本体 DM，v6 起替代 webhook）。**通知通道与被监控网络同生死：实时通知物理上不可能，「落盘 + 恢复补报」是唯一正确语义**（断网一结束、wan 一通，汇总卡即达）。
 
-本服务不是飞书机器人：不收事件、不进网关 CONSUMERS、无长连接（不违反架构铁律）；无写端点（两个只读 GET，不涉管理端点鉴权规则）。
+本服务不是飞书机器人：不收事件、不进网关 CONSUMERS、无长连接（不违反架构铁律）；管理写端点仅 `POST /api/netlog/revive`（挂 `X-API-Token`，timingSafeEqual + 未配置即锁定，v2），其余两个 GET 只读。
 
 ## 探测项
 
@@ -21,9 +21,12 @@
 
 ## 事件与通知
 
-- 事件：`lan_down` / `lan_up` / `wan_down` / `wan_up` / `egress_ip_changed`；
-- 每个事件即时尝试推飞书 webhook（`NETLOG_WEBHOOK_URL`）——**断网时必然推不出去，自动入积压**（`backlog.json`，上限 50 条丢最旧）；wan 恢复瞬间把积压**汇总成一张卡**补发（哪断的、断了几段、各多久，一眼看完）；
-- webhook 未配置时事件同样入积压，配置补上并重启后由启动补发送达；
+- 事件：`lan_down` / `lan_up` / `wan_down` / `wan_up` / `egress_ip_changed` / `revive_exhausted`（即时外发白名单）+ 过程事件 `revive_start` / `revive_success` / `revive_no_candidates` / `account_throttled`（只落盘+积压）；
+- **事件分级（v5，刷屏事故整改）**：只有白名单内的关键事件才即时私聊；过程事件绝不即时外发——否则误判/循环触发时会对通知人每分钟刷屏；
+- 通知出口（v6，曼波拍板「不用 webhook 用机器人本体」）：私聊 `NETLOG_NOTIFY_OPEN_IDS`（当前=曼波本人），任一目标送达即成功；
+- **断网时即时私聊必然推不出去，自动入积压**（`backlog.json`，上限 50 条丢最旧）；wan 恢复瞬间把积压**汇总成一张卡**补发（哪断的、断了几段、各多久，一眼看完）；
+- 通知目标未配置时事件同样入积压，配置补上并重启后由启动补发送达；
+- 冲刷时机（2026-10-04 修正）：wan 通着每轮尝试（空积压零成本）——复活引擎自愈的短暂断网用原始单轮信号触发、状态机从未翻 down，只认 down→up 翻转会让复活通知永远滞留积压（10-04 20:21 实况）；wanOk 冲刷同时自愈历史滞留。
 - 补发按条目 id 精确剔除已发——冲刷期间新落盘的积压不被覆盖丢失（quiet-flush v87 同款教训回归，stub 有断言）。
 
 ## 数据落盘
@@ -32,16 +35,17 @@
 - `net-log.jsonl`：状态行（每轮）+ 事件行（状态变化必记 + 15 分钟心跳行防纯空白），~100 行/天，不做轮转；
 - `backlog.json`：待补发通知积压。
 
-## 查询端点（GET，只读）
+## HTTP 端点
 
 ```
-curl localhost:3016/api/health          # {ok, lan, wan, egressIp, uptime}
-curl localhost:3016/api/netlog/summary  # 当前状态 + 最近 50 条事件（内网可达时人工查现场用）
+curl localhost:3016/api/health          # GET {ok, lan, wan, egressIp, uptime}
+curl localhost:3016/api/netlog/summary  # GET 当前状态 + 最近 50 条事件 + guard 引擎状态（内网可达时人工查现场用）
+curl -X POST localhost:3016/api/netlog/revive -H "X-API-Token: ..."  # 管理端点：手动触发复活流程（v2）
 ```
 
 ## 配置（.env，见 .env.example）
 
-探测参数默认即可；`NETLOG_WEBHOOK_URL` 当前与 approval-bot `BOT_WEBHOOK_URL` 同群（审批播报群），要换群改这里重推；`NAS_*` 为部署凭证（历史命名，语义=部署目标）。
+探测参数默认即可；通知出口用 `NETLOG_FEISHU_APP_ID/SECRET`（共用应用凭据）+ `NETLOG_NOTIFY_OPEN_IDS`（私聊目标，逗号分隔多个）；`NAS_*` 为部署凭证（历史命名，语义=部署目标）。
 
 ## 部署
 
@@ -49,12 +53,14 @@ curl localhost:3016/api/netlog/summary  # 当前状态 + 最近 50 条事件（�
 npm run push "提交说明"   # 测试闸门 → git(顶层 monorepo netlog/ 路径) → SFTP → .env → pm2 delete+start+save
 ```
 
-pm2 名 `qianli-netlog`，`pm2 save` 后并入小电脑 `qianli-bots-autostart`（pm2 resurrect）自启清单。端口 3016（只收出站探测 + 本机回环 HTTP，不开防火墙——如需从笔记本跨机访问 summary，需在部署目标防火墙放行 3016，属人工操作）。
+pm2 名 `qianli-netlog`，`pm2 save` 后并入小电脑 `qianli-bots-autostart`（pm2 resurrect）自启清单。端口 3016：只收出站探测 + HTTP（未绑 127.0.0.1，LAN 可达——运维台拓扑看板正以此探测 3016；GET 无鉴权，`/api/netlog/summary` 含复活动作日志，内网可见即设计现状）。
 
 ## 测试
 
 ```bash
-node scripts/stub-test-netlog.js   # 14 断言：防抖/恢复历时/积压补发/冲刷竞态回归/egress 变化/JSONL 结构
+node scripts/stub-test-netlog.js    # 22 断言：防抖/恢复历时/积压补发/冲刷竞态回归/egress 变化/事件分级/复活自愈冲刷+DownSince清零/JSONL 结构
+node scripts/stub-test-wanguard.js  # 18 断言：复活引擎（首选项优先/换号/慢速判定/exhausted 冷却/手动触发/基线）
+# npm test = 两套合计 40 断言（push 闸门）
 ```
 
 ## 已知限制
