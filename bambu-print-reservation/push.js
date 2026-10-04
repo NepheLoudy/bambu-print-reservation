@@ -66,6 +66,12 @@ const pack = spawnSync('tar', [
   // 运行时状态文件（2026-09-27 补洞）：现网权威在部署目标，不得随包覆盖
   '--exclude=.dispatch-state.json',
   '--exclude=.quiet-backlog.json',
+  // 路线 A 数据面（2026-10-05）：本地测试/烟测残留不得随包上部署目标
+  '--exclude=data',
+  '--exclude=.process-rules.json',
+  '--exclude=.reservations.json',
+  '--exclude=.auth-users.json',
+  '--exclude=.rule-suggestions.json',
   // 本地私有环境覆盖（.env 上传单独走 SFTP）
   '--exclude=.env.local',
   '--exclude=.env.*.local',
