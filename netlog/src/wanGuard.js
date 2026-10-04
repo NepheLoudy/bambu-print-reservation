@@ -5,6 +5,8 @@
  *   ①复活强化：wan 断或「握手通但流量断（软踢/限速）」（当轮原始信号，抢在防抖判定前自愈）
  *     + lan 活 → 按账号池顺序逐个调 eportal login，
  *     每个 tick 尝试一个账号，wan+traffic 真恢复才算成功；全用尽 → 通知 + 30 分钟冷却重试；
+ *   ①.5 近期被踢轮换（2026-10-05 曼波定）：复活成功后 30 分钟内又掉线 = 该账号被别人抢，
+ *     本轮复活把它排到队尾换下一个，不做互踢对拍；窗口外的全新掉线仍按优先级首选开始；
  *   ②首选项：31108753 永远先试（accountPool.listCandidates 已保证）；
  *   ③慢速降级：复活恢复后 20s 宽限 → 连 3 次探针取中位数，超过健康基线 3 倍
  *     → 判该账号被限速 → 打「本月不再使用」→ 自动换下一个账号复活。
@@ -18,6 +20,7 @@ const SLOW_PROBE_COUNT = 3;
 const SLOW_PROBE_GAP_MS = 2000;
 const RECOVER_GRACE_MS = 20000; // 恢复后宽限：新会话/路由冷启动可能偏慢，等 20s 再判
 const EXHAUSTED_COOLDOWN_MS = 30 * 60 * 1000;
+const KICK_ROTATE_WINDOW_MS = 30 * 60 * 1000; // 近期被踢轮换窗口：复活成功后 30 分钟内又掉线=账号被抢，换下一个（曼波 2026-10-05）
 
 function median(arr) {
   if (!arr.length) return 0;
@@ -48,6 +51,7 @@ function createWanGuard(deps) {
     baseline: BASELINE_FLOOR_MS,
     samples: [],          // 健康期延迟样本
     pendingSlow: null,    // { user, at } 恢复后待慢速判定
+    lastRevive: null,     // { user, at } 最近一次复活成功的账号与时刻（近期被踢轮换依据）
     lastActions: [],      // 最近动作日志（内存，summary 展示）
   };
 
@@ -68,7 +72,7 @@ function createWanGuard(deps) {
   }
 
   async function startRevive(reason) {
-    const list = candidates();
+    let list = candidates();
     if (!list.length) {
       // 池空=体系失能：进 30 分钟冷却（同 exhausted）——否则每个 tick 都重发一次
       // revive_no_candidates（2026-09-28 刷屏事故：残留进程空池每分钟轰炸通知群）
@@ -77,11 +81,23 @@ function createWanGuard(deps) {
       await emit('revive_no_candidates', `账号池全空或当月全弃用（${reason}），30 分钟后自动重试`);
       return;
     }
+    // 近期被踢轮换（2026-10-05 曼波定）：复活成功后短时间内又掉线 = 该账号有别人在抢，
+    // 本轮把它排到队尾换下一个，而不是跟人对拍互踢；窗口外的新掉线仍按优先级正常走
+    let rotatedNote = '';
+    const lr = state.lastRevive;
+    if (lr && lr.user && now().getTime() - lr.at < KICK_ROTATE_WINDOW_MS) {
+      const idx = list.findIndex((a) => a.user === lr.user);
+      if (idx >= 0 && list.length > 1) {
+        list = list.slice(idx + 1).concat(list.slice(0, idx + 1));
+        rotatedNote = `；上次 ${lr.user} 刚被踢，本轮轮换避开（排最后）`;
+      }
+    }
     state.reviving = true;
     state.queue = list.slice();
     state.current = null;
+    state.pendingSlow = null; // 新一轮复活开始：上一会话的慢速判定作废（否则吞掉本轮 success 一个 tick）
     state.roundStartedAt = now().getTime();
-    await emit('revive_start', `断网复活启动（${reason}）：候选 ${list.map((a) => a.user).join(' → ')}`);
+    await emit('revive_start', `断网复活启动（${reason}${rotatedNote}）：候选 ${list.map((a) => a.user).join(' → ')}`);
     await tryNextCandidate();
   }
 
@@ -158,6 +174,7 @@ function createWanGuard(deps) {
         state.reviving = false;
         act(`wan 恢复（账号 ${user}），进入慢速判定`);
         state.pendingSlow = { user, at: now().getTime() };
+        state.lastRevive = { user, at: now().getTime() };
         await emit('revive_success', `复活成功：账号 ${user} 认证后网络恢复，${Math.round((now().getTime() - state.roundStartedAt) / 1000)}s 内完成`);
         return;
       }
@@ -194,6 +211,7 @@ function createWanGuard(deps) {
       baseline: state.baseline,
       exhaustedUntil: state.exhaustedUntil ? new Date(state.exhaustedUntil + 8 * 3600 * 1000).toISOString().slice(0, 19).replace('T', ' ') + '+08:00' : null,
       pendingSlow: state.pendingSlow ? state.pendingSlow.user : null,
+      lastRevive: state.lastRevive ? { user: state.lastRevive.user, at: new Date(state.lastRevive.at + 8 * 3600 * 1000).toISOString().slice(0, 19).replace('T', ' ') + '+08:00' } : null,
       lastActions: state.lastActions,
     };
   }

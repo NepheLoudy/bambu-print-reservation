@@ -147,6 +147,39 @@ function makeDeps({ poolUsers, preferred = '31108753', baseline = 100 } = {}) {
   await d10.nextTick(); // 流量仍断 → 换下一个候选
   check('流量未恢复换下一候选', d10.logins.includes('20261103'), JSON.stringify(d10.logins));
 
+  console.log('\n== 11. 近期被踢轮换（v10，曼波定）：复活后 30 分钟内再掉线 → 上次的号排队尾 ==');
+  const d11 = makeDeps({ poolUsers: [['31108753', 'pw1', 1], ['20261103', 'pw2', 2], ['20253548', 'pw3', 3]] });
+  // 第一轮：正常复活，用首选项 31108753
+  d11.wanOk = false;
+  await d11.nextTick();
+  d11.wanOk = true;
+  await d11.nextTick(); // revive_success（31108753）
+  check('第一轮复活用首选 31108753', d11.logins[0] === '31108753' && d11.events.some((e) => e.event === 'revive_success'), JSON.stringify(d11.logins));
+  check('lastRevive 已登记', d11.guard.summary().lastRevive && d11.guard.summary().lastRevive.user === '31108753', JSON.stringify(d11.guard.summary().lastRevive));
+  // 第二轮：29 分钟后又掉线（窗口内）→ 被踢轮换，31108753 排队尾，先试 20261103
+  d11.clock += 29 * 60 * 1000;
+  d11.wanOk = false;
+  d11.trafficOk = true;
+  await d11.nextTick();
+  check('窗口内再掉线轮换避开刚被踢的号', d11.logins[d11.logins.length - 1] === '20261103', JSON.stringify(d11.logins));
+  check('轮换事件注记被踢账号', d11.events.some((e) => e.event === 'revive_start' && /31108753 刚被踢/.test(e.detail)), JSON.stringify(d11.events.filter((e) => e.event === 'revive_start').pop()));
+  // 第二轮复活成功用 20261103
+  d11.wanOk = true;
+  await d11.nextTick();
+  check('第二轮复活用 20261103', d11.guard.summary().lastRevive.user === '20261103', JSON.stringify(d11.guard.summary().lastRevive));
+
+  console.log('\n== 12. 轮换窗口过期：全新掉线仍按优先级首选开始 ==');
+  const d12 = makeDeps({ poolUsers: [['31108753', 'pw1', 1], ['20261103', 'pw2', 2]] });
+  d12.wanOk = false;
+  await d12.nextTick();
+  d12.wanOk = true;
+  await d12.nextTick(); // 第一轮成功（31108753）
+  d12.clock += 45 * 60 * 1000; // 45 分钟后（窗口 30 分钟已过）再掉线
+  d12.wanOk = false;
+  d12.trafficOk = true;
+  await d12.nextTick();
+  check('窗口外掉线仍首选 31108753（不做无谓轮换）', d12.logins[d12.logins.length - 1] === '31108753', JSON.stringify(d12.logins));
+
   console.log(`\n结果: ${pass} 通过, ${fail} 失败`);
   process.exit(fail > 0 ? 1 : 0);
 })().catch((err) => {
