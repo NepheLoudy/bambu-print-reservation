@@ -1,9 +1,10 @@
 /**
  * wanGuard —— netlog v2 断网复活引擎（协议无关状态机，依赖注入可测）
  *
- * 职责（曼波 2026-09-27 三项设计）：
- *   ①复活强化：wan 断（当轮原始信号，抢在防抖判定前自愈）+ lan 活 → 按账号池顺序逐个调
- *     eportal login，每个 tick 尝试一个账号，wan 真恢复才算成功；全用尽 → 通知 + 30 分钟冷却重试；
+ * 职责（曼波 2026-09-27 三项设计 + v9 流量探测扩展）：
+ *   ①复活强化：wan 断或「握手通但流量断（软踢/限速）」（当轮原始信号，抢在防抖判定前自愈）
+ *     + lan 活 → 按账号池顺序逐个调 eportal login，
+ *     每个 tick 尝试一个账号，wan+traffic 真恢复才算成功；全用尽 → 通知 + 30 分钟冷却重试；
  *   ②首选项：31108753 永远先试（accountPool.listCandidates 已保证）；
  *   ③慢速降级：复活恢复后 20s 宽限 → 连 3 次探针取中位数，超过健康基线 3 倍
  *     → 判该账号被限速 → 打「本月不再使用」→ 自动换下一个账号复活。
@@ -141,16 +142,18 @@ function createWanGuard(deps) {
    * @param {boolean} wanOk 当轮原始探测结果（engine 传入；有意不用防抖态——抢在
    *   2 轮防抖判定前自愈，单轮抖动也会触发复活，由 eportal 应答与池冷却兜底）
    * @param {boolean} lanOk lan 状态（lan 断=路由器问题，登录无意义，不复活）
+   * @param {boolean} [trafficOk=true] 当轮原始流量探测（v9：HTTP generate_204 全链路；
+   *   TCP 握手通但流量断=软踢/限速，重新认证换号可救——2026-10-04 曼波实况）
    */
-  async function onTick(wanOk, lanOk) {
+  async function onTick(wanOk, lanOk, trafficOk = true) {
     // 慢速判定挂起中（网络已恢复）
-    if (state.pendingSlow && wanOk) {
+    if (state.pendingSlow && wanOk && trafficOk) {
       await slowCheck(state.pendingSlow.user);
       return;
     }
 
     if (state.reviving) {
-      if (wanOk) {
+      if (wanOk && trafficOk) {
         const user = state.current ? state.current.user : '?';
         state.reviving = false;
         act(`wan 恢复（账号 ${user}），进入慢速判定`);
@@ -160,16 +163,18 @@ function createWanGuard(deps) {
       }
       // 还没恢复：当前账号给过一个 tick 的验证机会后换下一个
       if (state.current) {
-        act(`${state.current.user} 登录后 wan 仍未恢复，换下一个候选`);
+        act(`${state.current.user} 登录后仍未恢复（wan=${wanOk} traffic=${trafficOk}），换下一个候选`);
         state.current = null;
       }
       await tryNextCandidate();
       return;
     }
 
-    // 非复活态：wan 断 + lan 活 + 非冷却 → 启动复活
-    if (!wanOk && lanOk && now().getTime() >= state.exhaustedUntil) {
-      await startRevive(`wan 断且 lan 正常`);
+    // 非复活态：wan 断（或握手通但流量断=软踢）+ lan 活 + 非冷却 → 启动复活
+    if ((!wanOk || !trafficOk) && lanOk && now().getTime() >= state.exhaustedUntil) {
+      await startRevive(wanOk
+        ? 'wan 握手通但流量探测失败（软踢/限速嫌疑），lan 正常'
+        : 'wan 断且 lan 正常');
     }
   }
 

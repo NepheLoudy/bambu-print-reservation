@@ -14,6 +14,7 @@
 | --- | --- | --- | --- |
 | lan | 主路由 `192.168.31.1:80` TCP | 通/不通 | 路由器与内网活着没 |
 | wan | `223.5.5.5:443` / `119.29.29.29:443` 任一通 | 通/不通 | 校园网认证会话活着没（用 IP 不用域名，排除 DNS 因素） |
+| traffic | `generate_204` 源 HTTP 全链路（`NETLOG_TRAFFIC_URLS`，多候选任一 204 即通） | 通/不通 | **用户意义上的网络可用**——TCP 握手测不出软踢/限速：Dr.COM 系对配额用完账号常「小包能过、大流量卡死」，握手全绿但网页刷不开（2026-10-04 曼波实况）；被认证网关劫持重定向（非 204）同样记失败 |
 | egress IP | 3322/ipify 等回显源轮试 | IP 文本 | 校园网会话重连后出口 IP 变化 → 飞书 IP 白名单风险信号（lab-network §四） |
 
 - **防抖**：连续 `NETLOG_FAIL_THRESHOLD`（默认 2，即 2 分钟）次失败才记 `*_down`；一次成功即记 `*_up`（带断开历时）。单次抖动不刷屏。
@@ -21,12 +22,13 @@
 
 ## 事件与通知
 
-- 事件：`lan_down` / `lan_up` / `wan_down` / `wan_up` / `egress_ip_changed` / `revive_exhausted`（即时外发白名单）+ 过程事件 `revive_start` / `revive_success` / `revive_no_candidates` / `account_throttled`（只落盘+积压）；
+- 事件：`lan_down` / `lan_up` / `wan_down` / `wan_up` / `traffic_down` / `traffic_up` / `egress_ip_changed` / `revive_exhausted`（即时外发白名单，v9 起含流量维度）+ 过程事件 `revive_start` / `revive_success` / `revive_no_candidates` / `account_throttled`（只落盘+积压）；
 - **事件分级（v5，刷屏事故整改）**：只有白名单内的关键事件才即时私聊；过程事件绝不即时外发——否则误判/循环触发时会对通知人每分钟刷屏；
 - 通知出口（v6，曼波拍板「不用 webhook 用机器人本体」）：私聊 `NETLOG_NOTIFY_OPEN_IDS`（当前=曼波本人），任一目标送达即成功；
 - **断网时即时私聊必然推不出去，自动入积压**（`backlog.json`，上限 50 条丢最旧）；wan 恢复瞬间把积压**汇总成一张卡**补发（哪断的、断了几段、各多久，一眼看完）；
 - 通知目标未配置时事件同样入积压，配置补上并重启后由启动补发送达；
 - 冲刷时机（2026-10-04 修正）：wan 通着每轮尝试（空积压零成本）——复活引擎自愈的短暂断网用原始单轮信号触发、状态机从未翻 down，只认 down→up 翻转会让复活通知永远滞留积压（10-04 20:21 实况）；wanOk 冲刷同时自愈历史滞留。
+- **软踢复活（v9）**：复活引擎收到当轮 trafficOk——「wan 握手通但流量断」同样触发复活（重新认证换号可救），wan+traffic 双通才判复活成功；恢复判定不看流量会把软踢会话误判为已复活。
 - 补发按条目 id 精确剔除已发——冲刷期间新落盘的积压不被覆盖丢失（quiet-flush v87 同款教训回归，stub 有断言）。
 
 ## 数据落盘
@@ -58,9 +60,9 @@ pm2 名 `qianli-netlog`，`pm2 save` 后并入小电脑 `qianli-bots-autostart`�
 ## 测试
 
 ```bash
-node scripts/stub-test-netlog.js    # 22 断言：防抖/恢复历时/积压补发/冲刷竞态回归/egress 变化/事件分级/复活自愈冲刷+DownSince清零/JSONL 结构
-node scripts/stub-test-wanguard.js  # 18 断言：复活引擎（首选项优先/换号/慢速判定/exhausted 冷却/手动触发/基线）
-# npm test = 两套合计 40 断言（push 闸门）
+node scripts/stub-test-netlog.js    # 29 断言：防抖/恢复历时/积压补发/冲刷竞态回归/egress 变化/事件分级/复活自愈冲刷+DownSince清零/JSONL 结构
+node scripts/stub-test-wanguard.js  # 23 断言：复活引擎（首选项优先/换号/慢速判定/exhausted 冷却/手动触发/基线）
+# npm test = 两套合计 52 断言（push 闸门）
 ```
 
 ## 已知限制

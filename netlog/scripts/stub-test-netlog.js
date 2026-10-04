@@ -156,6 +156,35 @@ function makeDeps({ threshold = 2 } = {}) {
   await e7.tick(); // wan_up
   check('恢复后 wanDownSince 清零（summary 不挂旧时刻）', e7.summary().wanDownSince === null, String(e7.summary().wanDownSince));
 
+  console.log('\n== 8. 流量探测维度（v9）：防抖翻转 + 状态行带 traffic + onTick 收到 trafficOk ==');
+  const d8 = makeDeps({});
+  d8.probeTraffic = async () => d8.traffic;
+  d8.traffic = true;
+  const guardSeen = [];
+  d8.onTick = async (wanOk, lanOk, trafficOk) => { guardSeen.push(trafficOk); };
+  const e8 = createEngine(d8);
+  await e8.tick();
+  check('状态行带 traffic 字段', d8.logs.some((l) => l.type === 'state' && l.traffic === true), JSON.stringify(d8.logs.filter((l) => l.type === 'state')[0]));
+  check('onTick 收到 trafficOk=true', guardSeen[0] === true, JSON.stringify(guardSeen));
+  d8.traffic = false;
+  await e8.tick();
+  check('单次流量失败不翻 down（防抖）', e8.state.traffic !== false && !d8.logs.some((l) => l.event === 'traffic_down'));
+  await e8.tick();
+  check('连续 2 次失败记 traffic_down 且即时私聊', e8.state.traffic === false
+    && d8.logs.some((l) => l.event === 'traffic_down')
+    && dmSent.some((t) => t.text.includes('traffic_down')),
+  `dmSent=${dmSent.map((t) => t.text.slice(0, 25)).join('|')}`);
+  check('onTick 收到 trafficOk=false（guard 软踢触发入口）', guardSeen[guardSeen.length - 1] === false);
+  d8.traffic = true;
+  await e8.tick();
+  check('一次成功即记 traffic_up', e8.state.traffic === true && d8.logs.some((l) => l.event === 'traffic_up'));
+
+  console.log('\n== 9. 未注入流量探针时兼容（trafficOk 恒真，不产生事件/噪声） ==');
+  const d9 = makeDeps({});
+  const e9 = createEngine(d9);
+  await e9.tick();
+  check('traffic 恒真且无 traffic_* 事件', e9.state.traffic === true && !d9.logs.some((l) => String(l.event || '').startsWith('traffic')));
+
   console.log(`\n结果: ${pass} 通过, ${fail} 失败`);
   process.exit(fail > 0 ? 1 : 0);
 })().catch((err) => {

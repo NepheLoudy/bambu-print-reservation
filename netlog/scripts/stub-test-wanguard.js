@@ -35,6 +35,7 @@ function makeDeps({ poolUsers, preferred = '31108753', baseline = 100 } = {}) {
     latencyQueue: [],   // probeLatency 依次弹出的值（null=失败）
     wanOk: false,
     lanOk: true,
+    trafficOk: true,    // v9 流量探测原始结果（软踢场景置 false）
     lanFailTicks: 0,
     poolFile: makePoolFile(poolUsers.map(([user, password, priority]) => ({ user, password, priority })), preferred),
   };
@@ -52,7 +53,7 @@ function makeDeps({ poolUsers, preferred = '31108753', baseline = 100 } = {}) {
   });
   d.pool = pool;
   d.guard = guard;
-  d.nextTick = async () => guard.onTick(d.wanOk, d.lanOk);
+  d.nextTick = async () => guard.onTick(d.wanOk, d.lanOk, d.trafficOk);
   return d;
 }
 
@@ -125,6 +126,26 @@ function makeDeps({ poolUsers, preferred = '31108753', baseline = 100 } = {}) {
 
   console.log('\n== 8. 基线滑动与下限 ==');
   check('median 工具', median([5, 1, 3]) === 3 && median([4, 1, 3, 2]) === 3); // 偶数长度取中间均值 2.5，round=3
+
+  console.log('\n== 9. 软踢场景（v9）：wan 握手通但流量断 → 触发复活；流量恢复才算成功 ==');
+  const d9 = makeDeps({ poolUsers: [['31108753', 'pw1', 1], ['20261103', 'pw2', 2]] });
+  d9.wanOk = true;   // TCP 握手全绿
+  d9.trafficOk = false; // generate_204 拉不动（软踢/限速）
+  await d9.nextTick();
+  check('软踢触发复活且事件注明软踢嫌疑', d9.events.some((e) => e.event === 'revive_start' && /软踢/.test(e.detail)), JSON.stringify(d9.events));
+  check('软踢下首选项先试', d9.logins[0] === '31108753', JSON.stringify(d9.logins));
+  d9.trafficOk = true; // 流量恢复（重新认证生效）
+  await d9.nextTick();
+  check('wan+traffic 双通才判 revive_success', d9.events.some((e) => e.event === 'revive_success'), JSON.stringify(d9.events.map((e) => e.event)));
+  check('慢速判定挂起（pendingSlow=首选项账号）', d9.guard.summary().pendingSlow === '31108753');
+
+  console.log('\n== 10. 软踢复活中流量未恢复：换号继续 ==');
+  const d10 = makeDeps({ poolUsers: [['31108753', 'pw1', 1], ['20261103', 'pw2', 2]] });
+  d10.wanOk = true;
+  d10.trafficOk = false;
+  await d10.nextTick(); // login 31108753
+  await d10.nextTick(); // 流量仍断 → 换下一个候选
+  check('流量未恢复换下一候选', d10.logins.includes('20261103'), JSON.stringify(d10.logins));
 
   console.log(`\n结果: ${pass} 通过, ${fail} 失败`);
   process.exit(fail > 0 ? 1 : 0);

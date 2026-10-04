@@ -50,6 +50,11 @@ const CONFIG = {
   wanTargets: (process.env.NETLOG_WAN_TARGETS || '223.5.5.5:443,119.29.29.29:443')
     .split(',').map((s) => s.trim()).filter(Boolean)
     .map((s) => { const [host, port] = s.split(':'); return { host, port: Number(port || 443) }; }),
+  // 流量探测（v9，曼波「握手通但网页刷不开」实况）：TCP 握手测不出软踢/限速——
+  // generate_204 源走完整 HTTP 往返，status=204 即「用户意义上的网络可用」。
+  // 多候选任一 204 即通过；被认证网关劫持重定向（非 204）按失败计
+  trafficUrls: (process.env.NETLOG_TRAFFIC_URLS || 'http://connect.rom.miui.com/generate_204,http://wifi.vivo.com.cn/generate_204')
+    .split(',').map((s) => s.trim()).filter(Boolean),
   heartbeatMs: Number(process.env.NETLOG_HEARTBEAT_MS || 15 * 60 * 1000),
   egressIntervalMs: Number(process.env.NETLOG_EGRESS_INTERVAL_MS || 30 * 60 * 1000),
   egressUrls: (process.env.NETLOG_EGRESS_URLS || 'http://members.3322.org/dyndns/getip,http://ip.3322.net,https://api.ipify.org')
@@ -66,19 +71,19 @@ const CONFIG = {
 // ============================================================
 function createEngine(deps) {
   const {
-    probeLan, probeWan, fetchEgressIp, sendWebhook,
+    probeLan, probeWan, probeTraffic, fetchEgressIp, sendWebhook,
     appendLog, readBacklog, writeBacklog,
     now = () => Date.now(),
     failThreshold = CONFIG.failThreshold,
     heartbeatMs = CONFIG.heartbeatMs,
     egressIntervalMs = CONFIG.egressIntervalMs,
-    onTick = null, // 钩子：每轮探测完成后调用 (wanOk, lanOk)；wanGuard 复活引擎挂这里
+    onTick = null, // 钩子：每轮探测完成后调用 (wanOk, lanOk, trafficOk)；wanGuard 复活引擎挂这里
   } = deps;
 
   const state = {
-    lan: null, wan: null, // null=未探测，true=up，false=down
-    failLan: 0, failWan: 0,
-    lanDownSince: 0, wanDownSince: 0,
+    lan: null, wan: null, traffic: null, // null=未探测，true=up，false=down
+    failLan: 0, failWan: 0, failTraffic: 0,
+    lanDownSince: 0, wanDownSince: 0, trafficDownSince: 0,
     egressIp: '', lastEgressCheck: 0,
     lastLogAt: 0, startedAt: now(),
     events: [], // 内存 ring（最近 50 条事件，summary 直接吐）
@@ -105,7 +110,8 @@ function createEngine(deps) {
   // 复活过程细节（start/success/no_candidates/throttled）只落盘+进积压（恢复汇总卡可见），
   // 绝不即时外发——否则误判/循环触发时会对通知群每分钟刷屏。
   const NOTIFY_IMMEDIATE = new Set([
-    'lan_down', 'lan_up', 'wan_down', 'wan_up', 'egress_ip_changed', 'revive_exhausted',
+    'lan_down', 'lan_up', 'wan_down', 'wan_up', 'traffic_down', 'traffic_up',
+    'egress_ip_changed', 'revive_exhausted',
   ]);
 
   async function notify(event, detail) {
@@ -194,13 +200,16 @@ function createEngine(deps) {
   async function tick() {
     let lanOk = false;
     let wanOk = false;
+    let trafficOk = true; // trafficProbe 未注入时恒真（旧桩/纯 TCP 语义兼容）
     try { lanOk = await probeLan(); } catch { /* 探测异常按失败计 */ }
     try { wanOk = await probeWan(); } catch { /* 同上 */ }
+    if (probeTraffic) { try { trafficOk = await probeTraffic(); } catch { trafficOk = false; } }
 
     const prevWanUp = state.wan === true;
     await flip('lan', lanOk, `主路由 ${CONFIG.lanHost}:${CONFIG.lanPort}`);
     await flip('wan', wanOk, '公网出口');
-    record('state', { lan: lanOk, wan: wanOk, egressIp: state.egressIp });
+    await flip('traffic', trafficOk, '流量探测（HTTP 全链路）');
+    record('state', { lan: lanOk, wan: wanOk, traffic: trafficOk, egressIp: state.egressIp });
 
     // 出口 IP：wan 刚恢复 或 到达心跳间隔才查（限频，防探测目标限流）
     if (wanOk && (state.wan !== prevWanUp || now() - state.lastEgressCheck >= egressIntervalMs || !state.lastEgressCheck)) {
@@ -214,17 +223,19 @@ function createEngine(deps) {
     if (wanOk) await flushBacklog();
     // 复活引擎钩子（传当轮原始探测结果——有意不用防抖态：wan 首轮失败即启动复活，
     // 抢在 2 轮防抖判定之前自愈；代价是单轮抖动也会触发一次 login，由 eportal 应答
-    // 与账号池冷却兜底。wanGuard 侧文档同此口径）
-    if (onTick) await onTick(wanOk, lanOk);
+    // 与账号池冷却兜底。wanGuard 侧文档同此口径。trafficOk 让 guard 抓「握手通流量断」
+    // 的软踢/限速场景——v9 曼波实况：TCP 握手全绿但网页刷不开，换账号认证立刻恢复）
+    if (onTick) await onTick(wanOk, lanOk, trafficOk);
     state.lastLogAt = now();
   }
 
   function summary() {
     return {
       now: fmtTs(now()),
-      lan: state.lan, wan: state.wan,
+      lan: state.lan, wan: state.wan, traffic: state.traffic,
       lanDownSince: state.lanDownSince ? fmtTs(state.lanDownSince) : null,
       wanDownSince: state.wanDownSince ? fmtTs(state.wanDownSince) : null,
+      trafficDownSince: state.trafficDownSince ? fmtTs(state.trafficDownSince) : null,
       egressIp: state.egressIp || null,
       lastEgressCheck: state.lastEgressCheck ? fmtTs(state.lastEgressCheck) : null,
       startedAt: fmtTs(state.startedAt),
@@ -378,14 +389,35 @@ const engine = createEngine({
     }
     return false;
   },
+  // 流量探测（v9）：generate_204 源 HTTP 全链路，status=204 即通过；超时取 TCP 的 2 倍
+  //（HTTP 完整往返比握手慢，但目标极轻，正常 <200ms）
+  probeTraffic: async () => {
+    for (const url of CONFIG.trafficUrls) {
+      const status = await new Promise((resolve) => {
+        let settled = false;
+        const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+        try {
+          const req = http.request(url, { method: 'GET', timeout: CONFIG.timeoutMs * 2, headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
+            res.resume(); // 204 无 body，弹掉防句柄悬挂
+            done(res.statusCode);
+          });
+          req.on('timeout', () => { req.destroy(); done(0); });
+          req.on('error', () => done(0));
+          req.end();
+        } catch { done(0); }
+      });
+      if (status === 204) return true;
+    }
+    return false;
+  },
   fetchEgressIp,
   appendLog,
   readBacklog,
   writeBacklog,
-  onTick: async (wanOk, lanOk) => {
+  onTick: async (wanOk, lanOk, trafficOk = true) => {
     if (!CONFIG.reviveEnabled || !guardOnTick) return;
     try {
-      await guardOnTick(wanOk, lanOk);
+      await guardOnTick(wanOk, lanOk, trafficOk);
       if (wanOk && guard) await guard.sampleBaseline();
     } catch (err) {
       console.error(`[netlog] wanGuard tick 异常: ${err.message}`);
@@ -455,7 +487,7 @@ function startServer() {
 }
 
 function main() {
-  console.log(`[netlog] 启动：lan=${CONFIG.lanHost}:${CONFIG.lanPort} wan=${CONFIG.wanTargets.map((t) => `${t.host}:${t.port}`).join('/')} interval=${CONFIG.intervalMs}ms threshold=${CONFIG.failThreshold}`);
+  console.log(`[netlog] 启动：lan=${CONFIG.lanHost}:${CONFIG.lanPort} wan=${CONFIG.wanTargets.map((t) => `${t.host}:${t.port}`).join('/')} traffic=${CONFIG.trafficUrls.length}个204源 interval=${CONFIG.intervalMs}ms threshold=${CONFIG.failThreshold}`);
   console.log(`[netlog] 数据目录 ${CONFIG.dataDir}（net-log.jsonl + backlog.json）；通知=机器人私聊 ${feishu.NOTIFY_OPEN_IDS.length ? feishu.NOTIFY_OPEN_IDS.length + ' 个目标' : '（未配置 NETLOG_NOTIFY_OPEN_IDS，只落盘）'}`);
   console.log(`[netlog] 复活引擎 ${CONFIG.reviveEnabled ? '启用' : '停用'}：账号池 ${CONFIG.accountPool}${guard ? `（候选 ${(guard.summary().queueRemaining.length + (guard.summary().currentUser ? 1 : 0)) || '按池文件'}，首选项见 preferred）` : '（未初始化）'}`);
   startServer();
