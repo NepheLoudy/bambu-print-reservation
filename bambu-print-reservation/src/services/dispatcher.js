@@ -32,11 +32,19 @@ function buildLocalTask(reservation) {
     color: reservation.color,
     assignedPrinter: reservation.assignedPrinter,
     isUrgent: reservation.isUrgent,
-    quantity: reservation.quantity,
     materialExclude: reservation.processParams?.materialExclude || [],
     materialPrefer: reservation.processParams?.materialPrefer || [],
+    quantity: reservation.quantity || 1,
+    remaining: Math.max(0, (reservation.quantity || 1) - 1), // 份数续打:首件外剩余件数
     applicant: { id: '', name: reservation.applicant || '' },
   };
+}
+
+/** 多色解析：颜色栏「白色+黑色」「白/黑」→ 颜色数组（单色返回单元素） */
+function parseTaskColors(task) {
+  const raw = String(task.color || '').trim();
+  if (!raw) return [];
+  return raw.split(/[+＋/、,，]/).map((s) => s.trim()).filter(Boolean);
 }
 
 /** 料槽是否未被排除（materialExclude regex 源对料槽材料求值） */
@@ -437,7 +445,29 @@ class Dispatcher {
     });
   }
 
-  /** 为单个任务选机：指定打印机 → AMS 精确 → AMS 家族 */
+  /**
+   * 多色匹配（2026-10-05）：打印机 AMS 是否覆盖全部颜色——逐色找近似色槽、
+   * 各色不共槽，exact 全过或 family 全过。needMaterial 限定槽材料（多色件通常同材料）
+   */
+  amsCoversColors(printer, colors, needMaterial, trayOpts = {}) {
+    const trays = (printer.ams || []).filter((t) => t.type && trayAllowed(t, trayOpts.exclude));
+    for (const level of ['exact', 'family']) {
+      const used = new Set();
+      let ok = true;
+      for (const color of colors) {
+        const rgb = config.colorReference[color] || null;
+        const tray = trays.find((t) => !used.has(t)
+          && materialMatch(needMaterial, t.type) === level
+          && (!rgb || !t.colorHex || colorDistance(t.colorHex, rgbToHex(rgb)) <= config.dispatch.colorDistanceThreshold));
+        if (!tray) { ok = false; break; }
+        used.add(tray);
+      }
+      if (ok) return true;
+    }
+    return false;
+  }
+
+  /** 为单个任务选机：指定打印机 → 多色覆盖 → AMS 精确 → AMS 家族 */
   matchPrinter(task, available) {
     // 双保险：只考虑真正空闲且支持自动分发的打印机（调用方列表未过滤时也不误选）
     const candidates = (available || []).filter(
@@ -456,12 +486,21 @@ class Dispatcher {
     // 需求标签反推的材料约束（材料留空时生效的 exclude/prefer 随单下发）
     const trayOpts = { exclude: task.materialExclude, prefer: task.materialPrefer };
 
-    // 2. AMS 精确材料匹配（+颜色近似）
+    // 2. 多色件（颜色栏含多个颜色）：要求所有颜色同机 AMS 可得
+    const colors = parseTaskColors(task);
+    if (colors.length > 1) {
+      for (const printer of candidates) {
+        if (this.amsCoversColors(printer, colors, needMaterial, trayOpts)) return printer;
+      }
+      return null;
+    }
+
+    // 3. AMS 精确材料匹配（+颜色近似）
     for (const printer of candidates) {
       const tray = this.findTray(printer, needMaterial, colorRgb, 'exact', trayOpts);
       if (tray) return printer;
     }
-    // 3. 家族匹配（PLA-CF/PLA-HF 等）
+    // 4. 家族匹配（PLA-CF/PLA-HF 等）
     for (const printer of candidates) {
       const tray = this.findTray(printer, needMaterial, colorRgb, 'family', trayOpts);
       if (tray) return printer;
@@ -681,8 +720,16 @@ class Dispatcher {
     this.completedCount.set(printer.id, (this.completedCount.get(printer.id) || 0) + 1);
     printerManager.updateState(printer.id, { activeTask: null });
 
+    // 份数续打判定先于状态写入：remaining>0 时单据回「排队中」而非「已完成」——
+    // 全部件完成才算完成，否则队列里挂着续件、表上却是终态（意图-执行断裂）
+    const hasMore = isLocalTask(task) && Number(task.remaining) > 0;
+
     if (isLocalTask(task)) {
-      storeSafe(() => reservationStore.updateStatus(task.recordId, config.status.COMPLETED, `打印完成 @ ${printer.name}`), 'complete');
+      storeSafe(() => reservationStore.updateStatus(
+        task.recordId,
+        hasMore ? config.status.QUEUED : config.status.COMPLETED,
+        hasMore ? `完成 1 件（还剩 ${task.remaining} 件），自动续打下一件` : `打印完成 @ ${printer.name}`
+      ), 'complete');
     } else if (isMirrorTask(task)) {
       await bitableApi
         .updateRecord(config.bitable.reservationTableId, task.recordId, {
@@ -695,6 +742,20 @@ class Dispatcher {
       console.error('[分发] 完成播报失败:', err.message)
     );
     plaza.append({ event: '打印完成', title: `${task.applicationNo || task.recordId} @ ${printer.name}` });
+    // 续件重入队（2026-10-05 审查批落地：quantity 从「只存不用」到真实执行）：
+    // 绕过 enqueue 的 known 幂等——同一单的续件不是重复事件；
+    // dispatchRetries 清零防续件带着历史重试计数一次失败即折寿
+    if (hasMore) {
+      task.remaining -= 1;
+      task.dispatchRetries = 0;
+      task.startedAt = undefined;
+      this.queue.push(task);
+      console.log(`[分发] 份数续打: ${task.applicationNo} 完成 1 件，剩余 ${task.remaining} 件重新入队`);
+      announce(`续件排队卡 ${task.recordId}`,
+        require('../feishu/bot').buildQueueCard(task, Math.max(0, this.queue.length - 1)),
+        (err) => console.error('[分发] 续件播报失败:', err.message)
+      );
+    }
     console.log(`[分发] 完成: ${task.applicationNo || task.recordId} @ ${printer.name}`);
     this.trigger('task-finish');
   }
@@ -767,6 +828,7 @@ class Dispatcher {
       isUrgent: t.isUrgent,
       applicant: t.applicant?.name || '',
       recordId: t.recordId,
+      remaining: Number(t.remaining) > 0 ? Number(t.remaining) : 0, // 份数续打剩余
     }));
   }
 

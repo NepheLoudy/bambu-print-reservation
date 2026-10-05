@@ -33,12 +33,17 @@ app.use(express.static(path.join(__dirname, '..', 'public'), {
 
 // 上传目录预建
 fs.mkdirSync(reservationStore.UPLOAD_DIR, { recursive: true });
+const MODEL_EXT_RE = /\.(stl|step|stp|3mf|obj)$/i; // 模型/切片扩展名白名单（审查批：拒任意文件）
 const upload = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => cb(null, reservationStore.UPLOAD_DIR),
     filename: (req, file, cb) =>
       cb(null, `${Date.now()}-${Math.round(Math.random() * 1e6)}${path.extname(file.originalname || '')}`),
   }),
+  fileFilter: (req, file, cb) => {
+    if (MODEL_EXT_RE.test(file.originalname || '')) return cb(null, true);
+    cb(new Error('仅接受 .stl / .step / .stp / .3mf / .obj 模型文件'));
+  },
   limits: { fileSize: 200 * 1024 * 1024 }, // 模型/切片文件上限 200MB
 });
 
@@ -562,8 +567,12 @@ app.post('/api/chat/command', async (req, res) => {
 
 // ---------- 分发引擎 ----------
 
-app.get('/api/dispatch/queue', (req, res) => {
-  res.json({ queue: dispatcher.getQueueSnapshot(), printing: dispatcher.getPrintingSnapshot() });
+app.get('/api/dispatch/queue', requireUser(), (req, res) => {
+  res.json({
+    queue: dispatcher.getQueueSnapshot(),
+    printing: dispatcher.getPrintingSnapshot(),
+    givenUp: dispatcher.listGivenUp(), // 重试耗尽待人工恢复（页面黄条 + 恢复按钮消费）
+  });
 });
 
 app.post('/api/dispatch/manual', requireUser('reviewer', 'admin'), async (req, res) => {
@@ -578,6 +587,13 @@ app.post('/api/dispatch/manual', requireUser('reviewer', 'admin'), async (req, r
     console.error('手动分发失败:', err);
     res.status(500).json({ error: err.message });
   }
+});
+
+// multer 校验失败（扩展名白名单/超限）等中间件错误 → 统一 JSON 400（而非默认 500 HTML）
+app.use((err, req, res, next) => {
+  if (!err) return next();
+  console.error('[HTTP] 请求处理失败:', err.message);
+  res.status(400).json({ error: err.message || '请求处理失败' });
 });
 
 function startServer() {

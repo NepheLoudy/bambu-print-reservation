@@ -243,6 +243,63 @@ check('findTray 材料反推:exclude 槽不可见,prefer 槽优先', () => {
   assert.equal(t3.type, 'PLA', '排除 PETG 不影响明确要 PLA');
 });
 
+check('多色匹配:所有颜色同机 AMS 可得才选机,缺色不选,不共槽', () => {
+  const mk = (ams) => ({ autoDispatch: true, status: '空闲', name: 'T', ams });
+  const full = mk([
+    { type: 'PLA', colorHex: '#ffffff' }, // 白
+    { type: 'PLA', colorHex: '#000000' }, // 黑
+    { type: 'PETG', colorHex: '#ff0000' },
+  ]);
+  const onlyWhite = mk([{ type: 'PLA', colorHex: '#ffffff' }, { type: 'PLA', colorHex: '#eeeeee' }]);
+  const task = { materialType: 'PLA', color: '白色+黑色', materialExclude: [], materialPrefer: [] };
+  assert.equal(dispatcher.matchPrinter(task, [onlyWhite]), null, '缺黑色的打印机不可选');
+  assert.equal(dispatcher.matchPrinter(task, [full]).name, 'T', '双色齐备可选');
+  // 共槽防护:两个颜色近似匹配到同一槽 → 不算覆盖
+  const oneSlot = mk([{ type: 'PLA', colorHex: '#ffffff' }]);
+  assert.equal(dispatcher.matchPrinter({ ...task, color: '白色+白色' }, [oneSlot]), null, '两色不可共一槽');
+});
+
+check('份数续打:quantity=3 完成后 remaining 递减重入队,末件才终态', async () => {
+  const material = 'PETG';
+  const applied = processRules.applyRules({ load_magnitude: 'medium' }, { material });
+  const rec = store.create({
+    applicant: '批量测试', fileName: 'x3.stl', filePath: 'x', materialType: material,
+    quantity: 3, selection: { load_magnitude: 'medium' }, processParams: applied.params, appliedRules: [],
+  });
+  await reservationService.approveReservation(rec.id, 'A', '');
+  const task = dispatcher.getQueueSnapshot().find((q) => q.recordId === rec.id);
+  assert.equal(task.remaining, 2, '首件外剩余 2');
+  // 模拟第一件完成:任务在 printing 中 → completeTask
+  // 模拟 dispatch 出队(真实流程 dispatchLocked 会把任务移出队列)
+  dispatcher.queue = dispatcher.queue.filter((q) => q.recordId !== rec.id);
+  const t = dispatcher.buildLocalTask(store.get(rec.id));
+  t.remaining = 2;
+  dispatcher.printing.set(998, t);
+  await dispatcher.completeTask(t, { id: 998, name: '模拟机' });
+  assert.ok(dispatcher.getQueueSnapshot().some((q) => q.recordId === rec.id), '续件应重入队');
+  assert.equal(store.get(rec.id).status, '排队中', '未全部完成不写终态');
+  const t2 = dispatcher.getQueueSnapshot().find((q) => q.recordId === rec.id);
+  assert.equal(t2.remaining, 1);
+  // 第二件完成
+  dispatcher.queue = dispatcher.queue.filter((q) => q.recordId !== rec.id);
+  t.remaining = 1;
+  dispatcher.printing.set(998, t);
+  await dispatcher.completeTask(t, { id: 998, name: '模拟机' });
+  // 第三件(最后一件)完成 → 终态
+  dispatcher.queue = dispatcher.queue.filter((q) => q.recordId !== rec.id);
+  dispatcher.printing.set(998, t);
+  t.remaining = 0;
+  await dispatcher.completeTask(t, { id: 998, name: '模拟机' });
+  assert.equal(store.get(rec.id).status, '已完成', '末件完成才写已完成');
+  assert.ok(!dispatcher.getQueueSnapshot().some((q) => q.recordId === rec.id), '无剩余不再入队');
+});
+
+check('taxonomy v2.1:多色打印标签在池', () => {
+  const taxonomy = require('../src/services/taxonomy');
+  const ids = new Set(taxonomy.groups.flatMap((g) => g.fields.map((f) => f.id)));
+  assert.ok(ids.has('multi_color'), '缺 multi_color');
+});
+
 // ---------- 收尾：异步用例全部落定后清理与总结 ----------
 Promise.all(pending).then(() => {
   for (const f of [process.env.RESERVATIONS_STORE_FILE, process.env.DISPATCH_STATE_FILE, process.env.QUIET_BACKLOG_FILE]) {

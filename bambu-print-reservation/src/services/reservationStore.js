@@ -25,7 +25,7 @@ const UPLOAD_DIR = process.env.RESERVATIONS_UPLOAD_DIR || path.join(__dirname, '
 const TRANSITIONS = {
   [config.status.PENDING_REVIEW]: [config.status.REVIEW_APPROVED, config.status.REVIEW_REJECTED, config.status.CANCELLED],
   [config.status.REVIEW_APPROVED]: [config.status.QUEUED, config.status.CANCELLED],
-  [config.status.QUEUED]: [config.status.PRINTING, config.status.QUEUED, config.status.REVIEW_APPROVED, config.status.CANCELLED],
+  [config.status.QUEUED]: [config.status.PRINTING, config.status.QUEUED, config.status.COMPLETED, config.status.REVIEW_APPROVED, config.status.CANCELLED],
   [config.status.PRINTING]: [config.status.COMPLETED, config.status.QUEUED, config.status.CANCELLED],
   [config.status.COMPLETED]: [],
   [config.status.REVIEW_REJECTED]: [],
