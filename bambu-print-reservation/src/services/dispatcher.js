@@ -8,6 +8,9 @@ const quietHours = require('../utils/quietHours');
 const printerManager = require('../printer/manager');
 const reservationService = require('./reservation');
 const reservationStore = require('./reservationStore');
+
+/** 未切片文件判定（与 reservationService 同口径：stl/step/obj 不能直接驱动真机） */
+const isUnslicedFile = (r) => !!r && !/\.3mf$/i.test(String(r.fileName || ''));
 const plaza = require('./plaza');
 
 // 任务来源谓词（2026-10-05 本地化改造）：
@@ -918,6 +921,10 @@ class Dispatcher {
             `预约「${recordId}」当前状态「${localRecord.status}」不允许直接分发` +
             `（仅「${dispatchableStatuses.join('」/「')}」可人工直发；待审批单请先完成审批）`
           );
+        }
+        // 未切片文件闸（2026-10-06）：人工恢复 stl/step 同样会打裸文件
+        if (isUnslicedFile(localRecord)) {
+          throw new Error(`「${localRecord.fileName}」是未切片模型——人工恢复仅支持 3mf 切片产物`);
         }
         task = buildLocalTask(localRecord);
       }

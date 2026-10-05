@@ -55,7 +55,7 @@ function submit(overrides = {}, selection = { load_magnitude: 'medium' }) {
   assert.equal(applied.blocked, false, `applyRules 意外拦截: ${applied.errors.join(';')}`);
   return store.create({
     applicant: '测试员',
-    fileName: 'bracket.stl',
+    fileName: 'bracket.3mf', // 集成链路默认 3mf(审批直通);stl 审批拦截有独立用例
     filePath: path.join(__dirname, 'fixtures-does-not-exist.stl'),
     fileSize: 1024,
     materialType: material,
@@ -263,7 +263,7 @@ check('份数续打:quantity=3 完成后 remaining 递减重入队,末件才终�
   const material = 'PETG';
   const applied = processRules.applyRules({ load_magnitude: 'medium' }, { material });
   const rec = store.create({
-    applicant: '批量测试', fileName: 'x3.stl', filePath: 'x', materialType: material,
+    applicant: '批量测试', fileName: 'x3.3mf', filePath: 'x', materialType: material,
     quantity: 3, selection: { load_magnitude: 'medium' }, processParams: applied.params, appliedRules: [],
   });
   await reservationService.approveReservation(rec.id, 'A', '');

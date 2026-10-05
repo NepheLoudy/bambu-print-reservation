@@ -3,6 +3,13 @@ const store = require('./reservationStore');
 const { sendMessage, buildReservationAlertCard, buildReviewResultCard } = require('../feishu/bot');
 const quietHours = require('../utils/quietHours');
 
+/** 未切片文件判定（2026-10-06 审查批）：需求链路单（stl/step/obj）不能直接驱动真机——
+ *  打印机只认切片产物（gcode.3mf），裸模型分发必然失败。审批与人工恢复双闸拦截 */
+function isUnslicedFile(reservation) {
+  return !!reservation && !/\.3mf$/i.test(String(reservation.fileName || ''));
+}
+const UNSLICED_HINT = '该单是未切片模型（stl/step）——请先用 Bambu Studio 切片为 3mf 后重新提交（服务端自动切片上线前，需求链路单暂不支持直接分发）';
+
 // ============================================================
 // 预约服务（2026-10-05 路线 A 本地化改造）：
 //   真相源 = reservationStore（本地 JSON 存储），不再读写多维表格镜像、
@@ -41,9 +48,16 @@ class ReservationService {
     return Promise.resolve(store.create(input));
   }
 
-  /** 提交后提醒审批人（群播卡片；飞书私聊退役——本地系统无 open_id） */
+  /** 提交后提醒审批人（群播卡片；3mf 直通单附内嵌参数摘要——审批透明化） */
   async notifyReviewers(reservation) {
     try {
+      const embedLine = reservation.embeddedParams?.params
+        ? [{
+            tag: 'markdown',
+            content: `**内嵌参数**: ${Object.entries(reservation.embeddedParams.params).slice(0, 8)
+              .map(([k, v]) => `${k}=${Array.isArray(v) ? v.join('|') : v}`).join(' · ')}`,
+          }]
+        : [];
       const card = buildReservationAlertCard({
         fields: {
           '发起人': [{ id: '', name: reservation.applicant }],
@@ -53,7 +67,7 @@ class ReservationService {
           [config.dispatch.materialField]: reservation.materialType,
           [config.dispatch.colorField]: reservation.color,
         },
-      });
+      }, embedLine);
       if (!quietHours.gatePayload('webhook-card', card, `预约审批提醒卡 ${reservation.id}`)) {
         await sendMessage(card);
       }
@@ -72,6 +86,10 @@ class ReservationService {
     // 分发失败回滚的合法流转，放行会让已入队的单被重复审批（2026-10-05 测试暴露）
     if (reservation.status !== config.status.PENDING_REVIEW) {
       throw new Error(`预约当前状态「${reservation.status}」，仅待审批单可审批`);
+    }
+    // 未切片文件闸：需求链路单（stl/step）审批通过会直接驱动真机打裸文件——拦截
+    if (isUnslicedFile(reservation)) {
+      throw new Error(`「${reservation.fileName}」${UNSLICED_HINT}`);
     }
 
     store.updateStatus(id, config.status.REVIEW_APPROVED, `审批人：${reviewer || '未署名'}${comment ? `｜意见：${comment}` : ''}`);

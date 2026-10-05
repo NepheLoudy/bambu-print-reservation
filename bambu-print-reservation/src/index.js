@@ -81,6 +81,10 @@ app.get('/api/health', (req, res) => {
       auth: fileState(require('./services/authStore').AUTH_FILE),
       rules: fileState(require('./services/processRules').getRulesSnapshot().rulesFile),
       ruleSuggestions: fileState(require('./services/ruleSuggestions').FILE),
+      backup: (() => {
+        const b = require('./services/backup').getLastRun();
+        return b ? { lastCopied: b.copied.length, dir: b.dir } : null;
+      })(),
     },
   });
 });
@@ -322,6 +326,18 @@ app.post('/api/reservations', requireUser(), upload.single('file'), async (req, 
       }
     }
 
+    // 3mf 审批透明化（2026-10-06）：提取文件内嵌切片参数摘要随单存档——审批人
+    // 不用下载文件开 Bambu Studio 就能看参数。提取失败不阻塞提交（摘要置空）
+    let embeddedParams = null;
+    if (isSliced) {
+      try {
+        const extracted = require('./services/slicerExtract').extractFrom3mf(fs.readFileSync(req.file.path));
+        embeddedParams = { source: extracted.source, params: extracted.params };
+      } catch (err) {
+        console.warn(`[提交] 3mf 参数提取失败（不影响提交）: ${err.message}`);
+      }
+    }
+
     const reservation = await reservationService.createReservation({
       applicant: req.user.displayName, // 发起人 = 登录身份（防冒名），body.applicant 忽略
       submittedBy: req.user.id,        // 归属判定键（本人取消等）
@@ -338,9 +354,11 @@ app.post('/api/reservations', requireUser(), upload.single('file'), async (req, 
       selection,
       processParams: applied ? applied.params : null,
       appliedRules: applied ? applied.applied : [],
+      embeddedParams, // 3mf 内嵌参数摘要（审批透明化；需求链路单为 null）
     });
 
     reservationService.notifyReviewers(reservation).catch(() => {}); // fire-and-forget
+    require('./services/usageReport').reportUsage(req.user.username, 'print-submit').catch(() => {});
     res.json(reservation);
   } catch (err) {
     console.error('提交预约失败:', err);
@@ -395,7 +413,9 @@ app.delete('/api/reservations/:id', requireUser(), async (req, res) => {
 app.post('/api/reservations/:id/approve', requireUser('reviewer', 'admin'), async (req, res) => {
   try {
     const { comment } = req.body || {};
-    res.json(await reservationService.approveReservation(req.params.id, req.user.displayName, comment));
+    const result = await reservationService.approveReservation(req.params.id, req.user.displayName, comment);
+    require('./services/usageReport').reportUsage(req.user.username, 'print-approve').catch(() => {});
+    res.json(result);
   } catch (err) {
     console.error('审批通过失败:', err);
     res.status(400).json({ error: err.message });
@@ -405,7 +425,9 @@ app.post('/api/reservations/:id/approve', requireUser('reviewer', 'admin'), asyn
 app.post('/api/reservations/:id/reject', requireUser('reviewer', 'admin'), async (req, res) => {
   try {
     const { comment } = req.body || {};
-    res.json(await reservationService.rejectReservation(req.params.id, req.user.displayName, comment));
+    const result = await reservationService.rejectReservation(req.params.id, req.user.displayName, comment);
+    require('./services/usageReport').reportUsage(req.user.username, 'print-reject').catch(() => {});
+    res.json(result);
   } catch (err) {
     console.error('审批驳回失败:', err);
     res.status(400).json({ error: err.message });
@@ -630,6 +652,9 @@ function startServer() {
   };
   retentionCleanup();
   setInterval(retentionCleanup, 6 * 3600 * 1000);
+
+  // 数据面每日快照（预约/账号/规则/建议四 JSON，保留 14 天；uploads 不备份）
+  require('./services/backup').scheduleBackup();
 
   process.on('SIGINT', async () => {
     console.log('\n正在关闭服务器...');

@@ -126,5 +126,13 @@ module.exports = {
     reconcileWindowMinutes: Number(process.env.APPROVAL_RECONCILE_WINDOW_MINUTES || 24 * 60),
   },
 
+  // ---------- 使用上报（顶层「队员/功能统计上报规则」：页面交互向网关归因） ----------
+  usage: {
+    // 网关使用上报端点（网关与本服务同机 pm2；空串=关闭上报）
+    reportUrl: process.env.USAGE_REPORT_URL || 'http://127.0.0.1:3000/api/usage/report',
+    // 全工作区共享 API_TOKEN（顶层规则同值）
+    token: process.env.API_TOKEN || '',
+  },
+
   colorReference: COLOR_REFERENCE,
 };

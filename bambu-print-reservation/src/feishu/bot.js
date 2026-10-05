@@ -66,7 +66,7 @@ function buildAtTag(userId) {
   return `<at id="${userId}"></at>`;
 }
 
-function buildReservationAlertCard(reservation) {
+function buildReservationAlertCard(reservation, extraElements = []) {
   const applicantName = reservation.fields['发起人']?.[0]?.name || '未知用户';
   const applicantId = reservation.fields['发起人']?.[0]?.id || '';
   const startTime = reservation.fields['发起时间'];
@@ -87,7 +87,7 @@ function buildReservationAlertCard(reservation) {
       { tag: 'hr' },
       {
         tag: 'markdown',
-        content: `${buildAtTag(applicantId)} **发起人**: ${applicantName}`,
+        content: `**发起人**: ${applicantName}`,
       },
       {
         tag: 'markdown',
@@ -101,10 +101,11 @@ function buildReservationAlertCard(reservation) {
         tag: 'markdown',
         content: `**⚡ 加急**: 是`,
       } : null,
+      ...extraElements,
       { tag: 'hr' },
       {
         tag: 'markdown',
-        content: `**审批者**: 请在 Bambu Studio 中审查切片文件，确认后在多维表格中填写审批结果`,
+        content: `**审批者**: 请在打印预约页面登录后审批（未切片模型需先切片为 3mf）`,
       },
     ].filter(Boolean),
     header: {

@@ -577,15 +577,18 @@ async function loadList() {
     const params = r.processParams ? Object.entries(r.processParams)
       .filter(([k, v]) => !['materialExclude', 'materialPrefer'].includes(k) && v !== '' && v !== null && !(Array.isArray(v) && !v.length))
       .map(([k, v]) => `${k}=${Array.isArray(v) ? v.join('|') : v}`).join(' · ') : '';
-    const srcTag = r.processParams ? '' : '<b>3mf 直通</b>（切片参数内嵌）<br>';
+    const srcTag = r.processParams ? '' : (r.embeddedParams
+      ? `<b>3mf 直通</b>（内嵌: ${Object.entries(r.embeddedParams.params || {}).slice(0, 6).map(([k, v]) => (PARAM_LABELS[k] || k) + '=' + v).join(' · ')}${Object.keys(r.embeddedParams.params || {}).length > 6 ? ' …' : ''}）<br>`
+      : '<b>3mf 直通</b>（切片参数内嵌）<br>');
     const rules = (r.appliedRules || []).map(x => x.reason).join('；');
     const hist = (r.history || []).map(h => `${(h.at || '').replace('T', ' ').slice(5, 16)} ${h.to}${h.note ? '（' + h.note + '）' : ''}`).reverse().join('<br>');
     const pending = r.status === '待审批';
+    const unsliced = pending && !/\.3mf$/i.test(r.fileName || '');
     const reviewBtns = pending && isReviewer() ? `<div class="revbox">
-          <button class="ok" onclick="review('${r.id}','approve')">通过</button>
+          <button class="ok" ${unsliced ? 'disabled title="未切片模型:请先用 Bambu Studio 切片为 3mf 后重新提交"' : ''} onclick="review('${r.id}','approve')">通过</button>
           <button class="bad" onclick="review('${r.id}','reject')">驳回</button>
           <button class="mini" onclick="openCorrection('${r.id}')">建议修正</button>
-        </div>` : '';
+        </div>${unsliced ? '<div class="detail" style="color:var(--warn)">⚠️ 未切片模型——切片为 3mf 后重新提交才能分发</div>' : ''}` : '';
     const cancelBtn = !['已完成', '已取消', '已驳回'].includes(r.status) && (mine || isReviewer())
       ? `<button class="mini" onclick="cancelReservation('${r.id}')">取消</button>` : '';
     return `<tr>

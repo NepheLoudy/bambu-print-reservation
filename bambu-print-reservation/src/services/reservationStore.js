@@ -97,8 +97,9 @@ const reservationStore = {
       isUrgent: Boolean(input.isUrgent),
       quantity: Number(input.quantity) > 0 ? Number(input.quantity) : 1,
       selection,
-      processParams: input.processParams || null,   // applyRules 快照（提交时定档，审批人可审）
+      processParams: input.processParams || null,   // applyRules 快照（需求链路单；3mf 直通为 null）
       appliedRules: input.appliedRules || [],
+      embeddedParams: input.embeddedParams || null, // 3mf 内嵌参数摘要（审批透明化）
       processWarnings: gate.warnings,
       review: null,
       printer: null,
