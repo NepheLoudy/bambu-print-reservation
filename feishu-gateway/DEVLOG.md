@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次 git 提交 + 一次部署）。本项目无独立远端，push.js 只暂存 `feishu-gateway/` 路径提交进顶层 monorepo——版本即顶层仓库中触碰本路径的提交。v1~v8 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v34**（2026-09-27，已上线）。上一版 v32（`50f3029`）。上一版 v31（2026-09-24，`97bd02b`）。更早：v30（顶层归档随批，仅工具链未部署）。
+当前最新：**v35**（2026-10-05，随本提交落地）。上一版 v34（2026-09-27，已上线）。上一版 v33（2026-09-26，`66dc3a3`，七仓全量审查修复批）。上一版 v32（`50f3029`）。上一版 v31（2026-09-24，`97bd02b`）。更早：v30（顶层归档随批，仅工具链未部署）。
 
 ## 阶段五 · 开发历史建档（2026-09-04）
 
@@ -253,3 +253,14 @@
 - 提交说明：fix: 部署闸门自动发现全量 stub + tar 排除补洞 + usage 裸读取舍注释
 - push.js 闸门改 readdirSync 自动发现 scripts/stub-test-*.js（根治 usage-mentions 漏挂）；tar 补排除 src/usage-stats.json、src/usage-sync-state.json（data-dir 回退产物）与 .env.local/.env.*.local；/api/usage|mentions「LAN 可读全员统计」补已知取舍注释（行为未动，收紧随时可挂 token）。
 - 测试：三套 stub + smoke-test 全绿。
+
+
+## v35 · 2026-10-05 · 随本提交落地 · fix
+
+**bambu 事件链路收口（路线 A 尾巴，曼波指令：一并修复）**
+
+- 背景：bambu 2026-10-05 v37 路线 A 断飞书审批链（`/api/feishu/event` 端点退役、预约真相源改本地存储、指令由 hub 直连 `/api/chat/command`），但网关侧没跟着收口——CONSUMERS 仍登记 bambu 事件端点（legacy）、审批事件默认目标仍含 bambu。后果：每条表格记录事件按 legacy 拆单转发 bambu → HTTP 404，当天累计 500+ 笔（07:58 整机重启后计数 failed=182 全指向 bambu），`/api/health` 投递统计与 pm2 错误日志被污染。功能影响为零（bambu 本就不该再收），纯配置残留。
+- 改动：`DEFAULT_CONSUMERS` 移除 bambu 条目（注释说明缘由）；`approvalTargets` 默认值 `['bambu','ticket']` → `['ticket']`（dispatch.js 兜底与注释同步）；本地与部署目标 `.env` 同步收口（CONSUMERS 去 bambu 段、新增 `APPROVAL_TARGETS=ticket`）——`.env` 是部署源头，push 原样覆盖目标机。
+- 机制保留：legacy 拆条转发机制（fanoutBitable 的 action_list 拆分）原样保留备用，bambu 是其唯一用户、已退网。
+- 连带：`dashboard/registry.js` gateway 监听描述与 bambu 条目（role/listening）同步路线 A 现实；顺手回填头部 v33 指针（上次会话遗留）。
+- 测试：`npm run smoke` 全过（自注入 CONSUMERS，不依赖默认值；legacy 机制有 mocklegacy 消费者覆盖）。

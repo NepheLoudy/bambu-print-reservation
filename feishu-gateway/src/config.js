@@ -3,10 +3,12 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 // 下游机器人消费者默认清单（可用 CONSUMERS 环境变量整体覆盖）
 // 格式：名称|事件回调URL|指令转发URL(可选)|标记(可选, legacy=按旧版事件结构转发)
+// 2026-10-05 起 bambu 移除：其路线 A 断飞书事件链（/api/feishu/event 退役、预约真相源改
+// 本地存储、指令由 hub 直连 /api/chat/command）——网关不再登记 bambu 消费者。残留登记会让
+// 表格/审批事件广播每条对其 404（一天 500+ 笔），投递统计与日志被污染（v35 收口）。
 const DEFAULT_CONSUMERS = [
   'hub|http://localhost:3000/api/feishu/event',
   'approval|http://localhost:3002/api/feishu/event|http://localhost:3002/api/chat/command',
-  'bambu|http://localhost:3001/api/feishu/event|http://localhost:3001/api/chat/command|legacy',
   'ticket|http://localhost:3003/api/feishu/event',
 ];
 
@@ -77,10 +79,11 @@ module.exports = {
   defaultTarget: process.env.DEFAULT_TARGET || 'hub',
   // 多维表格事件广播目标，留空 = 全部消费者（各机器人按 table_id 自行过滤）
   bitableTargets: parseList(process.env.BITABLE_TARGETS),
-  // 审批实例/任务事件转发目标，留空 = bambu+ticket（打印自动审批 / 工单接单联动）
+  // 审批实例/任务事件转发目标，留空 = ticket（工单接单联动自动通过；bambu 打印自动审批
+  // 已随其 2026-10-05 路线 A 断飞书审批链退役，不再接收审批事件——v35 收口）
   approvalTargets: parseList(process.env.APPROVAL_TARGETS).length
     ? parseList(process.env.APPROVAL_TARGETS)
-    : ['bambu', 'ticket'],
+    : ['ticket'],
   // 需要订阅记录变更的云文档 appToken（bitable 记录变更事件的前置条件）
   docSubscribes: parseList(process.env.DOC_SUBSCRIBES),
 };

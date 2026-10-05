@@ -297,7 +297,9 @@ async function fanoutBitable(frame) {
     }
 
     if (consumer.legacy) {
-      // 旧版结构消费者（如 bambu）：把 V2 action_list 拆成单记录 create/update 事件
+      // 旧版结构消费者：把 V2 action_list 拆成单记录 create/update 事件
+      //（机制保留备用；现役消费者均为 V2 结构——bambu 是唯一 legacy 用户，已随其
+      //  2026-10-05 路线 A 断事件链退网，v35 收口）
       const items = (frame.event && frame.event.action_list) || [];
       const typeMap = { record_added: 'bitable.record.create', record_edited: 'bitable.record.update' };
       for (const item of items) {
@@ -339,11 +341,12 @@ async function fanoutPost(consumer, what, frame) {
 }
 
 /**
- * 审批事件（approval_instance / approval_task）→ 定向转发配置的目标（默认 bambu+ticket）。
+ * 审批事件（approval_instance / approval_task）→ 定向转发配置的目标（默认 ticket——
+ * 工单接单联动自动通过。bambu 打印自动审批已随其 2026-10-05 路线 A 退役，v35 收口）。
  * 消费方各自按 approval_code 过滤、拉实例详情决策（官方审批事件不依赖表格同步，秒级）。
  */
 async function fanoutApproval(frame) {
-  const names = config.approvalTargets.length ? config.approvalTargets : ['bambu', 'ticket'];
+  const names = config.approvalTargets.length ? config.approvalTargets : ['ticket'];
   let last = null;
   for (const name of names) {
     const consumer = findConsumer(name);
