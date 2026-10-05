@@ -122,3 +122,16 @@
 - 修复②（wan 探测假阴性）：TCP connect 223.5.5.5:443 在认证死掉后仍被网关代答握手成功 → wan 恒 true。升级为「TCP 预检 + HTTPS DoH 数据面验证」：新增 `probeHttps`/`dohResponseOk`（200 且 body 含 DoH `Status` 字段才算出网——代答伪造不了 TLS 上的合法响应，captive portal 劫持页 body 也不是 DoH JSON）；`httpRequestText` 加 `tls` 选项透传（裸 IP 访问 223.5.5.5 证书 SAN 不匹配）；`probeLatency` 基线采样同步走 HTTPS（TCP 代答握手几 ms 会把基线压到下限、慢速判定失真）。新 env：`NETLOG_HTTPS_TARGETS`（默认 DoH 223.5.5.5）。
 - 修复③（成功判定假阳性）：出口本通时 forceRevive 的 login 被「IP 已经在线」拒、wan 探测照样过 → 误记 revive_success。复活成功判定新增 `verifySession(user)`（online_list 归属核验，guard 依赖注入）；归属非本账号 → 新事件 `revive_session_mismatch`（即时外发白名单）+ 30 分钟冷却（防「断网+IP 被占」每分钟重试刷屏）；验证接口异常 → 降级按 wan 探测放行（不因 online_list 抖动卡死复活）；未注入 verifySession 时完全向后兼容旧语义。
 - 测试：stub 39+38=77 断言全绿（+13：dohResponseOk 四断言；归属核验三场景——mismatch 无假阳性+冷却防刷屏、正常归属成功、接口异常降级）。
+
+
+## v13 · 2026-10-05 · 随本提交落地 · fix
+
+**通知节流批（「60 条私信」事故整改，曼波指令：一并修复）**
+
+- 事故：2026-10-05 校园网软踢拉锯日，即时事件全天天轰炸曼波私聊 59 条（traffic_down 18 + traffic_up 18 + revive_session_mismatch 20 + egress_ip_changed 3）+ 汇总卡——翻转逐条即时私聊 + mismatch 30 分钟重试即重报，两层都没考虑「同一局面持续一整天」的场景。
+- 修复①（翻转→事故聚合）：`*_down/*_up` 翻转痕迹只落盘（jsonl 事件流不变可回放），不再逐条私聊；报警改走聚合通道——`*_down_sustained`（断开持续 ≥10min 才即时报警，之后每 2h 复报一次）、`*_recovered`（恢复汇总卡：30min 抖动群窗口内累计断开 ≥5min 或 ≥3 次才发，或持续断开后恢复必发）。引擎新增 `incidents` 抖动群状态（openSegment/closeSegment/checkSustained/expireIncidents），summary 直出观察窗。
+- 修复②（mismatch 通知冷却）：`revive_session_mismatch` 加 4h 冷却（`NOTIFY_COOLDOWN_MS`，仅私聊成功才占用冷却）；冷却期内只落盘+进积压。账号被抢拉锯期 30 分钟一轮 × 13h = 20 条/天的重复播报没有信息增量。
+- 修复③（积压补发限频）：flush 三条件任一才发——wan 恢复翻转旁路（flushAsap，v8 滞留教训的语义保底）/ 攒够 `NETLOG_FLUSH_BATCH`(10) 条 / 距上次成功补发超 `NETLOG_FLUSH_COOLDOWN_MS`(2h)（迟到兜底）。此前 wan 通着每轮尝试，拉锯期过程事件每 30 分钟落 2-3 条 → 每轮一张汇总卡。
+- 量化预期：同款拉锯日 59+ 条 → 持续断开报警/恢复卡 0-2 条 + mismatch ≤4 条（4h 冷却）+ 汇总卡 ≤ 数张（2h 兜底）；真断网语义不变（sustained 报警断网期间发不出去自动进积压、恢复瞬间 flushAsap 优先送达）。
+- 新 env（均有默认）：`NETLOG_DOWN_ALERT_MS`(10min) / `NETLOG_STILL_DOWN_REALERT_MS`(2h) / `NETLOG_FLAP_ALERT_MS`(5min) / `NETLOG_FLAP_COUNT_ALERT`(3) / `NETLOG_FLAP_WINDOW_MS`(30min) / `NETLOG_MISMATCH_NOTIFY_MS`(4h) / `NETLOG_FLUSH_COOLDOWN_MS`(2h) / `NETLOG_FLUSH_BATCH`(10)。
+- 测试：stub 53+38=91 断言全绿（+14：抖动群三段聚合/短抖动静默、sustained 报警+2h 复报+恢复卡、mismatch 冷却三态、补发限频三条件+恢复旁路；改写 v1 期「翻转即私聊」旧断言三处）。

@@ -63,6 +63,20 @@ const CONFIG = {
   // 断电感知（v11）：启动时与上一进程最后心跳的间隔超过阈值 → 发「离线后重新上线」卡
   // （10-03 断电 10h 无声无息，恢复后无人知晓——通知永远只该迟到，不该缺席）
   offlineNotifyMs: Number(process.env.NETLOG_OFFLINE_NOTIFY_MS || 15 * 60 * 1000),
+  // ---- 通知节流（v13，2026-10-05 60 条私信事故）：翻转事件改「事故聚合」 ----
+  // down 只落盘不再逐条私聊；断开持续 downAlertMs 才即时报警（含每 stillDownRealertMs 复报）；
+  // 恢复时抖动群（flapWindowMs 窗口内累计）达「累计 ≥ flapAlertMs 或次数 ≥ flapCountAlert」
+  // 才发一张恢复汇总卡。mismatch 每 mismatchNotifyMs 至多私聊一条（校园网账号被抢拉锯期
+  // 30 分钟一轮 × 全天 = 20 条/天的教训）。积压补发由「wan 恢复翻转 / 攒够 flushBatch 条 /
+  // 距上次补发超 flushCooldownMs」三条件驱动，堵住「每分钟一张汇总卡」的旁路。
+  downAlertMs: Number(process.env.NETLOG_DOWN_ALERT_MS || 10 * 60 * 1000),
+  stillDownRealertMs: Number(process.env.NETLOG_STILL_DOWN_REALERT_MS || 2 * 60 * 60 * 1000),
+  flapAlertMs: Number(process.env.NETLOG_FLAP_ALERT_MS || 5 * 60 * 1000),
+  flapCountAlert: Number(process.env.NETLOG_FLAP_COUNT_ALERT || 3),
+  flapWindowMs: Number(process.env.NETLOG_FLAP_WINDOW_MS || 30 * 60 * 1000),
+  mismatchNotifyMs: Number(process.env.NETLOG_MISMATCH_NOTIFY_MS || 4 * 60 * 60 * 1000),
+  flushCooldownMs: Number(process.env.NETLOG_FLUSH_COOLDOWN_MS || 2 * 60 * 60 * 1000),
+  flushBatch: Number(process.env.NETLOG_FLUSH_BATCH || 10),
   egressIntervalMs: Number(process.env.NETLOG_EGRESS_INTERVAL_MS || 30 * 60 * 1000),
   egressUrls: (process.env.NETLOG_EGRESS_URLS || 'http://members.3322.org/dyndns/getip,http://ip.3322.net,https://api.ipify.org')
     .split(',').map((s) => s.trim()).filter(Boolean),
@@ -84,6 +98,14 @@ function createEngine(deps) {
     failThreshold = CONFIG.failThreshold,
     heartbeatMs = CONFIG.heartbeatMs,
     egressIntervalMs = CONFIG.egressIntervalMs,
+    downAlertMs = CONFIG.downAlertMs,
+    stillDownRealertMs = CONFIG.stillDownRealertMs,
+    flapAlertMs = CONFIG.flapAlertMs,
+    flapCountAlert = CONFIG.flapCountAlert,
+    flapWindowMs = CONFIG.flapWindowMs,
+    mismatchNotifyMs = CONFIG.mismatchNotifyMs,
+    flushCooldownMs = CONFIG.flushCooldownMs,
+    flushBatch = CONFIG.flushBatch,
     onTick = null, // 钩子：每轮探测完成后调用 (wanOk, lanOk, trafficOk)；wanGuard 复活引擎挂这里
   } = deps;
 
@@ -113,14 +135,22 @@ function createEngine(deps) {
 
   const BACKLOG_MAX = 50; // 积压上限：一直不配置 webhook 时防无限增长（丢最旧）
 
-  // 事件分级（2026-09-28 刷屏事故整改）：只有关键状态变化才尝试即时推送；
-  // 复活过程细节（start/success/no_candidates/throttled）只落盘+进积压（恢复汇总卡可见），
-  // 绝不即时外发——否则误判/循环触发时会对通知群每分钟刷屏。
+  // 事件分级（2026-09-28 刷屏事故整改 → v13 事故聚合重构）：
+  // 只有「持续断开 / 恢复汇总 / 会话被占 / 出口 IP 变化」才即时私聊；
+  // 单次翻转（*_down/*_up）只落盘（jsonl 事件流不变，可回放）——校园网半死不活状态下
+  // 一分钟级翻转 × 全天 = 36 条/天的私信轰炸（2026-10-05 实测 60 条事故的主力）。
+  // 复活过程细节（start/success/no_candidates/throttled）照旧只落盘+进积压。
   const NOTIFY_IMMEDIATE = new Set([
-    'lan_down', 'lan_up', 'wan_down', 'wan_up', 'traffic_down', 'traffic_up',
+    'lan_down_sustained', 'wan_down_sustained', 'traffic_down_sustained',
+    'lan_recovered', 'wan_recovered', 'traffic_recovered',
     'egress_ip_changed', 'revive_exhausted', 'boot_after_offline',
     'revive_session_mismatch', // v12：出口本通但会话被他人账号放行，换号无效需人工——低频且必须知晓
   ]);
+
+  // 即时事件冷却（v13）：冷却期内不私聊只落盘+进积压（汇总卡可见）。mismatch 在账号被抢
+  // 拉锯期每 30 分钟一条 × 全天 20 条——同一局面重复播报没有信息增量。
+  const NOTIFY_COOLDOWN_MS = { revive_session_mismatch: mismatchNotifyMs };
+  const lastImmediateOkAt = {}; // event → 上次私聊成功时刻（只成功才占用冷却）
 
   async function notify(event, detail) {
     const text = `[netlog] ${event}${detail ? `\n${detail}` : ''}`;
@@ -129,8 +159,14 @@ function createEngine(deps) {
       pushBacklog(event, detail, 'process-event');
       return;
     }
+    const cd = NOTIFY_COOLDOWN_MS[event];
+    if (cd && now() - (lastImmediateOkAt[event] || 0) < cd) {
+      pushBacklog(event, detail, 'notify-cooldown');
+      return;
+    }
     try {
       await sendNotify(text);
+      lastImmediateOkAt[event] = now();
     } catch (err) {
       // 推送失败（断网时必然失败）→ 积压，恢复后汇总补发
       pushBacklog(event, detail, err.message);
@@ -145,40 +181,115 @@ function createEngine(deps) {
     writeBacklog(backlog);
   }
 
-  function emit(event, detail) {
+  /**
+   * emit(event, detail, opts)
+   *   opts.silent=true → 只落盘（jsonl + 内存 ring），不通知不积压（v13 翻转痕迹专用：
+   *   事件流可回放，通知走事故聚合通道 down_sustained/recovered）。
+   */
+  function emit(event, detail, opts = {}) {
     record('event', { event, detail });
     console.log(`[netlog] 事件 ${event}${detail ? `: ${detail}` : ''}`);
+    if (opts.silent) return Promise.resolve();
     return notify(event, detail);
   }
 
-  /** 断/恢复通用翻转：防抖记 down（连续 threshold 次失败），一次成功记 up */
+  // ---- 事故聚合（v13）：per 探测维度维护「抖动群」，翻转只落盘，报警/恢复按群汇总 ----
+  const incidents = {}; // key(lan/wan/traffic) → { downs, totalMs, firstAt, lastDownAt, segStart, alertedAt, meta }
+  let flushAsap = false; // wan down→up 翻转置位：恢复瞬间允许立即补发积压（绕过补发冷却）
+
+  function openSegment(key, meta) {
+    const t = now();
+    const inc = incidents[key];
+    if (inc && t - inc.lastDownAt < flapWindowMs) {
+      inc.downs += 1; // 窗口内又抖了：同一抖动群累计（窗口外的视为新群）
+    } else {
+      incidents[key] = { downs: 1, totalMs: 0, firstAt: t };
+    }
+    Object.assign(incidents[key], { lastDownAt: t, segStart: t, alertedAt: 0, meta });
+  }
+
+  async function closeSegment(key, lastDurMs) {
+    const inc = incidents[key];
+    if (!inc) return;
+    inc.totalMs += lastDurMs;
+    const sustainedAlerted = inc.alertedAt > 0;
+    if (sustainedAlerted || inc.totalMs >= flapAlertMs || inc.downs >= flapCountAlert) {
+      const scope = inc.downs > 1
+        ? `窗口内断开 ${inc.downs} 次、累计 ${Math.round(inc.totalMs / 1000)}s（${fmtTs(inc.firstAt)} 起）`
+        : `断开历时 ${Math.round(lastDurMs / 1000)}s`;
+      await emit(`${key}_recovered`,
+        `${inc.meta} 恢复${sustainedAlerted ? '（持续断开后）' : ''}，${scope}`);
+    }
+    // 抖动群保留至窗口过期（expireIncidents），窗口内的后续抖动继续累计
+    inc.segStart = 0;
+    inc.alertedAt = 0;
+  }
+
+  /** 断开进行中的持续报警（tick 内调）：达到 downAlertMs 即时报警，其后每 stillDownRealertMs 复报一次 */
+  async function checkSustained() {
+    const t = now();
+    for (const key of Object.keys(incidents)) {
+      const inc = incidents[key];
+      if (!inc.segStart) continue; // 未在断开中
+      const segMs = t - inc.segStart;
+      if (segMs >= downAlertMs && (!inc.alertedAt || t - inc.alertedAt >= stillDownRealertMs)) {
+        const prevAlertAt = inc.alertedAt;
+        inc.alertedAt = t;
+        await emit(`${key}_down_sustained`,
+          `${inc.meta} 持续断开 ${Math.round(segMs / 60000)} 分钟（自 ${fmtTs(inc.segStart)}${prevAlertAt ? `，距上次报警 ${Math.round((t - prevAlertAt) / 60000)} 分钟` : ''}）`);
+      }
+    }
+  }
+
+  /** 抖动群窗口过期清理：恢复后 flapWindowMs 内无新断开 → 群收档（未达阈值的就此静默翻篇） */
+  function expireIncidents() {
+    const t = now();
+    for (const key of Object.keys(incidents)) {
+      const inc = incidents[key];
+      if (!inc.segStart && t - inc.lastDownAt > flapWindowMs) delete incidents[key];
+    }
+  }
+
+  /** 断/恢复通用翻转：防抖记 down（连续 threshold 次失败），一次成功记 up。
+   *  v13：翻转痕迹（*_down/*_up）silent 落盘不私聊——通知由事故聚合通道（down_sustained/recovered）出 */
   async function flip(key, ok, meta) {
     const isDown = state[key] === false;
+    const cap = key.charAt(0).toUpperCase() + key.slice(1);
     if (!ok) {
-      state[`fail${key.charAt(0).toUpperCase()}${key.slice(1)}`] += 1;
-      const fails = state[`fail${key.charAt(0).toUpperCase()}${key.slice(1)}`];
+      state[`fail${cap}`] += 1;
+      const fails = state[`fail${cap}`];
       if (!isDown && fails >= failThreshold) {
         state[key] = false;
         state[`${key}DownSince`] = now();
-        await emit(`${key}_down`, `${meta} 连续 ${fails} 次探测失败，判定断开 @ ${fmtTs(now())}`);
+        openSegment(key, meta);
+        await emit(`${key}_down`, `${meta} 连续 ${fails} 次探测失败，判定断开 @ ${fmtTs(now())}`, { silent: true });
       }
       return;
     }
-    state[`fail${key.charAt(0).toUpperCase()}${key.slice(1)}`] = 0;
+    state[`fail${cap}`] = 0;
     if (isDown) {
       const dur = now() - state[`${key}DownSince`];
       const downSinceTs = state[`${key}DownSince`];
       state[key] = true;
       state[`${key}DownSince`] = 0; // 清零：否则 summary 在恢复后仍挂着旧断开时刻（2026-10-04 发现）
-      await emit(`${key}_up`, `${meta} 恢复，断开历时 ${Math.round(dur / 1000)}s（${fmtTs(downSinceTs)} → ${fmtTs(now())}）`);
+      await emit(`${key}_up`, `${meta} 恢复，断开历时 ${Math.round(dur / 1000)}s（${fmtTs(downSinceTs)} → ${fmtTs(now())}）`, { silent: true });
+      if (key === 'wan') flushAsap = true; // 恢复瞬间优先补发积压（v8 滞留教训 + v13 限频的恢复旁路）
+      await closeSegment(key, dur);
     } else if (state[key] === null) {
       state[key] = true; // 首轮探测直接成功：只落状态不报事件
     }
   }
 
+  let lastFlushOkAt = 0; // 上次成功补发时刻（内存：重启后允许立即补发一次，方向安全）
+
   async function flushBacklog() {
     const backlog = readBacklog();
     if (!backlog.length) return;
+    const t = now();
+    // v13 补发限频：三条件任一满足才发——wan 恢复翻转（flushAsap）、攒够一批（flushBatch，
+    // 防积压逼近 50 上限丢最旧）、距上次补发超 flushCooldownMs（迟到兜底）。
+    // 此前 wan 通着就每轮尝试：拉锯期过程事件每 30 分钟落 2-3 条 → 每轮一张汇总卡刷屏。
+    if (!flushAsap && backlog.length < flushBatch && t - lastFlushOkAt < flushCooldownMs) return;
     const lines = backlog.map((b) => `· ${fmtTs(b.ts)} ${b.event}${b.detail ? `：${b.detail}` : ''}`);
     const text = `[netlog] 断网期间事件汇总（${backlog.length} 条，现已恢复）\n${lines.join('\n')}`;
     try {
@@ -187,6 +298,8 @@ function createEngine(deps) {
       console.warn(`[netlog] 积压补发仍失败（保留待下轮）: ${err.message}`);
       return;
     }
+    flushAsap = false;
+    lastFlushOkAt = t;
     // 按 id 剔除已发条目后写回——冲刷期间新落盘的积压不被覆盖丢失（quiet-flush v87 同款教训）
     const sentIds = new Set(backlog.map((b) => b.id));
     writeBacklog(readBacklog().filter((b) => !sentIds.has(b.id)));
@@ -217,17 +330,19 @@ function createEngine(deps) {
     await flip('lan', lanOk, `主路由 ${CONFIG.lanHost}:${CONFIG.lanPort}`);
     await flip('wan', wanOk, '公网出口');
     await flip('traffic', trafficOk, '流量探测（HTTP 全链路）');
+    await checkSustained(); // v13：断开进行中的持续报警/复报（翻转之后判，首 tick 即可命中阈值）
+    expireIncidents(); // 抖动群窗口过期收档
     record('state', { lan: lanOk, wan: wanOk, traffic: trafficOk, egressIp: state.egressIp });
 
     // 出口 IP：wan 刚恢复 或 到达心跳间隔才查（限频，防探测目标限流）
     if (wanOk && (state.wan !== prevWanUp || now() - state.lastEgressCheck >= egressIntervalMs || !state.lastEgressCheck)) {
       await checkEgress(state.wan !== prevWanUp ? '断网恢复' : '定期心跳');
     }
-    // 积压冲刷：wan 通着就每轮尝试（空积压零成本）。不能只在 down→up 翻转时冲——
-    // 复活引擎自愈的短暂断网用原始单轮信号触发，常抢在 2 轮防抖判定之前，状态机
-    // 从未翻转 → revive_start/success 过程事件永远滞留积压、复活通知永远发不出
-    // （2026-10-04 20:21 实况：55s 自愈成功但通知卡滞留）。wanOk 时冲刷同时自愈
-    // 这类历史滞留。
+    // 积压冲刷：wan 通着就每轮尝试（受 v13 补发限频约束：恢复翻转/攒批/超时三条件）。
+    // 不能只在 down→up 翻转时冲——复活引擎自愈的短暂断网用原始单轮信号触发，常抢在
+    // 2 轮防抖判定之前，状态机从未翻转 → revive_start/success 过程事件永远滞留积压、
+    // 复活通知永远发不出（2026-10-04 20:21 实况：55s 自愈成功但通知卡滞留）。wanOk 时
+    // 冲刷同时自愈这类历史滞留。
     if (wanOk) await flushBacklog();
     // 复活引擎钩子（传当轮原始探测结果——有意不用防抖态：wan 首轮失败即启动复活，
     // 抢在 2 轮防抖判定之前自愈；代价是单轮抖动也会触发一次 login，由 eportal 应答
@@ -247,6 +362,9 @@ function createEngine(deps) {
       egressIp: state.egressIp || null,
       lastEgressCheck: state.lastEgressCheck ? fmtTs(state.lastEgressCheck) : null,
       startedAt: fmtTs(state.startedAt),
+      incidents: Object.fromEntries(Object.entries(incidents).map(([k, inc]) => [
+        k, { downs: inc.downs, totalMs: inc.totalMs, firstAt: fmtTs(inc.firstAt), down: !!inc.segStart, alerted: !!inc.alertedAt },
+      ])), // v13 抖动群观察窗（summary 直出）
       recentEvents: state.events,
     };
   }

@@ -1,11 +1,13 @@
 /**
- * 离线桩测试 · netlog 状态机（2026-09-27 v1）：
+ * 离线桩测试 · netlog 状态机（2026-09-27 v1，v13 通知节流批扩展）：
  *   ①防抖：单次失败不翻 down，连续 threshold 次才记 lan/wan_down（只记一次）
- *   ②恢复：一次成功即记 up，事件带断开历时
+ *   ②恢复：一次成功即记 up，事件带断开历时（v13 起翻转只落盘不私聊）
  *   ③积压补发：wan 恢复后汇总卡发出、积压清空
  *   ④冲刷竞态回归（quiet-flush v87 同款教训）：补发期间新落盘的积压不被覆盖丢失
  *   ⑤出口 IP 变化：恢复后查到新 IP 记 egress_ip_changed
  *   ⑥通知失败入积压；日志行 JSONL 可解析
+ *   ⑫~⑮（v13）：翻转事故聚合（短抖动静默/抖动群汇总卡）、持续断开报警+复报、
+ *     revive_session_mismatch 通知冷却、积压补发限频（恢复旁路/攒批/超时兜底）
  * 全部外部依赖走桩；用法：node scripts/stub-test-netlog.js
  */
 const path = require('path');
@@ -78,14 +80,20 @@ function makeDeps({ threshold = 2 } = {}) {
   check('恢复记 lan_up', !!upEv);
   check('事件含历时 120s', upEv && /120s/.test(upEv.detail), upEv && upEv.detail);
 
-  console.log('\n== 3. wan 断→恢复：私聊失败积压 → 恢复后汇总补发 + 清空 ==');
+  console.log('\n== 3. wan 断→持续→恢复：报警私聊失败积压 → 恢复后汇总补发 + 清空 ==');
   const d3 = makeDeps({});
   const e3 = createEngine(d3);
   global.__dmFail = true; // 模拟断网：私聊发不出去
   d3.wan = false; d3.clock += 60_000;
   await e3.tick(); await e3.tick(); // threshold=2 → wan_down
   check('wan 断开被记录', e3.state.wan === false && d3.logs.some((l) => l.event === 'wan_down'));
-  check('私聊失败 → wan_down 积压 1 条', d3.backlogFile.length === 1, JSON.stringify(d3.backlogFile));
+  check('v13 翻转只落盘不私聊不积压', d3.backlogFile.length === 0,
+    JSON.stringify(d3.backlogFile));
+  d3.clock += 11 * 60_000; // 持续断开超 downAlertMs(10min)
+  await e3.tick();
+  check('持续断开报警私聊失败 → wan_down_sustained 积压 1 条',
+    d3.backlogFile.length === 1 && d3.backlogFile[0].event === 'wan_down_sustained',
+    JSON.stringify(d3.backlogFile.map((b) => b.event)));
   // 恢复私聊 + 预置更多积压 → wan_up tick 触发 flushBacklog
   global.__dmFail = false;
   d3.backlogFile.push({ id: 'pre-1', ts: d3.clock, event: 'wan_down', detail: '断网前积压' });
@@ -125,7 +133,7 @@ function makeDeps({ threshold = 2 } = {}) {
     JSON.stringify(d5e.backlogFile.map((b) => [b.event, b.error])));
   check('过程事件不调 webhook 外发', d5e.webhooks.length === 0);
   d5e.clock += 1000;
-  await e5.emit('wan_down', '关键事件（机器人私聊送达）');
+  await e5.emit('wan_down_sustained', '关键事件（机器人私聊送达）');
   check('关键事件经机器人私聊送达、不积压', d5e.backlogFile.length === 2 && dmSent.length >= 1,
     `backlog=${d5e.backlogFile.length} dmSent=${dmSent.length}`);
 
@@ -170,9 +178,9 @@ function makeDeps({ threshold = 2 } = {}) {
   await e8.tick();
   check('单次流量失败不翻 down（防抖）', e8.state.traffic !== false && !d8.logs.some((l) => l.event === 'traffic_down'));
   await e8.tick();
-  check('连续 2 次失败记 traffic_down 且即时私聊', e8.state.traffic === false
+  check('连续 2 次失败记 traffic_down 且 v13 起不即时私聊（短抖动静默）', e8.state.traffic === false
     && d8.logs.some((l) => l.event === 'traffic_down')
-    && dmSent.some((t) => t.text.includes('traffic_down')),
+    && !dmSent.some((t) => t.text.includes('traffic_down')),
   `dmSent=${dmSent.map((t) => t.text.slice(0, 25)).join('|')}`);
   check('onTick 收到 trafficOk=false（guard 软踢触发入口）', guardSeen[guardSeen.length - 1] === false);
   d8.traffic = true;
@@ -203,6 +211,97 @@ function makeDeps({ threshold = 2 } = {}) {
   check('captive portal 劫持页（200 但非 DoH JSON）→ false', !dohResponseOk(200, '<html><body>Portal Login</body></html>'));
   check('重定向/拦截（非 200）→ false', !dohResponseOk(302, '') && !dohResponseOk(500, '{"Status":0}'));
   check('空 body / 非 body → false', !dohResponseOk(200, '') && !dohResponseOk(200, null));
+
+  console.log('\n== 12. 翻转事故聚合（v13）：短抖动静默，抖动群达阈值出一张恢复汇总卡 ==');
+  const d12 = makeDeps({});
+  d12.probeTraffic = async () => d12.traffic;
+  d12.traffic = true;
+  const e12 = createEngine(d12);
+  await e12.tick(); // 首轮 up
+  const flap = async (downMs) => {
+    d12.traffic = false; await e12.tick(); await e12.tick(); // threshold=2 → down（静默）
+    d12.clock += downMs; d12.traffic = true; await e12.tick(); // up（静默）
+  };
+  const dmCount = () => dmSent.filter((t) => t.text.includes('traffic_recovered')).length;
+  await flap(55_000); // 第 1 抖：55s
+  check('单次 55s 抖动不私聊不积压', dmCount() === 0 && d12.backlogFile.length === 0,
+    `recovered=${dmCount()} backlog=${d12.backlogFile.length}`);
+  d12.clock += 5 * 60_000; // 窗口内（<30min）继续抖
+  await flap(50_000); // 第 2 抖：累计 105s / 2 次
+  check('两次抖动仍低于阈值（105s<5min，2 次<3）不私聊', dmCount() === 0,
+    `recovered=${dmCount()}`);
+  d12.clock += 5 * 60_000;
+  await flap(60_000); // 第 3 抖：3 次 ≥ flapCountAlert → 恢复汇总卡
+  const rec12 = dmSent.filter((t) => t.text.includes('traffic_recovered'));
+  check('第 3 次抖动触发恢复汇总卡（含次数与累计）',
+    rec12.length === 1 && rec12[0].text.includes('3 次') && rec12[0].text.includes('累计'),
+    JSON.stringify(rec12.map((t) => t.text.slice(0, 60))));
+
+  console.log('\n== 13. 持续断开报警 + 复报 + 持续断开后恢复（v13） ==');
+  const d13 = makeDeps({});
+  const e13 = createEngine(d13);
+  await e13.tick();
+  const before13 = dmSent.length;
+  d13.wan = false; d13.clock += 60_000;
+  await e13.tick(); await e13.tick(); // wan_down（静默）
+  d13.clock += 10 * 60_000 + 30_000; // 越过 downAlertMs(10min)
+  await e13.tick();
+  let sustained = dmSent.slice(before13).filter((t) => t.text.includes('wan_down_sustained'));
+  check('持续 10.5 分钟即时报警', sustained.length === 1, JSON.stringify(sustained.map((t) => t.text.slice(0, 40))));
+  d13.clock += 2 * 60 * 60_1000 + 60_000; // 复报窗口（2h）已过
+  await e13.tick();
+  sustained = dmSent.slice(before13).filter((t) => t.text.includes('wan_down_sustained'));
+  check('仍在断开 → 2h 复报一次', sustained.length === 2, `count=${sustained.length}`);
+  d13.wan = true; d13.clock += 60_000;
+  await e13.tick();
+  const rec13 = dmSent.slice(before13).filter((t) => t.text.includes('wan_recovered'));
+  check('持续断开后恢复 → wan_recovered 私聊（标明持续断开后）',
+    rec13.length === 1 && rec13[0].text.includes('持续断开后'), JSON.stringify(rec13.map((t) => t.text.slice(0, 50))));
+
+  console.log('\n== 14. revive_session_mismatch 通知冷却（v13）：4h 内只私聊一条 ==');
+  const d14 = makeDeps({});
+  const e14 = createEngine(d14);
+  await e14.tick();
+  const before14 = dmSent.length;
+  await e14.emit('revive_session_mismatch', '归属非 A（第 1 次）');
+  check('首条 mismatch 即时私聊', dmSent.length === before14 + 1, `dm=${dmSent.length}`);
+  d14.clock += 30 * 60_000; // 拉锯期 30 分钟一轮
+  await e14.emit('revive_session_mismatch', '归属非 B（第 2 次）');
+  check('冷却期内不私聊、进积压标记 notify-cooldown',
+    dmSent.length === before14 + 1
+    && d14.backlogFile.some((b) => b.event === 'revive_session_mismatch' && b.error === 'notify-cooldown'),
+    `dm=${dmSent.length} backlog=${JSON.stringify(d14.backlogFile.map((b) => b.error))}`);
+  d14.clock += 4 * 60 * 60 * 1000 + 60_000;
+  await e14.emit('revive_session_mismatch', '归属非 C（冷却已过）');
+  check('冷却期满恢复即时私聊', dmSent.length === before14 + 2, `dm=${dmSent.length}`);
+
+  console.log('\n== 15. 积压补发限频（v13）：恢复旁路 / 攒批 / 超时兜底 ==');
+  const d15 = makeDeps({});
+  const e15 = createEngine(d15);
+  await e15.tick();
+  const summaries = () => dmSent.filter((t) => t.text.includes('断网期间事件汇总')).length;
+  const sumBefore15 = summaries();
+  await e15.emit('revive_start', 'p1'); await e15.emit('revive_success', 'p2');
+  await e15.tick(); // lastFlushOkAt=0 → 超时兜底路径首冲
+  check('首冲（超时兜底）发出汇总卡且积压清空', summaries() === sumBefore15 + 1 && d15.backlogFile.length === 0,
+    `sum=${summaries()} backlog=${d15.backlogFile.length}`);
+  d15.clock += 30 * 60_000;
+  await e15.emit('revive_start', 'p3'); // 单条过程事件
+  await e15.tick(); // 未攒批、未超时、无恢复翻转 → 不冲
+  check('30 分钟内单条积压不触发补发（限频）', d15.backlogFile.length === 1 && summaries() === sumBefore15 + 1,
+    `backlog=${d15.backlogFile.length} sum=${summaries()}`);
+  d15.clock += 2 * 60 * 60 * 1000 + 60_000;
+  await e15.tick(); // 越过 flushCooldownMs(2h) → 兜底冲
+  check('超时兜底补发', d15.backlogFile.length === 0 && summaries() === sumBefore15 + 2,
+    `backlog=${d15.backlogFile.length} sum=${summaries()}`);
+  d15.clock += 10 * 60_000;
+  await e15.emit('revive_start', 'p4'); // 积压 1 条
+  d15.wan = false; d15.clock += 60_000;
+  await e15.tick(); await e15.tick(); // wan_down（静默）
+  d15.wan = true; d15.clock += 60_000;
+  await e15.tick(); // wan down→up 翻转 → flushAsap 旁路立即冲
+  check('wan 恢复翻转旁路：冷却未到也立即补发', d15.backlogFile.length === 0 && summaries() === sumBefore15 + 3,
+    `backlog=${d15.backlogFile.length} sum=${summaries()}`);
 
   console.log(`\n结果: ${pass} 通过, ${fail} 失败`);
   process.exit(fail > 0 ? 1 : 0);
