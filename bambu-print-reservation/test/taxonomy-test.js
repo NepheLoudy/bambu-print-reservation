@@ -55,13 +55,21 @@ check('single/multi 字段必有选项，formTitle 全池唯一', () => {
 
 check('v2 力学/耐久扩充字段在池', () => {
   const ids = new Set(groups.flatMap((g) => g.fields.map((f) => f.id)));
-  for (const id of ['load_magnitude', 'service_life', 'stiffness', 'electrical_insulation', 'fastener']) {
+  for (const id of ['load_magnitude', 'service_life', 'deflection_scale', 'electrical_insulation', 'fastener']) {
     assert.ok(ids.has(id), `缺少扩充字段 ${id}`);
   }
   const loadType = groups.flatMap((g) => g.fields).find((f) => f.id === 'load_type');
   assert.ok(loadType.options.some((o) => o.id === 'contact'), '受力类型缺「滚压/点接触」');
   const loadNature = groups.flatMap((g) => g.fields).find((f) => f.id === 'load_nature');
   assert.ok(loadNature.options.some((o) => o.id === 'vibration'), '载荷性质缺「振动」');
+  const dir = groups.flatMap((g) => g.fields).find((f) => f.id === 'load_direction');
+  assert.ok(dir.type === 'multi', '受力方向应为多选');
+  assert.ok(dir.options.some((o) => o.label === '多向拟合'), '多向选项应为「多向拟合」');
+  assert.ok(!dir.options.some((o) => o.label.includes('工作时')), '工作朝向指引应在字段 tooltip,不藏在 Z 轴选项 label');
+  const scale = groups.flatMap((g) => g.fields).find((f) => f.id === 'deflection_scale');
+  assert.equal(scale.min, -3); assert.equal(scale.max, 3);
+  const life = groups.flatMap((g) => g.fields).find((f) => f.id === 'service_life');
+  assert.ok(life.options.some((o) => o.label === '上场件'), '使用寿命应有「上场件」');
 });
 
 // ---------- validateSelection ----------
@@ -125,17 +133,20 @@ check('警告级：高速 × 外观件放行但带警告', () => {
 });
 
 check('警告级：柔性弹性 × CF（材料条件）', () => {
-  assert.equal(validateSelection({ stiffness: 'flexible' }).warnings.length, 0);
-  assert.equal(validateSelection({ stiffness: 'flexible' }, { material: 'PLA-CF' }).warnings.length, 1);
+  assert.equal(validateSelection({ deflection_scale: -3 }).warnings.length, 0);
+  assert.equal(validateSelection({ deflection_scale: -3 }, { material: 'PLA-CF' }).warnings.length, 1);
+  // 范围条件边界：-2 也命中柔性（max:-2），+1 不命中
+  assert.equal(validateSelection({ deflection_scale: -2 }, { material: 'PLA-CF' }).warnings.length, 1);
+  assert.equal(validateSelection({ deflection_scale: 1 }, { material: 'PLA-CF' }).warnings.length, 0);
 });
 
 // ---------- selectionFromFormFields ----------
 
 const FORM_FIELDS = [
-  { title: '受力方向', value: 'Z 轴（工作时竖直向上）' },
+  { title: '受力方向', value: 'Z 轴' },
   { title: '受力类型', value: '弯曲、剪切' },
   { title: '载荷量级', value: '中载' },
-  { title: '使用寿命', value: '长期（跨学期）' },
+  { title: '使用寿命', value: '上场件' },
   { title: '电气绝缘', value: '是' },
     { title: '外观件', value: '否' },
   { title: '材料类型', value: 'PETG' },

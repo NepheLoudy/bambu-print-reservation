@@ -92,11 +92,11 @@ const DEFAULT_RULES = [
   seed('creep-exclude-pla', 45, { service_life: ['long_term'], load_nature: ['static'] },
     { materialExclude: ['^PLA'], temperatureDelta: 5 },
     '长期静载：PLA 蠕变重灾区，排除并微升温床强化层间；与 taxonomy 硬拦截双保险'),
-  seed('flexible-soft', 50, { stiffness: ['flexible'] },
+  seed('flexible-soft', 50, { deflection_scale: { max: -2 } },
     { materialExclude: ['CF', '碳'], infillDensity: 15, speedProfile: 'precise', supportDensity: 15 },
-    '柔性弹性件：排除 CF（脆）、低填充留变形余量、精密档保证细节、疏支撑便于脱弹臂'),
-  seed('rigid-cf-prefer', 50, { stiffness: ['rigid'] },
-    { materialPrefer: ['CF'] }, '高刚度件：优先 CF 增强系'),
+    '柔顺弹性件（标尺 ≤-2）：排除 CF（脆）、低填充留变形余量、精密档保证细节、疏支撑便于脱弹臂'),
+  seed('rigid-cf-prefer', 50, { deflection_scale: { min: 2 } },
+    { materialPrefer: ['CF'] }, '高刚度件（标尺 ≥+2）：优先 CF 增强系'),
   seed('wear-pa', 50, { wear_resistance: [true] },
     { materialPrefer: ['PA'] }, '滑动摩擦件：PA 系优先（提示嵌衬套/轴承的复合设计走人工）'),
   seed('fit-precision-comp', 55, { fit_class: ['interference', 'precision'] },
@@ -131,10 +131,13 @@ function validateRule(rule) {
   if (!rule.reason || String(rule.reason).length < 4) problems.push('缺 reason（可审计要求）');
 
   if (rule.when) {
-    for (const [fieldId, values] of Object.entries(rule.when)) {
+    for (const [fieldId, cond] of Object.entries(rule.when)) {
       const field = taxonomy.groups.flatMap((g) => g.fields).find((f) => f.id === fieldId);
       if (!field) { problems.push(`when 引用了池外字段 ${fieldId}`); continue; }
-      if (!Array.isArray(values) || values.length === 0) problems.push(`when.${fieldId} 应为非空数组`);
+      const isEnum = Array.isArray(cond) && cond.length > 0;
+      const isRange = cond && typeof cond === 'object' && !Array.isArray(cond)
+        && (cond.min !== undefined || cond.max !== undefined);
+      if (!isEnum && !isRange) problems.push(`when.${fieldId} 应为非空数组或 {min,max} 范围`);
     }
   }
   if (rule.set) {
@@ -202,11 +205,22 @@ function rulesVersion() {
 }
 
 // ---------- 应用引擎 ----------
+// 条件值：数组=枚举（multi 任一命中）；{min,max}=数值范围（标尺类字段，如挠度标尺）
 function whenMatches(when, selection) {
-  return Object.entries(when).every(([fieldId, values]) => {
+  return Object.entries(when).every(([fieldId, cond]) => {
     const v = selection[fieldId];
-    if (Array.isArray(v)) return v.some((x) => values.includes(x)); // multi 任一命中
-    return values.includes(v);
+    if (Array.isArray(cond)) {
+      if (Array.isArray(v)) return v.some((x) => cond.includes(x));
+      return cond.includes(v);
+    }
+    if (cond && typeof cond === 'object') {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return false;
+      if (cond.min !== undefined && n < cond.min) return false;
+      if (cond.max !== undefined && n > cond.max) return false;
+      return true;
+    }
+    return false;
   });
 }
 

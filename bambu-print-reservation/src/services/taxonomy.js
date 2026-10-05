@@ -27,16 +27,17 @@ const groups = [
         type: 'multi',
         title: '受力方向',
         formTitle: '受力方向',
-        tooltip: '按此件【工作时】的朝向选择受力方向，可多选（Z=工作时竖直向上）。Z 向受力≈沿打印层缝方向（最弱），引擎会优先调整打印朝向避开；改不了则强化层间',
+        // 工作朝向指引在字段级（不藏在选项里）：Z = 此件工作时竖直向上的方向
+        tooltip: '指引：想象此件【安装使用时的样子】——Z = 工作时竖直向上的方向，X/Y = 工作时的水平两向。可多选（对应不同方向的工况）。Z 向受力≈沿打印层缝方向（最弱），引擎会优先调整打印朝向避开；改不了则强化层间',
         options: [
-          { id: 'X', label: 'X 轴（水平横向）' },
-          { id: 'Y', label: 'Y 轴（水平纵向）' },
-          { id: 'Z', label: 'Z 轴（工作时竖直向上）' },
-          { id: 'multi', label: '多向/复杂受力' },
+          { id: 'X', label: 'X 轴' },
+          { id: 'Y', label: 'Y 轴' },
+          { id: 'Z', label: 'Z 轴' },
+          { id: 'multi', label: '多向拟合' },
         ],
         mapsHint: [
           'Z → 优先改打印朝向使受力方向偏离层缝；不可避 → 层高 0.12–0.16、墙数+、热床 +5~10°C 强化层间',
-          'multi → 不强行改朝向，按强度档位补墙/填充',
+          '多向拟合 → 不强行改朝向，按强度档位补墙/填充',
         ],
       },
       {
@@ -44,7 +45,7 @@ const groups = [
         type: 'multi',
         title: '受力类型',
         formTitle: '受力类型',
-        tooltip: '可多选（悬臂梁=弯曲+剪切）。滚压/点接触指滚轮、凸轮从动件等局部接触工况',
+        tooltip: '与受力方向对应勾选（多选多对应）：各方向各自是什么工况就勾什么——如「Z 受压 + X 受弯」则同时勾受压+弯曲；引擎对方向×类型组合全量应用规则。悬臂梁=弯曲+剪切；滚压/点接触指滚轮、凸轮从动件等局部接触工况',
         options: [
           { id: 'tension', label: '受拉' },
           { id: 'compression', label: '受压' },
@@ -106,11 +107,11 @@ const groups = [
         type: 'single',
         title: '使用寿命',
         formTitle: '使用寿命',
-        tooltip: '一次性=打完即弃的验证件；短期=赛季内（数周）；长期=跨学期持续使用。长期+静载→蠕变风险，长期+动载→疲劳风险',
+        tooltip: '一次性=打完即弃的验证件；短期=赛季内（数周）；上场件=比赛上场使用的关键件（跨学期持续服役，可靠性要求最高）。上场件+静载→蠕变风险，上场件+动载→疲劳风险',
         options: [
           { id: 'oneoff', label: '一次性（验证件）' },
           { id: 'short_term', label: '短期（赛季内）' },
-          { id: 'long_term', label: '长期（跨学期）' },
+          { id: 'long_term', label: '上场件' },
         ],
         mapsHint: [
           'long_term × 静载 → 排除 PLA（蠕变重灾区），PETG/PA/CF 系',
@@ -119,18 +120,16 @@ const groups = [
         ],
       },
       {
-        id: 'stiffness',
-        type: 'single',
-        title: '刚度需求',
-        formTitle: '刚度需求',
-        tooltip: '刚性=不能晃（支撑臂）；柔性弹性=需要反复弹性变形（活铰链、卡扣、弹簧片）——柔性件禁 CF（脆）',
-        options: [
-          { id: 'rigid', label: '刚性（不许晃）' },
-          { id: 'flexible', label: '柔性弹性（活铰/卡扣）' },
-        ],
+        id: 'deflection_scale',
+        type: 'scale',
+        min: -3,
+        max: 3,
+        title: '刚度/挠度标尺',
+        formTitle: '刚度挠度标尺',
+        tooltip: '受力工况标尺（-3 ~ +3，0=常规不偏重）：+3 零挠度（精密平台/高刚度支架，宁重勿晃）→ +2 偏刚性 → 0 常规 → -2 偏柔顺 → -3 柔顺弹性（活铰链/卡扣/弹簧片，需反复弹性变形）。标尺驱动：≤-2 走柔性规则（排除 CF、低填充留变形余量），≥+2 走刚性规则（优先 CF）',
         mapsHint: [
-          'rigid → CF/高填充方向',
-          'flexible → PETG/PA 等韧性系、低填充方向设计、壁薄化提醒、排除 CF',
+          '≤-2 柔性区 → 排除 CF（脆）、低填充、壁薄化、疏支撑便于脱弹臂',
+          '≥+2 刚性区 → 优先 CF 增强系、高填充方向',
         ],
       },
       {
@@ -344,9 +343,9 @@ const CONFLICTS = [
   {
     id: 'flexible-vs-cf',
     level: 'warn',
-    when: { stiffness: ['flexible'] },
+    when: { deflection_scale: { max: -2 } },
     materialMatch: /CF|碳/i,
-    message: '柔性弹性工况与 CF 增强材料冲突（CF 脆、无法弹性变形），建议确认是否换韧性材料',
+    message: '柔顺弹性工况（标尺 ≤-2）与 CF 增强材料冲突（CF 脆、无法弹性变形），建议确认是否换韧性材料',
   },
   {
     id: 'fast-vs-appearance',
@@ -368,6 +367,22 @@ const CONFLICTS = [
     message: '重量敏感与重载工况存在张力（减重设计 vs 强度档位），引擎将冲突转人工评审',
   },
 ];
+
+/** 条件命中：数组=值枚举；{min,max}=数值范围（标尺类字段） */
+function whenValueHit(value, cond) {
+  if (Array.isArray(cond)) {
+    if (Array.isArray(value)) return value.some((x) => cond.includes(x)); // multi 字段任一命中
+    return cond.includes(value);
+  }
+  if (cond && typeof cond === 'object') {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return false;
+    if (cond.min !== undefined && n < cond.min) return false;
+    if (cond.max !== undefined && n > cond.max) return false;
+    return true;
+  }
+  return false;
+}
 
 // ============================================================
 // 校验与表单提取
@@ -414,6 +429,11 @@ function validateSelection(selection, opts = {}) {
           errors.push(`「${field.title}」选项无效: ${v}`);
         }
       }
+    } else if (field.type === 'scale') {
+      const n = Number(value);
+      if (!Number.isInteger(n) || n < field.min || n > field.max) {
+        errors.push(`「${field.title}」应为 ${field.min}~${field.max} 的整数`);
+      }
     } else if (field.type === 'number') {
       const n = Number(value);
       if (!Number.isInteger(n) || n < 1 || n > 99) {
@@ -423,11 +443,7 @@ function validateSelection(selection, opts = {}) {
   }
 
   for (const rule of CONFLICTS) {
-    const hit = Object.entries(rule.when).every(([fieldId, values]) => {
-      const v = selection[fieldId];
-      if (Array.isArray(v)) return v.some((x) => values.includes(x)); // multi 字段任一命中
-      return values.includes(v);
-    });
+    const hit = Object.entries(rule.when).every(([fieldId, cond]) => whenValueHit(selection[fieldId], cond));
     if (!hit) continue;
     if (rule.materialMatch) {
       if (!opts.material || !rule.materialMatch.test(String(opts.material))) continue;
@@ -474,6 +490,10 @@ function selectionFromFormFields(fields) {
       const n = parseInt(String(raw), 10);
       if (Number.isInteger(n)) selection[field.id] = n;
       else unmatched.push(`${title}: 无法识别的数量「${raw}」`);
+    } else if (field.type === 'scale') {
+      const n = parseInt(String(raw), 10);
+      if (Number.isInteger(n) && n >= field.min && n <= field.max) selection[field.id] = n;
+      else unmatched.push(`${title}: 标尺值「${raw}」超出 ${field.min}~${field.max}`);
     }
   }
   return { selection, unmatched };
@@ -491,6 +511,8 @@ function getTaxonomy() {
       fields: g.fields.map((f) => ({
         id: f.id,
         type: f.type,
+        min: f.min,
+        max: f.max,
         title: f.title,
         formTitle: f.formTitle,
         tooltip: f.tooltip,

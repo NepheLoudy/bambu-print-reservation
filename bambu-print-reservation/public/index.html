@@ -67,6 +67,11 @@
            padding: 10px 18px; border-radius: 8px; font-size: 13px; display: none; max-width: 80vw; z-index: 10; }
   .empty { color: var(--muted); font-size: 13px; padding: 16px 0; text-align: center; }
   .convention { font-size: 11px; color: var(--muted); margin-top: 8px; }
+  .scaleRow { display: flex; align-items: center; gap: 10px; padding: 6px 2px; }
+  .scaleRow input[type=range] { flex: 1; accent-color: var(--accent); }
+  .scaleVal { min-width: 22px; text-align: center; font-weight: 700; color: var(--accent); }
+  .scaleHint { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .typedesc { font-size: 11px; color: var(--accent); margin-top: 2px; min-height: 13px; }
   select.roleSel { width: auto; padding: 3px 6px; font-size: 12px; }
   .preview { margin-top: 12px; padding: 10px 12px; background: #f0f7fc; border: 1px solid #cfe6f5; border-radius: 8px; font-size: 12px; }
   .preview b { color: var(--accent); }
@@ -402,6 +407,11 @@ function restoreSelMemory() {
       inp.checked = want;
       label.classList.toggle('on', want);
     });
+    document.querySelectorAll('input[type=range][data-field]').forEach(r => {
+      const v = saved[r.dataset.field];
+      r.value = typeof v === 'number' ? v : 0;
+      document.getElementById('scaleVal_' + r.dataset.field).textContent = r.value;
+    });
   } catch { /* 忽略 */ }
 }
 
@@ -414,10 +424,21 @@ async function loadTaxonomy() {
     const div = document.createElement('div');
     div.className = 'group';
     const opts = g.fields.map(f => {
+      if (f.type === 'scale') {
+        // 标尺滑块（-3~+3，0=常规不偏重）
+        return `<div><div class="gtitle" title="${(f.tooltip || '').replace(/"/g, '&quot;')}">${f.title}</div>
+          <div class="scaleRow" data-scale="${f.id}">
+            <span class="scaleHint">${f.min} 柔顺</span>
+            <input type="range" min="${f.min}" max="${f.max}" step="1" value="0" data-field="${f.id}">
+            <span class="scaleHint">刚性 ${f.max}</span>
+            <span class="scaleVal" id="scaleVal_${f.id}">0</span>
+          </div></div>`;
+      }
       const optHtml = (f.options || [{ id: '__bool_on', label: f.title }]).map(o =>
         `<label class="opt" title="${(f.tooltip || '').replace(/"/g, '&quot;')}" data-field="${f.id}" data-opt="${o.id}" data-type="${f.type}">
            <input type="checkbox" value="${o.id}">${o.label}</label>`).join('');
-      return `<div><div class="gtitle" title="${(f.tooltip || '').replace(/"/g, '&quot;')}">${f.title}</div><div class="opts">${optHtml}</div></div>`;
+      const desc = f.id === 'load_type' ? '<div class="typedesc" id="loadTypeDesc"></div>' : '';
+      return `<div><div class="gtitle" title="${(f.tooltip || '').replace(/"/g, '&quot;')}">${f.title}</div><div class="opts">${optHtml}</div>${desc}</div>`;
     }).join('');
     div.innerHTML = `<div class="gtitle" title="${(g.tooltip || '').replace(/"/g, '&quot;')}">${g.title}</div><div class="gdesc">${g.tooltip || ''}</div>${opts}`;
     box.appendChild(div);
@@ -426,8 +447,27 @@ async function loadTaxonomy() {
   box.addEventListener('change', (e) => {
     const label = e.target.closest('.opt');
     if (label) label.classList.toggle('on', e.target.checked);
+    updateLoadTypeDesc();
     collectSelection(); preflight(); schedulePreview(); saveSelMemory();
   });
+  // 标尺滑块实时联动
+  box.addEventListener('input', (e) => {
+    if (e.target.type === 'range') {
+      document.getElementById('scaleVal_' + e.target.dataset.field).textContent = e.target.value;
+      updateLoadTypeDesc();
+      collectSelection(); preflight(); schedulePreview(); saveSelMemory();
+    }
+  });
+}
+
+/** 受力类型 ↔ 方向对应指引（多选多对应） */
+function updateLoadTypeDesc() {
+  const el = document.getElementById('loadTypeDesc');
+  if (!el) return;
+  const dirs = (collectSelection().load_direction || []);
+  el.textContent = dirs.length
+    ? `↳ 已选方向：${dirs.join('、')}——受力类型按各方向工况对应勾选（如 Z 受压 + X 受弯 → 同时勾受压、弯曲）`
+    : '';
 }
 
 function collectSelection() {
@@ -437,6 +477,11 @@ function collectSelection() {
     if (t === 'bool') sel[f] = true;
     else if (t === 'multi') (sel[f] = sel[f] || []).push(o);
     else if (t === 'single') sel[f] = o;
+  });
+  // 标尺：非 0 才收集（0=常规不偏重，等价默认不勾）
+  document.querySelectorAll('input[type=range][data-field]').forEach(r => {
+    const v = Number(r.value);
+    if (v !== 0) sel[r.dataset.field] = v;
   });
   return sel;
 }
@@ -448,7 +493,17 @@ function preflight() {
   const hits = [];
   for (const c of (TAXONOMY?.conflicts || [])) {
     if (c.level !== 'block') continue;
-    const whenOk = Object.entries(c.when).every(([f, vals]) => Array.isArray(sel[f]) ? sel[f].some(x => vals.includes(x)) : vals.includes(sel[f]));
+    const whenOk = Object.entries(c.when).every(([f, cond]) => {
+      const v = sel[f];
+      if (cond && typeof cond === 'object' && !Array.isArray(cond)) {
+        const n = Number(v);
+        if (!Number.isFinite(n)) return false;
+        if (cond.min !== undefined && n < cond.min) return false;
+        if (cond.max !== undefined && n > cond.max) return false;
+        return true;
+      }
+      return Array.isArray(v) ? v.some(x => cond.includes(x)) : cond.includes(v);
+    });
     if (!whenOk) continue;
     if (c.materialMatch && (!material || !(new RegExp(c.materialMatch, 'i')).test(material))) continue;
     hits.push(c.message);
