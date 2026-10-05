@@ -1115,3 +1115,14 @@
 - skill 沉淀（`.agents/skills/qianli-lab-network/SKILL.md`）：ax 切换偶发 2.4G 射频半死（配置开/信标停，修复=ax=1→0 重启射频，验收必须空中扫描）；4A dnsmasq 进程上游陈旧 SERVFAIL（restart 即愈）；设备两网漂移定案；主路由 10-04 夜间假死病史；手动换号 SOP（logout→login 首选→online_list 终验）。
 - 顶层 AGENTS.md 补 netlog 职能总表行（2026-09-27 上线时漏登记的历史欠账，本批顺带补齐）。
 - 未并入的遗留（保留待各自批次）：dashboard/server.js、feishu-gateway/DEVLOG.md、ticket-pm 三文件、duty-bot 子仓——均为其它会话批次的小尾巴，与本批无关。
+
+
+## v133 · 2026-10-05 · 随本提交落地 · fix
+
+**netlog v13 通知节流 + gateway v35 bambu 收口（「60 条私信」事故批，曼波指令：一并修复）**
+
+- 联动一：netlog/DEVLOG.md v13（详录）——当日校园网软踢拉锯，翻转事件+mismatch 即时私聊轰炸曼波 59+ 条。翻转改事故聚合（`*_down/*_up` 只落盘；`*_down_sustained` 持续 ≥10min 报警+2h 复报；`*_recovered` 抖动群恢复卡：30min 窗口累计 ≥5min 或 ≥3 次）；mismatch 4h 通知冷却；积压补发三条件限频（wan 恢复旁路/攒 10 条/超 2h）。stub 53+38=91 断言全绿（+14）。
+- 联动二：feishu-gateway/DEVLOG.md v35（详录）——bambu 路线 A（同日 v37）退役 `/api/feishu/event` 后网关侧没收口，表格事件广播对其全天 404 500+ 笔、投递统计污染。`DEFAULT_CONSUMERS` 移除 bambu、审批事件默认只发 ticket、`.env`（本地=部署源头）同步收口；部署后 health 消费者=hub/approval/ticket、计数归零、ws running。
+- registry：gateway 监听描述与 bambu 条目（role/listening）同步路线 A 现实（断飞书事件链、指令唯一出口）。
+- 归档 v132 批明确遗留的未提交项：`.agents/skills/qianli-lab-network/SKILL.md`（v132 已记档但 netlog push 只暂存 netlog/ 路径，漏归档）、dashboard/README.md 与 server.js 的「NAS→部署目标」称谓/看门狗静默窗注释对齐。
+- 仍未归档（待各自批次）：ticket-pm 三文件、duty-bot/approval-bot 子仓改动、顶层未跟踪 memory/（领域记忆目录，不进 git）。

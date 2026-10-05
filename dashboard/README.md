@@ -40,7 +40,7 @@ stderr/事件日志地静默死亡）。Startup 里另有 `qianli-ops-console-au
 | 更新状态 | 各仓 git 分支 / 最新提交 / 未提交改动数 |
 | 运行日志 | 部署目标 pm2 日志（SSH tail ~/.pm2/logs）+ 本地测试进程实时输出 |
 | **定制中心** | 各机器人后端定制窗口（`registry.js` 的 `windows` 清单）：白名单增删、名册全景与通讯录刷新、管辖策略/定制项全景、关键词回答表可视化编辑（增删改/启停/切表），读写经 `/api/nas/api`（SSH curl，端点名为历史命名）直达部署目标本机接口 |
-| **网络拓扑** | 云/主路由/小电脑/双子路由/4A 打印隔离区分区图（TCP 并行探测 + 出口 IP）；LAN 设备发现（ping 扫描 + ARP + OUI 厂商标注）与踢出/封禁/解封（经小米路由器 MAC 过滤，封禁持久化 `.banned-devices.json`） |
+| **网络拓扑** | 云/主路由/小电脑/旧NAS/4A 打印隔离区分区图（TCP 并行探测 + 出口 IP；裁判系统路由器已配置未部署，静态占位）；LAN 设备发现（ping 扫描 + ARP + OUI 厂商标注）与踢出/封禁/解封（经小米路由器 MAC 过滤，封禁持久化 `.banned-devices.json`） |
 | **R14 看门狗** | 每小时 SSH 逐端口 curl 各服务 `/api/health`（先探主路由判离站，连 2 轮异常才告警、12h 重提醒；23:00-09:00 静默 pending 补发；告警走 duty-bot 看板 webhook 或 `WATCHDOG_WEBHOOK_URL`） |
 
 ### 总览仪表台的口径说明
@@ -66,10 +66,10 @@ stderr/事件日志地静默死亡）。Startup 里另有 `qianli-ops-console-au
 - **本地测试启动/停止**：一键在本机跑起任意机器人（自动 `QUIET_HOURS_DISABLED=1`，
   手动测试不受晚间静默限制）；本地实例可直接调它的 `/api/bot/test-*` 等接口做干跑。
 - **快捷指令**：npm install、各项目 stub 测试、**npm run push 部署**（带提交说明输入与二次确认，
-  push = 提交 → GitHub → NAS → pm2 重启，qianli-deploy 链路）。
-- **NAS 重启**：单进程 pm2 restart + save（带确认）。
+  push = 提交 → GitHub → 部署目标（小电脑）→ pm2 重启，qianli-deploy 链路）。
+- **部署目标重启**（界面按钮沿用历史命名"NAS 重启"）：单进程 pm2 restart + save（带确认）。
 - **定制中心**：白名单加人/移人（即时生效）、触发名册通讯录同步、查看各域 policy 全景、
-  编辑 hub 关键词回答表（改动写 NAS `.local.json` 即时生效；npm push 会用本地 xlsx 版覆盖，
+  编辑 hub 关键词回答表（改动写部署目标 `.local.json` 即时生效；npm push 会用本地 xlsx 版覆盖，
   持久批量编辑仍以本地 `关键词回答表.xlsx` 为准）。
 
 ## 安全与隐私

@@ -813,7 +813,7 @@ app.listen(PORT, '127.0.0.1', () => {
 // - 巡检对象=registry.js 全部 pm2 项目（单一事实来源），SSH 到目标机逐端口 curl /api/health；
 // - 连续 2 轮异常才告警（校园网会话被踢秒级自愈是常态，单轮抖动不值得吵人）；恢复也通告；
 // - 告警通道=duty-bot 群机器人 webhook（.env 可用 WATCHDOG_WEBHOOK_URL 覆盖）；
-// - 告警过晚间静默闸门（02:00–09:00 静默，窗口后首个巡检点补发）；持续异常 12h 重提醒一次。
+// - 告警过晚间静默闸门（23:00–09:00 静默，窗口后首个巡检点补发）；持续异常 12h 重提醒一次。
 const WATCHDOG = {
   timer: null,
   state: new Map(),     // key -> { degraded, since, lastAlertAt, pending }

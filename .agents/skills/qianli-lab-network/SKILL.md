@@ -109,14 +109,26 @@ description: qianli 实验室/家庭网络拓扑、设备接入与断网排查�
 - **SSH 登录小电脑时 sshd 侧来源显示 192.168.31.1（主路由）而非本机地址**：说明包被主路由 hairpin NAT 过了一道（路径未按本机直连预期走）。功能无损，但两个后果：①基于源 IP 的 allowlist/日志溯源会把运维操作记成主路由；②证实「SSH_CLIENT=192.168.31.1」不代表是小电脑自己连自己。待定性：是否与双网卡选路有关，收敛网卡后复测。
 - 部署目标侧核对记录（2026-09-20 全量 debug 批）：pm2 实际目录 `C:\qianli\opt\<项目>`（git-bash 内不可用 `/opt/...` 短路径，PortableGit 根在 `C:\tools\PortableGit`，EXEPATH 可证）；hub/wecom 的 `.env` 在部署目录下 `server/` 子层，与本地一致。
 
-## 十一、裁判系统路由器（第三网段 3.x，2026-09-20 已入网）
+## 十一、裁判系统路由器（第三网段 3.x，2026-09-20 已入网；2026-10-05 官方软件落地批大更新）
 
 **术语先行**：本节与《网关拓扑文档.md》中"机器人"=与裁判系统连接的**物理机器人**（机甲大师场外）；开发内网 31.x 上的六仓"机器人"=飞书软件机器人服务，两者无任何关联。
 
-- **状态：已配置、已拔离（2026-09-29 更新）**。曼波亲手拔线（同 4A，因「消息在路由器内部迷路」），重接前本条状态仅存档。机型待补（小米系），LAN `192.168.3.1/24`、WiFi `裁判系统`（密码用户 2026-09-20 设，不写入 git）均已在手机上配好；曾入网（2026-09-20 晚）：wan=DHCP 拿到 `192.168.31.84`（MAC `EC:C1:AB:E4:B6:56`，经交换机）。
-- **联通设计**（部署后生效）：物理机器人→小电脑(31.57) 走裁判路由器 NAT 出站 + 小电脑防火墙规则 `Referee-Zone-192.168.3.0-24`（已加，全协议放行）；小电脑→物理机器人待官方软件发布后在其后台加端口转发（主网关 miwifi 无静态路由，3.x 无回程路由）。
-- **归属勘误（2026-09-20）**：曾误把主网上 `192.168.31.80`（MAC `cc:c4:b2:46:16:2f`）当作它——用户拔线后该设备仍应答 ping（延迟 171ms 反常），证实是**另一台未知设备**，待用户认领。识别未知设备勿只看"新出现的 MAC+时间吻合"，要有 MAC 前缀级证据。
-- **血的教训**：新路由器**默认 LAN 网段常与主网相同**（小米系默认 192.168.31.1），未改段直接 LAN-LAN 插入主网 = rogue DHCP 抢答，全网断网；插线瞬间还触发过一次校园网会话互踢（同账号重复认证）。**任何新路由器先脱机改段（本工作区约定序列：2.x 打印、3.x 裁判），再入网。**
+- **机型勘误（2026-10-05 实证）**：裁判系统路由器=**中兴问天 BE6800 Pro+（WiFi 7）**，非小米系（09-20 的「小米系」记录有误）。管理页 `http://192.168.3.1/`，Vue SPA（element-ui/Vue2）。
+- **凭据现状（2026-10-05）**：WiFi「裁判系统」密码=`cquqianli2027`（曼波口述候选第 5 个命中，WPA3-Personal）；**管理后台密码未知**——已确认试错：cquqianli / cquqianli2027 / cquqianli2026 / 2027cquqianli / 2026cquqianli / cquuqianli2026 / 7XTHGpHZ9sTxKFFEMM(Radmin的) / admin 全错；曼波口述=「某归档对话里生成的一串强密码」，本地 db.sqlite/剪贴板历史/checkpoints 挖掘未果，**待曼波提供**。ZTE 防爆破：连续失败锁 60s，试密码间隔≥60s。
+- **⛔ 官方硬性要求 vs 当前路由器配置的两大冲突（RoboMasterEngine 联网操作手册 V1.0，包内 StreamingAssets/Config/ 有 PDF）**：
+  1. **裁判系统局域网固定 192.168.1.0/24**，裁判端电脑的局域网网卡 IP 必须=`192.168.1.2`（图传/裁判主控按此硬编码找服务端）→ **路由器 LAN 必须从 3.x 改回 192.168.1.1/24**（1.x 只活在裁判路由器后面，与主网 31.x 无冲突，无 rogue 风险）；
+  2. **裁判系统局域网只支持 2.4G**（机器人裁判/图传模块 2.4G-only）→ 当前「裁判系统」SSID 在 **5GHz 信道 40**，机器人根本连不上，必须挪 2.4G。
+  两条都要进管理后台改，都被管理密码卡住。
+- **小电脑侧已就绪（2026-10-05）**：WLAN（Intel AX201）连「裁判系统」WiFi 可用；`192.168.1.2/24` 配置方法=静态/辅助 IP（New-NetIPAddress `-SkipAsSource $true`，出站仍走主地址不劫持路由）+ 接口跃点 20（`Set-NetIPInterface -InterfaceMetric 20`）+ 有线 31.57 保持生产通道不动；防火墙 `Referee-Zone-192.168.1.0-24` 已加（3.x 版规则 09-22 就有）。**坑**：接口 DHCP 与静态辅助 IP 在 renew 时互相清场（ipconfig /renew 清 Manual 地址、Set-NetIPInterface -Dhcp Enabled 清静态地址）——最终态=纯静态 192.168.1.2（关 WLAN DHCP），3.x 地址只是进后台的过渡桥。**坑2**：AX201 长期闲置会「powered down」（netsh 报 interface is powered down）——设备管理器/PnP 全正常，disable/enable 无效，**`pnputil /remove-device <InstanceId>` + `/scan-devices` 热重装即愈**，无需重启。
+- **RoboMasterEngine 12.0.0.137_Student（裁判端）结构**（两机桌面各一份，目录同名嵌套一层）：
+  - `RoboMasterEngine.exe`（Unity 客户端/裁判端 UI，双击后自动拉起服务器）；首次启动需：勾协议→本地 IP 配置测试（=有 192.168.1.2 网卡）+外网测试→DJI 会员扫码登录→「开始使用」（此时才真正拉起服务器）；
+  - `RoboMasterEngine_Data/StreamingAssets/RMServer/` = 赛事引擎服务器本体：`Server/RMServer.exe`（主服务端，.NET 4.8+DotNetty+Lua 场景 S0Scene_RMU_Student 等）+ `AdapterSvr/AdapterSvrS0.exe`（**对接机器人**）+ `RMServerLogClient`（日志，依赖 InfluxDB 语义但可独立跑）+ `Server/tool/Redis-x64-5.0.9`（**必需依赖**）；
+  - **端口全景（AdapterSvr 启动日志实测）**：机器人侧 TCP 15861 / **UDP 62101（WiFi 数据，机器人以 60000 为源端口发来）** / UDP 62102（视频）；客户端（Engine/操作手 UI）TCP 15862 + UDP 15863（S0 场景），S1 场景 64998/64999；RMServer.exe 监听随机高端口（25862/54998 实测，本机组件互通用）；Redis 6379。
+  - `start.bat` 一键拉起（RMServer→Adapter→LogClient→虚拟设备面板 HTML）。
+- **小电脑部署战况（2026-10-05）**：Redis ✓（schtask `RM-RedisStart` 直启 exe 存活）+ RMServer ✓（PowerShell Start-Process 起过，监听 25862/54998）+ LogClient ✓；**AdapterSvrS0.exe 起 15 秒内无条件 exit -1**（7 端口全监听成功+Redis success 后仍退，/IT 交互会话/无 show 参数/SSH session0 全试过）——**待 RDP 进桌面用桌面「一键启动裁判端.bat」（已放置，含四件套顺序+间隔）实跑验证**，RDP 会话是完整 GUI 环境，预期能活。
+- **Windows 计划任务启 GUI 程序经验**（本批淬炼）：①schtasks once 任务结束后**不杀**进程树（Redis /tr 直启 exe 活）；②bat 里 `start` 的子进程跟随 bat 的会话；③**bat 必须自带 `cd /d %~dp0`**（schtasks cwd=System32，官方 AdapterSvrS0.bat 就缺 cd，曾致 Adapter 永远起不来）；④SSH 会话启动的进程在断开时被 sshd 全树清理，nohup 无效；⑤GUI/消息泵类程序（AdapterSvr）在 session 0 会启动后自杀；⑥`.NET 程序的 Config 相对路径基于 exe 目录而非 cwd`（Redis 不挑 cwd 的原因）。
+- **ZTE BE6800 管理协议逆向存档**（改段自动化备查，卡在会话鉴权）：登录=`GET /?_type=loginsceneData&_tag=login_token_json`（拿 logintoken+_sessionToken）→`POST /?_type=loginData&_tag=login_entry`，Password=`sha256(明文+logintoken)` hex；body 表单 `Username=&Password=...&action=login&Frm_Logintoken=&captchaCode=&_sessionTOKEN=...`（浏览器经 axios 拦截器统一 urlencoded+尾部拼 `_sessionTOKEN`）；成功响应含 `login_need_refresh:true`；业务读=`GET /?_type=vueData&_tag=<tag>`，LAN 设置 tag=`vue_bripaddr_lua`；**卡点**：登录响应 lockingTime:0 无 login_need_refresh（服务端未认会话），GET 一律 SessionTimeout——Cookie SID/`_sessionTOKEN` 组合均试过未破，改段走浏览器手点最稳。
+- **历史存档**：曾入网时 wan=DHCP `192.168.31.84`（MAC `EC:C1:AB:E4:B6:56`，经交换机）；2026-09-29 曼波拔线（「消息在路由器内部迷路」）。**归属勘误（2026-09-20）**：主网上 `192.168.31.80`（MAC `cc:c4:b2:46:16:2f`）是**另一台未知设备**非本路由器。**血的教训**：新路由器默认 LAN 网段常撞主网（rogue DHCP 全网断网）——先脱机改段再入网（约定序列 2.x 打印、3.x 裁判；裁判段即将按官方要求迁 1.x，迁完本条序列同步更新）。
 
 ## 十二、校园网认证系统与断网重连插件（2026-09-27 探测归档，待回内网接续）
 
