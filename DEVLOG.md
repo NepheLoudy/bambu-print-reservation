@@ -1117,7 +1117,7 @@
 - 未并入的遗留（保留待各自批次）：dashboard/server.js、feishu-gateway/DEVLOG.md、ticket-pm 三文件、duty-bot 子仓——均为其它会话批次的小尾巴，与本批无关。
 
 
-## v133 · 2026-10-05 · 随本提交落地 · fix
+## v133 · 2026-10-05 · `6fefe11` · fix
 
 **netlog v13 通知节流 + gateway v35 bambu 收口（「60 条私信」事故批，曼波指令：一并修复）**
 
