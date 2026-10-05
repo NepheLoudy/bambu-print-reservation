@@ -69,8 +69,9 @@ function submit(overrides = {}, selection = { load_magnitude: 'medium' }) {
 
 // ---------- 提交校验 ----------
 
-check('create 缺材料拒绝（材料是冲突判定与规则映射的前提）', () => {
-  assert.throws(() => store.create({ applicant: 'x', fileName: 'a.stl', filePath: '/tmp/a' }), /材料类型不能为空/);
+check('create 材料可空（2026-10-05 曼波定：按需求标签反推材料）', () => {
+  const r = store.create({ applicant: 'x', fileName: 'a.stl', filePath: '/tmp/a', selection: {}, processParams: null, appliedRules: [] });
+  assert.equal(r.materialType, '');
 });
 
 check('create 硬冲突拒绝：耐温≥80°C × PLA', () => {
@@ -83,12 +84,13 @@ check('create 硬冲突拒绝：耐温≥80°C × PLA', () => {
 check('create 成功：单号格式与当日递增', () => {
   const a = submit();
   const b = submit({ color: '白色' });
-  assert.match(a.id, /^R\d{8}-001$/);
-  assert.match(b.id, /^R\d{8}-002$/);
+  assert.match(a.id, /^R\d{8}-\d{3}$/);
+  const na = Number(a.id.slice(-3));
+  assert.equal(b.id, a.id.slice(0, -3) + String(na + 1).padStart(3, '0'), '同日单号应递增');
 });
 
 check('processParams 快照随单入档（Z 向受力 → 层高 0.16）', () => {
-  const r = submit({}, { load_direction: 'Z', load_magnitude: 'heavy' });
+  const r = submit({}, { load_direction: ['Z'], load_magnitude: 'heavy' });
   assert.equal(r.processParams.layerHeight, 0.16);
   assert.equal(r.processParams.infillDensity, 60);
   assert.ok(r.appliedRules.some((x) => x.id === 'z-load-orient'));
@@ -211,6 +213,34 @@ check('cleanupExpiredUploads：UPLOAD_RETENTION_DAYS=0 禁用', () => {
   const r = store.cleanupExpiredUploads();
   assert.equal(r.disabled, true);
   delete process.env.UPLOAD_RETENTION_DAYS;
+});
+
+check('材料可空提交:需求标签反推材料约束随单下发', () => {
+  const material = 'PETG';
+  const applied = processRules.applyRules({ temp_class: 't80' }, { material }); // 引擎照常算 exclude
+  assert.equal(applied.blocked, false);
+  const rec = store.create({
+    applicant: '反推测试', fileName: 'a.stl', filePath: 'x',
+    materialType: '', // 留空
+    selection: { temp_class: 't80' },
+    processParams: applied.params, appliedRules: applied.applied,
+  });
+  const task = dispatcher.buildLocalTask(rec);
+  assert.deepEqual(task.materialExclude, ['^PLA'], '耐温标签的排除应随任务下发');
+  assert.equal(task.materialType, '');
+});
+
+check('findTray 材料反推:exclude 槽不可见,prefer 槽优先', () => {
+  const printer = { ams: [{ type: 'PLA', colorHex: '' }, { type: 'PETG', colorHex: '' }, { type: 'PA-CF', colorHex: '' }] };
+  // 排除 PLA 后:任意需求不再落 PLA 槽
+  const t1 = dispatcher.findTray(printer, '', null, 'exact', { exclude: ['^PLA'] });
+  assert.equal(t1.type, 'PETG', '排除 PLA 后应选到 PETG(非 prefer 时取首个合规槽)');
+  // prefer PA:直接命中 PA 槽
+  const t2 = dispatcher.findTray(printer, '', null, 'exact', { prefer: ['PA'] });
+  assert.equal(t2.type, 'PA-CF');
+  // 明确需求材料+exclude 抵触:需求优先按匹配走,exclude 过滤不匹配槽
+  const t3 = dispatcher.findTray(printer, 'PLA', null, 'exact', { exclude: ['^PETG'] });
+  assert.equal(t3.type, 'PLA', '排除 PETG 不影响明确要 PLA');
 });
 
 // ---------- 收尾：异步用例全部落定后清理与总结 ----------

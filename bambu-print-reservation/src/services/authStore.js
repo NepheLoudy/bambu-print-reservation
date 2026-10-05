@@ -162,6 +162,20 @@ const authStore = {
     }
   },
 
+  /** 修改密码（需登录 + 旧密码验证） */
+  changePassword(userId, oldPassword, newPassword) {
+    const data = load();
+    const user = data.users.find((u) => u.id === userId);
+    if (!user) throw new Error('用户不存在');
+    if (!verifyPassword(oldPassword, user.salt, user.passHash)) throw new Error('旧密码不正确');
+    if (String(newPassword || '').length < 6) throw new Error('新密码至少 6 位');
+    const salt = crypto.randomBytes(16).toString('hex');
+    user.salt = salt;
+    user.passHash = hashPassword(newPassword, salt);
+    save(data);
+    return true;
+  },
+
   /** 角色变更（admin 操作）：member/reviewer/admin */
   setRole(userId, role) {
     if (!ROLES.includes(role)) throw new Error(`非法角色: ${role}`);

@@ -73,10 +73,9 @@ check('空勾选通过（默认不勾=常规件一键提交）', () => {
 
 check('合法勾选通过', () => {
   const r = validateSelection({
-    load_direction: 'Z',
+    load_direction: ['Z'],
     load_type: ['bending', 'shear'],
     load_magnitude: 'medium',
-    quantity: 3,
     appearance: true,
   });
   assert.deepEqual(r.errors, []);
@@ -133,25 +132,23 @@ check('警告级：柔性弹性 × CF（材料条件）', () => {
 // ---------- selectionFromFormFields ----------
 
 const FORM_FIELDS = [
-  { title: '受力方向', value: 'Z 轴（竖直向上）' },
+  { title: '受力方向', value: 'Z 轴（工作时竖直向上）' },
   { title: '受力类型', value: '弯曲、剪切' },
   { title: '载荷量级', value: '中载' },
   { title: '使用寿命', value: '长期（跨学期）' },
   { title: '电气绝缘', value: '是' },
-  { title: '份数', value: '4' },
-  { title: '外观件', value: '否' },
+    { title: '外观件', value: '否' },
   { title: '材料类型', value: 'PETG' },
 ];
 
 check('表单字段 → 标准化勾选（中文 label 反查 id）', () => {
   const { selection } = selectionFromFormFields(FORM_FIELDS);
-  assert.equal(selection.load_direction, 'Z');
+  assert.deepEqual(selection.load_direction, ['Z']); // 受力方向 2026-10-05 改多选
   assert.deepEqual(selection.load_type, ['bending', 'shear']);
   assert.equal(selection.load_magnitude, 'medium');
   assert.equal(selection.service_life, 'long_term');
   assert.equal(selection.electrical_insulation, true);
-  assert.equal(selection.quantity, 4);
-  assert.ok(!('appearance' in selection), '显式为否不写入勾选');
+    assert.ok(!('appearance' in selection), '显式为否不写入勾选');
 });
 
 check('表单提取不带非本池字段（材料类型由既有解析负责）', () => {

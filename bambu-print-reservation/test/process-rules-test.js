@@ -53,7 +53,7 @@ check('空勾选 → baseline 原样输出，无应用记录', () => {
 });
 
 check('Z 向受力 → 改朝向策略 + 层高加密', () => {
-  const r = applyRules({ load_direction: 'Z' });
+  const r = applyRules({ load_direction: ['Z'] });
   assert.equal(r.params.directionStrategy, 'avoid-z-load');
   assert.equal(r.params.layerHeight, 0.16);
   assert.ok(r.applied.some((a) => a.id === 'z-load-orient'));

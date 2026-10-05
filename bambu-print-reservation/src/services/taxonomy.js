@@ -24,18 +24,18 @@ const groups = [
     fields: [
       {
         id: 'load_direction',
-        type: 'single',
+        type: 'multi',
         title: '受力方向',
         formTitle: '受力方向',
-        tooltip: '以模型上传时姿态为参照（Z=竖直向上）。Z 向受力=沿层缝受力，引擎会优先改打印朝向避开；改不了则强化层间',
+        tooltip: '按此件【工作时】的朝向选择受力方向，可多选（Z=工作时竖直向上）。Z 向受力≈沿打印层缝方向（最弱），引擎会优先调整打印朝向避开；改不了则强化层间',
         options: [
           { id: 'X', label: 'X 轴（水平横向）' },
           { id: 'Y', label: 'Y 轴（水平纵向）' },
-          { id: 'Z', label: 'Z 轴（竖直向上）' },
+          { id: 'Z', label: 'Z 轴（工作时竖直向上）' },
           { id: 'multi', label: '多向/复杂受力' },
         ],
         mapsHint: [
-          'Z → 优先改朝向避开层间受力；不可避 → 层高 0.12–0.16、墙数+、热床 +5~10°C 强化层间',
+          'Z → 优先改打印朝向使受力方向偏离层缝；不可避 → 层高 0.12–0.16、墙数+、热床 +5~10°C 强化层间',
           'multi → 不强行改朝向，按强度档位补墙/填充',
         ],
       },
@@ -169,10 +169,9 @@ const groups = [
         type: 'single',
         title: '配合需求',
         formTitle: '配合需求',
-        tooltip: '间隙=能装能转（轴孔）；过渡=紧配；过盈=压装；精密=有公差要求的配合面。螺纹孔请配合下方「连接方式」标注',
+        tooltip: '间隙=能装能转（轴孔、活连接）；过盈=压装配（紧配）；精密=配合面有公差要求。螺纹孔请勾下方「连接方式」标注规格',
         options: [
           { id: 'clearance', label: '间隙配合' },
-          { id: 'transition', label: '过渡配合' },
           { id: 'interference', label: '过盈配合' },
           { id: 'precision', label: '精密公差' },
         ],
@@ -185,17 +184,19 @@ const groups = [
         type: 'multi',
         title: '连接方式',
         formTitle: '连接方式',
-        tooltip: '可多选。自攻螺钉=直接拧入塑料；机制螺栓=M2/M3/M4 螺栓过孔；热熔铜螺母=烙铁压入预埋件；胶接=粘接面',
+        tooltip: '可多选。自攻螺钉=直接拧入塑料；机制螺栓=M2/M3/M4 螺栓过孔；热熔铜螺母=烙铁压入预埋件；胶接=粘接面；打印件自配合=多个打印件插接/卡扣装配',
         options: [
           { id: 'self_tapping', label: '自攻螺钉' },
           { id: 'machine_screw', label: '机制螺栓' },
           { id: 'heatset_insert', label: '热熔铜螺母' },
           { id: 'adhesive', label: '胶接' },
+          { id: 'printed_interlock', label: '打印件自配合（插接/卡扣）' },
         ],
         mapsHint: [
           'self_tapping → 底孔直径按规格表（M2/M3/M4）、孔周 ≥2 圈墙',
           'machine_screw → 通孔负补偿（公差）',
           'heatset_insert → 孔径按嵌件规格、孔周加固；胶接 → 接触面粗糙化提示（0.2 层高即可）',
+          'printed_interlock → 插接面预留 0.2–0.3mm 间隙、孔销负补偿、配合面支撑避让',
         ],
       },
     ],
@@ -285,7 +286,7 @@ const groups = [
   {
     id: 'efficiency',
     title: '效率与批量',
-    tooltip: '工期与数量——高速牺牲表面质量换时间',
+    tooltip: '工期与数量——高速牺牲表面质量换时间（份数在表单顶部填写）',
     fields: [
       {
         id: 'fast_mode',
@@ -293,15 +294,7 @@ const groups = [
         title: '高速打印',
         formTitle: '高速打印',
         tooltip: '用高速度/粗层高换工期（表面质量略降）。会联动加急排队优先级；与外观件互斥，引擎会警告',
-        mapsHint: ['高速 profile（层高 0.2+、提速）；联动 isUrgent 排队加权'],
-      },
-      {
-        id: 'quantity',
-        type: 'number',
-        title: '份数',
-        formTitle: '份数',
-        tooltip: '需要打印的件数（1–99）。批量将排版多件或分机并行，ETA 按份数放大',
-        mapsHint: ['N 件排版/分机并行；ETA = N × 单件时长（切片产物自带时长）'],
+        mapsHint: ['高速 profile（层高 0.2+、提速、支撑稀疏化）；联动 isUrgent 排队加权'],
       },
     ],
   },
@@ -468,7 +461,8 @@ function selectionFromFormFields(fields) {
       if (opt) selection[field.id] = opt.id;
       else unmatched.push(`${title}: 选项「${label}」不在标签池内`);
     } else if (field.type === 'multi') {
-      const labels = Array.isArray(raw) ? raw : String(raw || '').split(/[,，、\s]+/);
+      // 仅按显式分隔符切分（逗号/顿号/分号）——标签本身可能含空格（如「Z 轴（…）」），不能按空白切
+      const labels = Array.isArray(raw) ? raw : String(raw || '').split(/[,，、;；]+/);
       const ids = [];
       for (const label of labels) {
         const opt = field.options.find((o) => o.label === label.trim());
@@ -489,7 +483,7 @@ function selectionFromFormFields(fields) {
 function getTaxonomy() {
   return {
     version: TAXONOMY_VERSION,
-    convention: '受力方向以模型上传时摆放姿态为参照，Z = 竖直向上',
+    convention: '受力方向按此件【工作时】的朝向为准（Z=工作时竖直向上，可多选）；材料可不填——引擎按需求标签反推可用材料（排除/优先）',
     groups: groups.map((g) => ({
       id: g.id,
       title: g.title,

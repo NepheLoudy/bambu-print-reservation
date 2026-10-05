@@ -118,6 +118,19 @@ app.get('/api/auth/me', (req, res) => {
   res.json(user);
 });
 
+// 修改密码（登录态 + 旧密码验证；api-token 通道无改密语义，明确拒绝）
+app.post('/api/auth/change-password', (req, res) => {
+  const user = authStore.resolveSession(parseCookies(req).bambu_session);
+  if (!user || user.id === 'api-token') return res.status(401).json({ error: '未登录' });
+  try {
+    const { oldPassword, newPassword } = req.body || {};
+    authStore.changePassword(user.id, oldPassword, newPassword);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // 用户管理（admin）：名册 + 角色升降
 app.get('/api/auth/users', requireUser('admin'), (req, res) => {
   res.json(authStore.listUsers());

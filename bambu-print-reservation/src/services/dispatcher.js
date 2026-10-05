@@ -18,7 +18,8 @@ const isApprovalTask = (t) => t.fileSource === 'approval';
 const isLocalTask = (t) => t.fileSource === 'local';
 const isMirrorTask = (t) => !isApprovalTask(t) && !isLocalTask(t);
 
-/** 本地预约记录 → 分发任务（审批通过入队 / manualDispatch 恢复共用） */
+/** 本地预约记录 → 分发任务（审批通过入队 / manualDispatch 恢复共用）。
+ *  materialExclude/materialPrefer 随单下发：材料留空时由需求标签反推可选材料 */
 function buildLocalTask(reservation) {
   return {
     recordId: reservation.id,
@@ -32,8 +33,26 @@ function buildLocalTask(reservation) {
     assignedPrinter: reservation.assignedPrinter,
     isUrgent: reservation.isUrgent,
     quantity: reservation.quantity,
+    materialExclude: reservation.processParams?.materialExclude || [],
+    materialPrefer: reservation.processParams?.materialPrefer || [],
     applicant: { id: '', name: reservation.applicant || '' },
   };
+}
+
+/** 料槽是否未被排除（materialExclude regex 源对料槽材料求值） */
+function trayAllowed(tray, excludeSrc) {
+  if (!Array.isArray(excludeSrc) || excludeSrc.length === 0) return true;
+  return !excludeSrc.some((src) => {
+    try { return new RegExp(src, 'i').test(String(tray.type || '')); } catch { return false; }
+  });
+}
+
+/** 料槽是否命中优先材料 */
+function trayPreferred(tray, preferSrc) {
+  if (!Array.isArray(preferSrc) || preferSrc.length === 0) return false;
+  return preferSrc.some((src) => {
+    try { return new RegExp(src, 'i').test(String(tray.type || '')); } catch { return false; }
+  });
 }
 
 /** 按任务来源取切片/模型文件 buffer */
@@ -434,26 +453,33 @@ class Dispatcher {
     const needMaterial = String(task.materialType || '').trim().toUpperCase();
     const needColor = String(task.color || '').trim();
     const colorRgb = config.colorReference[needColor] || null;
+    // 需求标签反推的材料约束（材料留空时生效的 exclude/prefer 随单下发）
+    const trayOpts = { exclude: task.materialExclude, prefer: task.materialPrefer };
 
     // 2. AMS 精确材料匹配（+颜色近似）
     for (const printer of candidates) {
-      const tray = this.findTray(printer, needMaterial, colorRgb, 'exact');
+      const tray = this.findTray(printer, needMaterial, colorRgb, 'exact', trayOpts);
       if (tray) return printer;
     }
     // 3. 家族匹配（PLA-CF/PLA-HF 等）
     for (const printer of candidates) {
-      const tray = this.findTray(printer, needMaterial, colorRgb, 'family');
+      const tray = this.findTray(printer, needMaterial, colorRgb, 'family', trayOpts);
       if (tray) return printer;
     }
     return null;
   }
 
-  findTray(printer, needMaterial, colorRgb, level) {
+  findTray(printer, needMaterial, colorRgb, level, opts = {}) {
+    // 排除/优先（2026-10-05 材料反推）：exclude 槽直接不可见；需求为空时优先命 prefer 槽
+    const trays = (printer.ams || []).filter((t) => trayAllowed(t, opts.exclude));
     if (!needMaterial) {
-      // 未填材料：任意有料的槽位即可
-      return (printer.ams || []).find((t) => t.type) || null;
+      if (Array.isArray(opts.prefer) && opts.prefer.length > 0) {
+        const hit = trays.find((t) => t.type && trayPreferred(t, opts.prefer));
+        if (hit) return hit;
+      }
+      return trays.find((t) => t.type) || null;
     }
-    for (const tray of printer.ams || []) {
+    for (const tray of trays) {
       if (materialMatch(needMaterial, tray.type) !== level) continue;
       if (!colorRgb || !tray.colorHex) return tray;
       if (colorDistance(tray.colorHex, rgbToHex(colorRgb)) <= config.dispatch.colorDistanceThreshold) {

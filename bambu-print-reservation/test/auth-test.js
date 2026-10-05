@@ -161,6 +161,16 @@ check('注册邀请码:配置后无码/错码拒绝,正确码放行', () => {
   assert.equal(v.role, 'member');
 });
 
+check('changePassword:旧密码验证+新密码生效', () => {
+  authStore.register({ username: 'cp1', password: 'oldpass1', displayName: '改密测试' });
+  const u = authStore.listUsers().find((x) => x.username === 'cp1');
+  assert.throws(() => authStore.changePassword(u.id, 'wrong-old', 'newpass1'), /旧密码不正确/);
+  assert.throws(() => authStore.changePassword(u.id, 'oldpass1', '123'), /至少 6 位/);
+  authStore.changePassword(u.id, 'oldpass1', 'newpass1');
+  assert.ok(authStore.login('cp1', 'newpass1'));
+  assert.throws(() => authStore.login('cp1', 'oldpass1'), /用户名或密码错误/);
+});
+
 // ---------- 收尾 ----------
 Promise.all(pending).then(() => {
   try { fs.unlinkSync(process.env.AUTH_STORE_FILE); } catch { /* 无则跳过 */ }

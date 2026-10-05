@@ -63,13 +63,12 @@ const reservationStore = {
   STORE_FILE,
   UPLOAD_DIR,
 
-  /** 提交预约：selection 必须通过 taxonomy 校验（材料类冲突需传材料，材料为必填所以总能判） */
+  /** 提交预约：材料可空——由需求标签反推（materialExclude/materialPrefer 随 processParams 下发选机） */
   create(input) {
     const errors = [];
     if (!input.applicant || !String(input.applicant).trim()) errors.push('发起人不能为空');
     if (!input.fileName) errors.push('切片/模型文件不能为空');
     if (!input.filePath) errors.push('文件未落盘');
-    if (!String(input.materialType || '').trim()) errors.push('材料类型不能为空（材料决定冲突判定与规则映射）');
 
     const selection = input.selection || {};
     const gate = taxonomy.validateSelection(selection, { material: input.materialType });
@@ -92,7 +91,7 @@ const reservationStore = {
       fileName: input.fileName,
       filePath: input.filePath,
       fileSize: input.fileSize || 0,
-      materialType: String(input.materialType).trim(),
+      materialType: String(input.materialType || '').trim(),
       color: String(input.color || '').trim(),
       assignedPrinter: String(input.assignedPrinter || '').trim(),
       isUrgent: Boolean(input.isUrgent),

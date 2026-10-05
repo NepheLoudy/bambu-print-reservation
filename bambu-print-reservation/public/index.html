@@ -112,7 +112,7 @@
     <div class="card">
       <h2>📝 提交预约</h2>
       <div class="row">
-        <div><label>材料类型 *</label><input type="text" id="materialType" placeholder="如 PLA / PETG / PLA-CF" oninput="preflight(); schedulePreview()"></div>
+        <div><label>材料类型（可空——留空则按需求标签自动反推可用材料）</label><input type="text" id="materialType" placeholder="如 PLA / PETG / PLA-CF，不知道就留空" oninput="preflight(); schedulePreview()"></div>
         <div><label>颜色</label><input type="text" id="color" placeholder="如 黑色 / 白色"></div>
         <div><label>份数</label><input type="number" id="quantity" value="1" min="1" max="99"></div>
         <div><label>指定打印机（可空，默认自动匹配）</label><input type="text" id="assignedPrinter" placeholder="如 X1C-01"></div>
@@ -193,6 +193,19 @@ async function logout() {
   renderIdentity();
 }
 
+async function changePassword() {
+  const oldPassword = prompt('当前密码：');
+  if (!oldPassword) return;
+  const newPassword = prompt('新密码（≥6 位）：');
+  if (!newPassword) return;
+  const res = await fetch('/api/auth/change-password', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ oldPassword, newPassword }),
+  });
+  const data = await res.json();
+  toast(res.ok ? '✅ 密码已修改' : '❌ ' + data.error);
+}
+
 async function loadMe() {
   try {
     const res = await fetch('/api/auth/me');
@@ -212,6 +225,7 @@ function renderIdentity() {
   $('authCard').style.display = 'none';
   $('appBody').style.display = 'block';
   box.innerHTML = `你好，<b>${ME.displayName}</b><span class="role r-${ME.role}">${ME.role}</span>
+    <button onclick="changePassword()">改密码</button>
     <button onclick="logout()">退出</button>`;
   $('adminCard').style.display = isAdmin() ? 'block' : 'none';
   $('reviewCard').style.display = isReviewer() ? 'block' : 'none';
@@ -247,7 +261,9 @@ async function applyPreview() {
     const p = data.params;
     const items = ['layerHeight', 'wallLoops', 'topShellLayers', 'bottomShellLayers', 'infillDensity', 'infillPattern', 'speedProfile', 'supportType', 'supportThresholdAngle', 'supportDensity', 'seamPosition']
       .map((k) => p[k] !== undefined && `<span class="pv">${PARAM_LABELS[k]}=<b>${p[k]}</b></span>`).filter(Boolean).join('');
-    const mat = data.materialVerdict ? `<span class="pv">材料裁定=<b>${data.materialVerdict.excluded ? '⛔排除' : data.materialVerdict.preferred ? '✅优先' : '—'}</b></span>` : '';
+    const mat = data.materialVerdict ? `<span class="pv">材料裁定=<b>${data.materialVerdict.excluded ? '⛔排除' : data.materialVerdict.preferred ? '✅优先' : '—'}</b></span>`
+      : (p.materialExclude?.length || p.materialPrefer?.length)
+        ? `<span class="pv">材料反推=<b>${p.materialExclude?.length ? '排除 ' + p.materialExclude.join('/') + ' ' : ''}${p.materialPrefer?.length ? '优先 ' + p.materialPrefer.join('/') : ''}</b>（分发时按 AMS 实装自动选）</span>` : '';
     $('paramPreview').style.display = 'block';
     $('paramPreview').innerHTML = `<b>⚙️ 本单参数预览</b>（命中 ${data.applied.length} 条规则）<br>${items}${mat}`;
   } catch { /* 预览失败不打扰提交 */ }
@@ -446,7 +462,6 @@ function preflight() {
 async function submitReservation() {
   const file = $('file').files[0];
   if (!file) return toast('请选择模型/切片文件');
-  if (!$('materialType').value.trim()) return toast('材料类型必填（用于冲突判定与规则映射）');
   if (preflight().length) return toast('存在硬冲突，请先调整勾选');
 
   const fd = new FormData();
