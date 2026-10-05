@@ -125,8 +125,9 @@
         <div><label>指定打印机（可空，默认自动匹配）</label><input type="text" id="assignedPrinter" placeholder="如 X1C-01"></div>
       </div>
       <div class="row">
-        <div><label>模型 / 切片文件 *（.stl / .step / .3mf，≤200MB）</label><input type="file" id="file"></div>
+        <div><label>模型 / 切片文件 *（.stl/.step 走需求链路：勾选工况自动定档；.3mf 走审批直通：切片参数已内嵌）</label><input type="file" id="file" accept=".stl,.step,.stp,.3mf,.obj"></div>
       </div>
+      <div class="preview" id="slicedNotice" style="display:none">📦 <b>3mf 审批直通模式</b>——切片参数与 AMS 颜色映射已内嵌文件，无需工况勾选；材料/颜色栏仅用于选机匹配</div>
       <div id="taxonomy"></div>
       <div class="hint" id="conflictHint"></div>
       <div class="convention" id="convention"></div>
@@ -252,6 +253,7 @@ function schedulePreview() {
   previewTimer = setTimeout(applyPreview, 250);
 }
 async function applyPreview() {
+  if (isSlicedFile()) return; // 3mf 直通:不定档不预览
   const material = $('materialType').value.trim();
   const sel = collectSelection();
   if (!material && Object.keys(sel).length === 0) { $('paramPreview').style.display = 'none'; return; }
@@ -473,6 +475,19 @@ function updateLoadTypeDesc() {
     : '';
 }
 
+/** 双通道模式感知（2026-10-05 曼波定）：3mf=审批直通（隐藏勾选区），stl/step=需求链路 */
+function isSlicedFile() {
+  const f = $('file').files[0];
+  return !!f && /\.3mf$/i.test(f.name);
+}
+function updateSlicedMode() {
+  const sliced = isSlicedFile();
+  $('taxonomy').style.display = sliced ? 'none' : 'block';
+  $('slicedNotice').style.display = sliced ? 'block' : 'none';
+  if (sliced) { $('paramPreview').style.display = 'none'; $('conflictHint').textContent = ''; }
+  else preflight();
+}
+
 function collectSelection() {
   const sel = {};
   document.querySelectorAll('.opt.on').forEach(l => {
@@ -491,6 +506,7 @@ function collectSelection() {
 
 function preflight() {
   const hint = $('conflictHint');
+  if (isSlicedFile()) { hint.textContent = ''; $('submitBtn').disabled = false; return []; } // 3mf 直通:无标签冲突
   const material = $('materialType').value.trim();
   const sel = collectSelection();
   const hits = [];
@@ -528,7 +544,8 @@ async function submitReservation() {
   fd.append('color', $('color').value.trim());
   fd.append('assignedPrinter', $('assignedPrinter').value.trim());
   fd.append('quantity', $('quantity').value || 1);
-  fd.append('selection', JSON.stringify(collectSelection()));
+  // 3mf 直通不提交勾选（切片参数内嵌）；需求链路提交标签
+  fd.append('selection', JSON.stringify(isSlicedFile() ? {} : collectSelection()));
 
   const btn = $('submitBtn'); btn.disabled = true; $('submitHint').textContent = '提交中…';
   try {
@@ -538,6 +555,7 @@ async function submitReservation() {
     if (!res.ok) throw new Error((data.details || []).concat([data.error]).filter(Boolean).join('；'));
     toast(`✅ 已提交 ${data.id}，等待审批`);
     $('file').value = ''; $('submitHint').textContent = '';
+    updateSlicedMode();
     saveSelMemory();
     loadList();
   } catch (err) {
@@ -559,6 +577,7 @@ async function loadList() {
     const params = r.processParams ? Object.entries(r.processParams)
       .filter(([k, v]) => !['materialExclude', 'materialPrefer'].includes(k) && v !== '' && v !== null && !(Array.isArray(v) && !v.length))
       .map(([k, v]) => `${k}=${Array.isArray(v) ? v.join('|') : v}`).join(' · ') : '';
+    const srcTag = r.processParams ? '' : '<b>3mf 直通</b>（切片参数内嵌）<br>';
     const rules = (r.appliedRules || []).map(x => x.reason).join('；');
     const hist = (r.history || []).map(h => `${(h.at || '').replace('T', ' ').slice(5, 16)} ${h.to}${h.note ? '（' + h.note + '）' : ''}`).reverse().join('<br>');
     const pending = r.status === '待审批';
@@ -574,7 +593,7 @@ async function loadList() {
       <td><span class="badge s-${r.status}">${r.status}</span>${r.printer ? '<br><span class="detail">' + r.printer + '</span>' : ''}</td>
       <td>${r.applicant || '?'}${mine ? '<br><span class="detail">(我)</span>' : ''}<br><span class="detail">${r.fileName || ''}</span></td>
       <td>${r.materialType || '?'}${r.color ? '×' + r.color : ''}${r.isUrgent ? ' ⚡' : ''}${r.quantity > 1 ? ' ×' + r.quantity + '件' : ''}</td>
-      <td class="detail">${params ? '<b>参数</b> ' + params + '<br>' : ''}${rules ? '<b>依据</b> ' + rules + '<br>' : ''}${hist}</td>
+      <td class="detail">${srcTag}${params ? '<b>参数</b> ' + params + '<br>' : ''}${rules ? '<b>依据</b> ' + rules + '<br>' : ''}${hist}</td>
       <td>${reviewBtns}${cancelBtn}</td>
     </tr>`;
   }).join('');
@@ -656,6 +675,7 @@ async function loadPrinters() {
   await loadMe();
   await loadTaxonomy();
   restoreSelMemory();
+  $('file').addEventListener('change', updateSlicedMode); // 双通道模式感知
   preflight();
   schedulePreview();
   if (ME) { await loadList(); loadPrinters(); }

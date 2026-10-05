@@ -292,42 +292,52 @@ app.get('/api/reservations/:id', requireUser(), async (req, res) => {
   }
 });
 
-// 提交预约（登录用户；v28「用户链路不挂 token」口径更新为挂**账号会话**——防止冒名提交）：
-// multipart 上传源文件 + 标签勾选；发起人取登录身份（body.applicant 不再被信任）；
-// 提交即过规则引擎定档（参数快照随单存档供审批人审），硬冲突当场打回
+// 提交预约（登录用户）：**双通道分流（2026-10-05 曼波定）**——
+//   .stl/.step/.stp = 需求链路：标签勾选 → 规则引擎定档切片参数（未来接服务端切片）；
+//   .3mf = 审批直通：切片参数/AMS 映射已内嵌文件，引擎不定档不越俎代庖，审批后直接分发；
+// 发起人取登录身份；硬冲突仅需求链路拦截（3mf 无标签冲突概念）
 app.post('/api/reservations', requireUser(), upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: '缺少文件（multipart 字段名 file）' });
     const body = req.body || {};
+    const fileName = Buffer.from(req.file.originalname || 'unnamed', 'latin1').toString('utf8');
+    const isSliced = /\.3mf$/i.test(fileName); // 3mf = 已切片产物 → 审批直通
+
     let selection = {};
-    try {
-      selection = body.selection ? JSON.parse(body.selection) : {};
-    } catch {
-      return res.status(400).json({ error: 'selection 不是合法 JSON' });
+    if (!isSliced) {
+      try {
+        selection = body.selection ? JSON.parse(body.selection) : {};
+      } catch {
+        return res.status(400).json({ error: 'selection 不是合法 JSON' });
+      }
     }
 
-    const applied = processRules.applyRules(selection, { material: body.materialType });
-    if (applied.blocked) {
-      try { fs.unlinkSync(req.file.path); } catch { /* 已不存在 */ }
-      return res.status(400).json({ error: '需求勾选存在硬冲突', details: applied.errors, warnings: applied.warnings });
+    // 需求链路才定档；3mf 直通（参数内嵌，快照置空并在页面标注）
+    let applied = null;
+    if (!isSliced) {
+      applied = processRules.applyRules(selection, { material: body.materialType });
+      if (applied.blocked) {
+        try { fs.unlinkSync(req.file.path); } catch { /* 已不存在 */ }
+        return res.status(400).json({ error: '需求勾选存在硬冲突', details: applied.errors, warnings: applied.warnings });
+      }
     }
 
     const reservation = await reservationService.createReservation({
       applicant: req.user.displayName, // 发起人 = 登录身份（防冒名），body.applicant 忽略
       submittedBy: req.user.id,        // 归属判定键（本人取消等）
       // 仅文件名需 latin1→UTF-8 还原（文本字段 busboy 已按 UTF-8 解好）
-      fileName: Buffer.from(req.file.originalname || 'unnamed', 'latin1').toString('utf8'),
+      fileName,
       filePath: req.file.path,
       fileSize: req.file.size,
       materialType: body.materialType,
       color: body.color,
       assignedPrinter: body.assignedPrinter,
-      // 高速打印标签联动加急排队（2026-10-05 标签定稿口径）
+      // 高速打印标签联动加急排队（仅需求链路；3mf 加急走表单 isUrgent）
       isUrgent: body.isUrgent === 'true' || body.isUrgent === '1' || selection.fast_mode === true,
       quantity: body.quantity,
       selection,
-      processParams: applied.params,
-      appliedRules: applied.applied,
+      processParams: applied ? applied.params : null,
+      appliedRules: applied ? applied.applied : [],
     });
 
     reservationService.notifyReviewers(reservation).catch(() => {}); // fire-and-forget

@@ -300,6 +300,20 @@ check('taxonomy v2.1:多色打印标签在池', () => {
   assert.ok(ids.has('multi_color'), '缺 multi_color');
 });
 
+check('双通道分流:3mf 提交跳过定档(processParams null),stl/step 照常', () => {
+  const r3mf = store.create({
+    applicant: '直通测试', fileName: 'done.3mf', filePath: 'x', materialType: 'PETG', color: '白色+黑色',
+    selection: {}, processParams: null, appliedRules: [],
+  });
+  assert.equal(r3mf.processParams, null, '3mf 不定档');
+  assert.deepEqual(r3mf.appliedRules, []);
+  const rstl = submit(); // stl 走需求链路(有快照)
+  assert.ok(rstl.processParams && rstl.processParams.layerHeight, 'stl 应有定档快照');
+  // 3mf 多色直接按颜色栏匹配(无 multi_color 标签依赖)
+  const t = dispatcher.buildLocalTask(r3mf);
+  assert.equal(t.materialType, 'PETG');
+});
+
 // ---------- 收尾：异步用例全部落定后清理与总结 ----------
 Promise.all(pending).then(() => {
   for (const f of [process.env.RESERVATIONS_STORE_FILE, process.env.DISPATCH_STATE_FILE, process.env.QUIET_BACKLOG_FILE]) {
