@@ -23,3 +23,11 @@ dashboard-run.log
 # 校园网账号策略池等本地私有凭据（*.local.json 命名惯例，同 hub autoReplies.local.json）
 **/*.local.json
 **/*.local.md
+
+# 她的记忆目录（家在大脑仓库，经 brain-sync 同步；内含私人事件流，不入顶层归档仓）
+memory/
+
+# 会话调试残留（2026-10-07 裁判 WiFi/MAC 排查批）：MAC 覆盖脚本 + WLAN profile 导出（XML 内含明文 WiFi 密码，禁入 git；文件本体留本地待曼波处置）
+.tmp-*
+WLAN-*.xml
+.dashboard-run.log

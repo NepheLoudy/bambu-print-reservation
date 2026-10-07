@@ -868,7 +868,7 @@ function renderNetwork() {
   // 子路由·隔离区分区（2026-09-22）：4A=打印机区（实时探测）；裁判区=未部署静态卡
   const subRouterNodes = [
     byId.print4a ? branch(card(byId.print4a, '<div class="nhost">打印机隔离区 · 192.168.2.1/24（wan 静态 31.98）</div>')) : '',
-    branch(card({ name: '裁判系统路由器', host: '192.168.3.1', up: null, ports: [] }, '<div class="nhost">物理机器人网段 · 未部署（配置已保存）</div>')),
+    branch(card({ name: '裁判系统路由器', host: '192.168.3.1', up: null, ports: [] }, '<div class="nhost">隔离隐身态（2026-10-07 曼波拍板：SSID 关停不广播）· 链路未部署（等 Engine 联调，PHY 墙待破）</div>')),
   ].join('');
   const devCards = discovered
     .filter((d) => !targetHosts.has(d.ip))
