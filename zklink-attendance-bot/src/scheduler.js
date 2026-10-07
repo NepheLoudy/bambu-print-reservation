@@ -1,0 +1,235 @@
+// ============================================================
+// 周播调度 + 补发（watchdog）
+//
+// - 定时：node-cron 按 ZK_ATT_BROADCAST_CRON（默认周一 09:30 上海时间）播上一周；
+// - 补发：每小时整点对表——若已过本周发送时刻而水位(lastSentWeekKey)没跟上，
+//   说明发送时段进程不在线（重启/宕机），立即补发该周。补发同时天然承担
+//   失败重试（拉数/发送/留档失败不改水位，下个整点自动再试），无需独立重试队列。
+// - 静默口径：自动播报全过闸（utils/quietHours）——周播 cron 本体命中静默窗口
+//   （02:00–09:00，默认 09:30 在窗外）整轮跳过；补发看门狗与失败告警同样命中即跳过。
+//   窗口后下一个整点 tick 按最新状态重查补发/补播——本任务是可重扫型，无需积压落盘。
+// - 首启保护：水位为空（从未成功播报过）不补发，避免部署即广播；
+//   可用 POST /api/attendance/test-broadcast 手动触发验证。
+// - 播报与云文档留档是独立水位通道（done.feishu / done.archived）：重试只补
+//   未完成通道，不重复轰炸；云文档未配置视为 skipped 不进重试（本地 archive/ 兜底）。
+//   已知边界：云文档追加成功但响应丢失的极端场景，重试可能追加出重复小节
+//   （概率极低，人肉删一次即可；不做文档内容级去重）。
+// ============================================================
+const cron = require('node-cron');
+const fs = require('fs');
+const path = require('path');
+const config = require('./config');
+const report = require('./report');
+const store = require('./store');
+const zklink = require('./zklink');
+const feishu = require('./feishu');
+const archiver = require('./archiver');
+const quietHours = require('./utils/quietHours');
+const importService = require('./importService');
+
+let cronTask = null;
+let watchdogTask = null;
+let running = false;
+
+function sendDowOrDefault() {
+  return config.cronParts.dow == null ? 1 : config.cronParts.dow;
+}
+
+// 合并保存：以磁盘最新 state 为底叠加本次字段（runWeekly 发送耗时窗口内，import 端点
+// 可能已写入新的 imported 数据——整对象替换旧快照会把并发写入回滚丢失）
+function mergeSaveState(patch) {
+  const latest = store.loadState();
+  return store.saveState({ ...latest, ...patch });
+}
+
+async function runWeekly({ offset = 0, dryRun = false, trigger = 'cron' } = {}) {
+  // 通道门控：值日群 webhook 未配置直接 NO_CONFIG
+  feishu.pickChannels(config);
+  let members = store.loadMembers();
+  const win = report.weekWindow(offset, Date.now(), sendDowOrDefault());
+  let records;
+  if (config.dataSource === 'import') {
+    // 数据源=ZKLink 网页端导出的打卡明细（http 通道端点校准前不切，同 wecom 方案4 取舍）
+    const st = store.loadState();
+    const imported = (st.imported && st.imported.records) || [];
+    if (!imported.length) {
+      throw new Error('导入模式：尚无导入数据——ZKLink 网页端导出打卡明细后 POST /api/attendance/import 上传');
+    }
+    records = importService.filterByWindow(imported, win);
+    if (!records.length) {
+      throw new Error(`导入模式：已导入数据不覆盖本播报窗口 ${win.label}（导入于 ${(st.imported.importedAt || '').slice(0, 10)}，覆盖 ${st.imported.days || '?'}）`);
+    }
+    members = importService.mergeMembers(members, importService.deriveMembers(records));
+  } else {
+    const r = await zklink.fetchTransactions(win.start, win.end);
+    records = r.records;
+  }
+  const agg = report.aggregateDuration(records, members);
+  const csv = report.renderCsv(win, agg);
+  const filename = `打卡时长周报_${win.label.replace(/ ~ /g, '_')}.csv`;
+
+  if (dryRun) {
+    return { window: win, agg, csv, filename, sent: false, totals: agg.totals };
+  }
+
+  // 播报附件 CSV 始终落盘 exports（发送通道全挂也有底档；失败仅 warn 不阻塞播报）
+  try {
+    fs.mkdirSync(config.exportsDir, { recursive: true });
+    fs.writeFileSync(path.join(config.exportsDir, filename), csv);
+  } catch (e) {
+    console.warn('[考勤] CSV 落盘 exports 失败（不影响播报）:', e.message);
+  }
+
+  // 本地留档（archive/ JSON+CSV，warn-only）：每次执行都刷新（幂等覆盖同周文件）
+  archiver.archiveLocal(win, agg, records, { dataSource: config.dataSource });
+
+  // 每通道独立水位（duty「重试只补失败群」模式）：重试只补未完成通道
+  const state = store.loadState();
+  const done = state.delivery && state.delivery.weekKey === win.key ? state.delivery : { weekKey: win.key };
+  const failed = [];
+
+  // ---- 云文档留档通道（未配置=skipped 不重试，本地 archive/ 已兜底）----
+  if (done.archived !== true) {
+    if (config.feishuAppId && config.feishuAppSecret && config.archiveDocToken) {
+      try {
+        const r = await archiver.archiveToDoc(win, agg, records, { dataSource: config.dataSource });
+        done.archived = true;
+        done.archivedBlocks = r.appended;
+        console.log(`[考勤] 云文档留档完成：追加 ${r.appended} 块（obj_type=${r.objType || '?'}）`);
+      } catch (e) {
+        failed.push(`云文档留档: ${e.message}${e.hint ? `（${e.hint}）` : ''}`);
+      }
+    } else {
+      done.archived = 'skipped';
+      console.warn('[考勤] 云文档留档未配置（FEISHU_APP_ID/SECRET + ARCHIVE_DOC_TOKEN），仅本地 archive/ 目录兜底');
+    }
+  }
+
+  // ---- 周报卡：值日群 webhook ----
+  if (done.feishu !== true) {
+    try {
+      await feishu.sendCardToWebhook(config.feishuWebhookUrl, config.feishuWebhookSecret, feishu.buildWeeklyCard(win, agg));
+      done.feishu = true;
+    } catch (e) {
+      failed.push(`飞书: ${e.message}${e.hint ? `（${e.hint}）` : ''}`);
+    }
+  }
+
+  const pending = done.feishu !== true || done.archived === false || done.archived == null;
+  if (pending) {
+    mergeSaveState({
+      delivery: done,
+      lastError: { weekKey: win.key, at: new Date().toISOString(), message: failed.join('；') },
+    });
+    throw new Error(`部分通道未完成: ${failed.join('；')}`);
+  }
+
+  // 水位门控：只有目标周键=当前周期键（offset=0 的当周）才推进——test-broadcast 带
+  // weekOffset>0 补看历史周时真发成功也不得回拨水位/投递快照，否则 watchdog 判当周
+  // 漏播、整点重复轰炸
+  if (win.key === report.weekWindow(0, Date.now(), sendDowOrDefault()).key) {
+    mergeSaveState({
+      lastSentWeekKey: win.key,
+      lastArchivedWeekKey: win.key,
+      lastSentAt: new Date().toISOString(),
+      lastError: null,
+      delivery: done, // 保留本周期投递快照（下周期自动被新 weekKey 覆盖）
+    });
+  }
+  console.log(`[${trigger}] 周报已播报: ${win.label}（${agg.totals.punches} 条记录 / 合计 ${report.fmtDuration(agg.totals.totalMs)}；留档 ${done.archived === true ? '云文档+本地' : '本地'}）`);
+  return { window: win, agg, csv, filename, sent: true, totals: agg.totals };
+}
+
+// 失败告警：向 webhook 喊话（挂了则只落 lastError 供巡检）。
+// 静默窗口内自动链路不喊（不记 lastError，窗口后重试自然再告警）；
+// 人工当下主动触发（manual）不受静默限制。同一周只喊一次，watchdog 会静默重试。
+async function alertFailure(err, win, { manual = false } = {}) {
+  if (!manual && quietHours.inQuietHours()) {
+    console.log('[考勤] 静默窗口内，失败告警顺延（窗口后自动重试再告警）');
+    return;
+  }
+  const state = store.loadState();
+  if (state.lastError && state.lastError.weekKey === win.key && state.alertedWeekKey === win.key) return;
+  store.saveState({ ...state, alertedWeekKey: win.key });
+  const hint = err.hint ? `\n**处理提示：**${err.hint}` : '';
+  if (!config.feishuWebhookUrl) return;
+  try {
+    await feishu.sendCardToWebhook(config.feishuWebhookUrl, config.feishuWebhookSecret, {
+      config: { wide_screen_mode: true },
+      header: { template: 'red', title: { content: '⚠ 打卡时长周报发送失败', tag: 'plain_text' } },
+      elements: [{ tag: 'markdown', content: `**窗口：**${win.label}\n**原因：**${err.message}${hint}\n每小时自动重试，成功后补发本周报（首次成功前无水位不自动补发，可 POST /api/attendance/test-broadcast 手动补）` }],
+    });
+  } catch (e) {
+    console.error('告警也发不出去:', e.message, e.hint || '');
+  }
+}
+
+async function guardedRun(opts) {
+  if (running) return { skipped: true, reason: '上一轮还在跑' };
+  running = true;
+  try {
+    return await runWeekly(opts);
+  } catch (err) {
+    console.error(`[考勤] 播报失败:`, err.message, err.hint || '');
+    const win = report.weekWindow(opts.offset || 0, Date.now(), config.cronParts.dow == null ? 1 : config.cronParts.dow);
+    if (!opts.dryRun) await alertFailure(err, win, { manual: opts.trigger === 'manual' });
+    throw err;
+  } finally {
+    running = false;
+  }
+}
+
+// 补发判定：已过发送时刻 && 水位落后 && 水位非空（首启保护）
+function catchupNeeded(nowMs = Date.now()) {
+  const state = store.loadState();
+  if (!state.lastSentWeekKey) return null; // 首启：等下一个 cron 周期
+  const { dow } = config.cronParts;
+  const sendDow = dow == null ? 1 : dow;
+  if (!report.isPastSendTime(nowMs, sendDow, config.cronParts.hour, config.cronParts.minute)) return null;
+  const win = report.weekWindow(0, nowMs, sendDow);
+  if (state.lastSentWeekKey === win.key) return null;
+  return win;
+}
+
+function start(onRun) {
+  if (!cron.validate(config.cron)) {
+    throw new Error(`ZK_ATT_BROADCAST_CRON 非法: ${config.cron}`);
+  }
+  cronTask = cron.schedule(config.cron, () => {
+    // 晚间静默闸门：cron 被配进静默窗口（02:00–09:00）时整轮跳过，
+    // 窗口后整点 watchdog tick 天然按最新状态补跑（可重扫型，无需积压）
+    if (quietHours.inQuietHours()) {
+      console.log('[考勤] 静默窗口内，周播本轮跳过（窗口后看门狗整点补跑）');
+      return;
+    }
+    onRun({ trigger: 'cron' }).catch(() => {}); // 失败已在 guardedRun 内告警
+  }, { timezone: config.timezone });
+
+  watchdogTask = cron.schedule('5 * * * *', () => {
+    // 晚间静默（窗口见 utils/quietHours）：整轮跳过，窗口后首个 tick 按最新状态补
+    if (quietHours.inQuietHours()) {
+      console.log('[watchdog] 静默窗口内，本轮对表跳过');
+      return;
+    }
+    const win = catchupNeeded();
+    if (win) {
+      console.log(`[watchdog] 发现漏播（水位落后于 ${win.key}），补发`);
+      onRun({ trigger: 'watchdog' }).catch(() => {});
+    }
+  }, { timezone: config.timezone });
+
+  // node-cron 3.x 不暴露 nextDates，用自算的下次发送时刻展示（仅标准周播形态可算）
+  const { dow, hour, minute, parsed } = config.cronParts;
+  const nextLabel = parsed && dow != null
+    ? `上海时间 ${report.fmtTime(report.nextSendTime(Date.now(), dow, hour, minute))}`
+    : '(非标准周播形态，以 cron 表达式为准)';
+  console.log(`[考勤] 定时播报已排：cron="${config.cron}" tz=${config.timezone} 下次=${nextLabel}`);
+  console.log(`[考勤] 补发看门狗：每小时 5 分对表，漏播/失败自动补`);
+}
+
+function stop() {
+  if (cronTask) cronTask.stop();
+  if (watchdogTask) watchdogTask.stop();
+}
+
+module.exports = { start, stop, runWeekly, guardedRun, catchupNeeded };

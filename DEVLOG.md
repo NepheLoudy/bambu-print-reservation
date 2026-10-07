@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v137**（2026-10-07，遗留盘点批——duty-bot v45-v47 指针归档+gitignore 敏感残留拦截+顶层远端补推）。上一版 v136（2026-10-07，`58d739a`，被抢持续垫底批——netlog v18「首选只是优先不是拉锯」+registry/skill 同步）。上一版 v135（2026-10-07，`9e1a7d5`，DHCP 探针勘误批——RD08「3 秒慢应答」定性翻案+netlog v17+lab-network skill 勘误）。上一版 v134（2026-10-07，NAS_*→DEPLOY_* 连接键改名批）。上一版 v133（2026-10-05，`6fefe11`，netlog v13 通知节流+gateway v35 bambu 收口批）。上一版 v132（2026-10-05，netlog v12 复活引擎假阳性根治批）。 上一版 v131（2026-10-05，netlog v11 断电感知批）。上一版 v130（2026-10-05，netlog v10 被踢轮换批）。上一版 v129（2026-10-05，主路由 Wi-Fi6 关闭批）。上一版 v128（2026-10-05，4A 打印网关整治批）。上一版 v127（2026-10-05，netlog v9 真实流量探测批）。上一版 v126（2026-10-04，三仓联动批：netlog v8 + approval-bot v67 + hub v123 实况复盘）。上一版 v125（2026-09-29，Radmin 远控通道建成+skill 沉淀批）。上一版 v124（2026-09-28，抢修 bat 归档+duty-bot v43 指针联动）。上一版 v123（2026-09-28，netlog 通知 open_id 定稿）。上一版 v122（运维台白名单乱码根治）。上一版 v121（netlog v6 机器人本体私聊通知）。上一版 v120（netlog v5 刷屏根治）。上一版 v119（miwifi SHA256 适配）。上一版 v118（netlog 实测反馈批）。上一版 v117（断网复活落地批）。上一版 v116（网络探测归档批；09-27 22:17 部署批已覆盖全仓当前树，七仓健康验证全绿）。上一版 v115（工单撤回联动+netlog 开仓批）。上一版 v114（扩展范围审查批归档）。上一版 v113（第二轮全量对抗审查批归档）。上一版 v112（五仓部署批归档）。上一版 v111（负载宣运系数再调批归档）。上一版 v110（七仓全量审查批归档）。上一版 v109（安全审查修复批）。上一版 v108（台账同步归档）。上一版 v107（报销交付包跨仓批）。上一版 v106（`2b070a4`）。上一版 v105（approval v46 复查批归档，`2b070a4`）。上一版 v104（发票采集全链路批，`cef9b2f`）。上一版 v103（值日体系全面检修，`19695bd`）。上一版 v102（值日公平性批，`7aae41e`）。上一版 v101（负载算法升级批，`97bd02b`）。上一版 v100（团队负载看板三仓联动，`11179b8`）。
+当前最新：**v139**（2026-10-07，zklink 打卡周报机器人开仓批——新仓 zklink-attendance-bot + 七仓登记同步）。上一版 v138（2026-10-07，`dc91f84`，bambu v45 FTPS+4A 31→2 路由批；其头部指针滞留 v137，本批修正）。上一版 v137（2026-10-07，遗留盘点批——duty-bot v45-v47 指针归档+gitignore 敏感残留拦截+顶层远端补推）。上一版 v136（2026-10-07，`58d739a`，被抢持续垫底批——netlog v18「首选只是优先不是拉锯」+registry/skill 同步）。上一版 v135（2026-10-07，`9e1a7d5`，DHCP 探针勘误批——RD08「3 秒慢应答」定性翻案+netlog v17+lab-network skill 勘误）。上一版 v134（2026-10-07，NAS_*→DEPLOY_* 连接键改名批）。上一版 v133（2026-10-05，`6fefe11`，netlog v13 通知节流+gateway v35 bambu 收口批）。上一版 v132（2026-10-05，netlog v12 复活引擎假阳性根治批）。 上一版 v131（2026-10-05，netlog v11 断电感知批）。上一版 v130（2026-10-05，netlog v10 被踢轮换批）。上一版 v129（2026-10-05，主路由 Wi-Fi6 关闭批）。上一版 v128（2026-10-05，4A 打印网关整治批）。上一版 v127（2026-10-05，netlog v9 真实流量探测批）。上一版 v126（2026-10-04，三仓联动批：netlog v8 + approval-bot v67 + hub v123 实况复盘）。上一版 v125（2026-09-29，Radmin 远控通道建成+skill 沉淀批）。上一版 v124（2026-09-28，抢修 bat 归档+duty-bot v43 指针联动）。上一版 v123（2026-09-28，netlog 通知 open_id 定稿）。上一版 v122（运维台白名单乱码根治）。上一版 v121（netlog v6 机器人本体私聊通知）。上一版 v120（netlog v5 刷屏根治）。上一版 v119（miwifi SHA256 适配）。上一版 v118（netlog 实测反馈批）。上一版 v117（断网复活落地批）。上一版 v116（网络探测归档批；09-27 22:17 部署批已覆盖全仓当前树，七仓健康验证全绿）。上一版 v115（工单撤回联动+netlog 开仓批）。上一版 v114（扩展范围审查批归档）。上一版 v113（第二轮全量对抗审查批归档）。上一版 v112（五仓部署批归档）。上一版 v111（负载宣运系数再调批归档）。上一版 v110（七仓全量审查批归档）。上一版 v109（安全审查修复批）。上一版 v108（台账同步归档）。上一版 v107（报销交付包跨仓批）。上一版 v106（`2b070a4`）。上一版 v105（approval v46 复查批归档，`2b070a4`）。上一版 v104（发票采集全链路批，`cef9b2f`）。上一版 v103（值日体系全面检修，`19695bd`）。上一版 v102（值日公平性批，`7aae41e`）。上一版 v101（负载算法升级批，`97bd02b`）。上一版 v100（团队负载看板三仓联动，`11179b8`）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -1177,3 +1177,16 @@
 - lab-network skill §九三处更新：31→2 销案+路由方案、打印机双机状态、铁指纹勘误+证书鉴定法。
 - 顺手归档：duty-bot 指针 b5b11f3→`9f1d4fa`（他批 v47 部署须知拍板 docs，duty-bot 本仓 HEAD 干净）。
 - 遗留（唯一）：两台打印机 Access Code 待曼波上屏抄取 → `.env` 四列（PRINTER_HOSTS=192.168.2.189,192.168.2.133 / ACCESS_CODES / SERIALS / NAMES+MODELS=P1S）填入重启即联调；「打印机切局域网模式」可选（上线时切，断云防双通道打架）。
+
+## v139 · 2026-10-07 · 随本提交落地 · feat
+
+**zklink-attendance-bot 开仓批：ZKLink 打卡时长周报机器人（值日群播报 + 云文档留档）**
+
+- 起因：实验室新增 ZKTeco 打卡机，数据上传 ZKLink 云考勤（`zklink.zktecoiot.com`，曼波已建好考勤组+规则），要求每周自动统计打卡时长 → 值日群 webhook 播报一次 → 云文档留档本次全部记录。留档目标曼波指定 wiki 节点（cquqianli.feishu.cn/wiki/NFUS…）。
+- 新仓 `zklink-attendance-bot/`（:3017，pm2 `zklink-attendance`，repo:top）：周播周一 09:30 上海 + 每小时补发看门狗（首启保护；播报/留档独立水位）；晚间静默闸门全过（同 wecom 口径）；时长口径=按人按上海挂钟日「末卡−首卡」，孤条不计，跨零点切断；本地 archive/ JSON 全量+CSV 兜底。
+- 数据源双通道：`import` 默认（ZKLink 网页端考勤组维度导出上传，容错列匹配，兼容「打卡时间」单列与「日期+时间」分列，多时间列统计模板明确报错挡下）；`http` 直拉（无凭据侦查结论：平台=qiankun 微前端壳 zlink_pc_cn_front + OAuth Bearer 指纹，考勤模块 zkbio_att 动态挂载；真实端点候选写入 zklink.js，凭据到位后 `scripts/zklink-probe.js` 一键校准回填再切）。
+- 云文档留档：ARCHIVE_DOC_TOKEN 兼容 wiki 节点 token（自动 get_node 换算+缓存）与 docx token；应用身份 blocks 追加分批 50/请求；未配置时本地兜底、卡片照发。
+- 登记同步：dashboard/registry.js 新条目、顶层 AGENTS.md 职能总表新行+定制窗口现状（六仓→七仓）、《机器人总成使用指南》MD+桌面 HTML 各加卡片/播报行、本仓 README/LOGIC-MAP/DEVLOG/AGENTS 四件套。
+- 测试：8 套 147 断言全绿（window 17 / duration 22 / import 24 / quiethours 8 / feishu 18 / archiver 17 / zklink 29 / store 12）；桩测试拦下一个真 bug——`toShanghaiMs` 漏 `v instanceof Date` 分支导致 Date 单元格整行静默跳过（wecom 版同款分支补齐）；踩坑沉淀：Excel 序列号浮点往返 ±1s、`node -e` 子进程相对 require 以 cwd 为基。
+- 顺手归档：`.agents/skills/qianli-lab-network/SKILL.md` rogue DHCP 事故档案段（并行网络会话遗留，evt_008/009 已结案）；顶层 DEVLOG 头部指针修正（v138 滞留 v137）。
+- 遗留（激活前置，待曼波）：①ZKLink 账号密码（→ 跑 probe 校准 http 通道，可选）；②值日群新建自定义机器人 webhook URL；③飞书应用凭据（docx 权限 + wiki 只读 + 加为留档文档协作者）。三者入 `.env` 后 `npm run push` 即激活；未激活前部署只落进程不播报（首启保护，无水位不自动补发）。

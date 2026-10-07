@@ -1,0 +1,39 @@
+{
+  "name": "zklink-attendance-bot",
+  "version": "1.0.0",
+  "description": "ZKLink 打卡周报机器人 - 每周打卡时长统计 → 值日群 webhook 播报 + 飞书云文档留档",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "deploy": "node push.js",
+    "push": "node push.js",
+    "test": "npm run test:window && npm run test:duration && npm run test:import && npm run test:quiethours && npm run test:feishu && npm run test:archiver && npm run test:zklink && npm run test:store",
+    "test:window": "node scripts/stub-test-window.js",
+    "test:duration": "node scripts/stub-test-duration.js",
+    "test:import": "node scripts/stub-test-import.js",
+    "test:quiethours": "node scripts/stub-test-quiethours.js",
+    "test:feishu": "node scripts/stub-test-feishu.js",
+    "test:archiver": "node scripts/stub-test-archiver.js",
+    "test:zklink": "node scripts/stub-test-zklink.js",
+    "test:store": "node scripts/stub-test-store.js"
+  },
+  "keywords": [
+    "zklink",
+    "zkteco",
+    "attendance",
+    "webhook"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "node-cron": "^3.0.3",
+    "ssh2": "^1.17.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}

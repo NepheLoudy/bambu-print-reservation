@@ -1,0 +1,10 @@
+node_modules/
+.env
+.env.local
+.env.*.local
+config/members.json
+.zklink-attendance-state.json
+exports/
+archive/
+logs/
+*.log
