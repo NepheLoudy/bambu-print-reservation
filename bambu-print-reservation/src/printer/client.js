@@ -1,6 +1,7 @@
 const { BambuLink } = require('bambu-link');
 const { Client: SSHClient } = require('ssh2');
 const ftp = require('ftp');
+const { Client: FTPSClient } = require('basic-ftp');
 
 // gcodeState（打印机上报的 gcode_state）→ 统一中文状态
 const GCODE_STATE_MAP = {
@@ -17,6 +18,7 @@ const GCODE_STATE_MAP = {
 // 文件传输超时：挂起的上传会把分发引擎的串行匹配段永久卡死
 const SFTP_TIMEOUT_MS = 120 * 1000;
 const FTP_TIMEOUT_MS = 60 * 1000;
+const FTPS_TIMEOUT_MS = 90 * 1000;
 
 // 失联判定窗口（PRINTER_STATE_STALE_MS 可配，默认 3 分钟）：超过该时长未收到任何
 // state 报文即视为失联。幽灵空闲防护——bambu-link 从不 emit 'disconnect'，
@@ -35,6 +37,7 @@ class PrinterClient {
     this.lastStateAt = 0;
     this.listeners = [];
     this.ftpClient = null;
+    this.ftpsClient = null;
     this.sshClient = null;
     // project_file 命令的序号从高段位起，避免与 bambu-link 内部序号撞车
     this.projectSeq = 10000 + Math.floor(Math.random() * 1000);
@@ -275,18 +278,79 @@ class PrinterClient {
     return this.client.stopPrint();
   }
 
-  // ============ 文件传输（SFTP 优先，FTP 兜底） ============
+  // ============ 文件传输（SFTP 优先，FTPS/FTP 兜底） ============
 
   /**
    * 上传 Buffer 到打印机 /sdcard/。
-   * X1C/H2D 只有 SFTP(22)；P1 系可用 FTP(21)。按配置 model 决定传输方式。
+   * X1C/H2D 只有 SFTP(22)；P1/A1 新固件只开官方 FTPS(990)（2026-10-07 实测 21 明文口已关），
+   * FTPS 失败回退 FTP(21) 兼容老固件。按配置 model 决定传输方式。
    */
   async uploadBuffer(buffer, remotePath) {
     const model = String(this.config.model || '').toUpperCase();
     if (model.includes('X1') || model.includes('H2D')) {
       return this.sftpPut(buffer, remotePath);
     }
-    return this.ftpPut(buffer, remotePath);
+    let ftpsErr = null;
+    try {
+      return await this.ftpsPut(buffer, remotePath);
+    } catch (err) {
+      ftpsErr = err;
+    }
+    try {
+      return await this.ftpPut(buffer, remotePath);
+    } catch (err) {
+      throw new Error(
+        `FTPS(990) 上传失败（${ftpsErr ? ftpsErr.message : '未知'}），FTP(21) 回退也失败（${err.message}）`
+      );
+    }
+  }
+
+  async connectFTPS() {
+    const client = new FTPSClient(15000);
+    try {
+      await client.access({
+        host: this.config.host,
+        port: 990,
+        user: 'bblp',
+        password: this.config.accessCode,
+        secure: 'implicit',
+        secureOptions: { rejectUnauthorized: false }, // 打印机自签证书（BBL CA）
+      });
+    } catch (err) {
+      try { client.close(); } catch (e) { /* ignore */ }
+      throw err;
+    }
+    this.ftpsClient = client;
+    return client;
+  }
+
+  disconnectFTPS() {
+    if (this.ftpsClient) {
+      try { this.ftpsClient.close(); } catch (e) { /* ignore */ }
+      this.ftpsClient = null;
+    }
+  }
+
+  async ftpsPut(buffer, remotePath) {
+    let client = this.ftpsClient;
+    if (!client) {
+      client = await this.connectFTPS();
+    }
+    try {
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          reject(new Error(`FTPS 上传超时（${FTPS_TIMEOUT_MS / 1000}s）: ${remotePath}`));
+        }, FTPS_TIMEOUT_MS);
+        client.uploadFrom(Buffer.from(buffer), remotePath).then(
+          () => { clearTimeout(timer); resolve(); },
+          (err) => { clearTimeout(timer); reject(err); }
+        );
+      });
+    } catch (err) {
+      // 出错视为连接已坏：关闭置空强制下轮重连
+      this.disconnectFTPS();
+      throw err;
+    }
   }
 
   sftpPut(buffer, remotePath) {
@@ -356,6 +420,7 @@ class PrinterClient {
       this.sshClient.end();
       this.sshClient = null;
     }
+    this.disconnectFTPS();
     if (this.ftpClient) {
       await this.disconnectFTP();
     }

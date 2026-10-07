@@ -361,3 +361,14 @@
 
 - push.js 读键/注释/报错文案、.env.example、AGENTS.md 部署行、本地 .env 键改名（push 时覆盖部署目标同批生效）；
 - 本仓 push 无 git 步骤，代码随顶层仓库归档；不影响运行时行为。
+
+## v45 · 2026-10-07 · 锚点=顶层仓库本批归档提交 · feat
+
+**上传通道 FTPS(990) 适配 + 4A 隔离区双机实测批（31→2 跨网段路由打通同批）**
+
+- 提交说明：feat: 上传通道适配官方 FTPS 990（新固件 21/22 已关实测）——basic-ftp implicit TLS，FTP 21 回退保留
+- **实测动因（4A 隔离区 192.168.2.x 两台 P1 系真机，云模式）**：TLS 证书（BBL CA，CN=SN 00M09D541710031/00M09A371900389）确认为拓竹打印机；LAN 端口集 990/8883/6000 常开，**21/22 全部 ECONNREFUSED**——社区明文通道（SFTP:22/FTP:21）在新固件已不存在，官方 990 FTPS（vsFTPd 3.0.5）为唯一文件通道。node-ftp 无 TLS 能力，引入 `basic-ftp`@6.2.2 实现 `ftpsPut`（implicit TLS + rejectUnauthorized:false 自签）；`uploadBuffer` P1/A1 分流改为 FTPS 优先 → FTP 21 回退（双失败错误信息含两通道）；`disconnectFileSession` 补 FTPS 清理。MQTT 8883（bambu-link）通道不受影响。
+- **网络侧同批（详录见顶层 DEVLOG 与 lab-network skill §九）**：31→2 跨网段「ping 不通」悬案根因=主网缺去程路由（4A nft counter 0 实证包未到达），解法=主网各机本地加静态路由 `192.168.2.0/24 → 192.168.31.98`（笔记本 route add -p + 小电脑 SSH 同批；主路由零改动）；4A DHCP 静态租约 printer-189/printer-133 固化两机 IP。
+- 测试：新增 `test/printer-upload-channel-test.js` 8 项（分流/回退/双失败报错/SFTP 机型不触 FTPS/connectFTPS 连接参数/失败不残留会话），十套全绿变十一套 141 项全绿。
+- 文档：PRINTER-LAN-API.md §1.4/§5 对照表同步实测结论；README 测试节登记新测试。
+- 遗留：两台打印机 Access Code 待上屏抄取 → `.env` 四列填入后重启即联调；`PRINTER_NAMES/MODELS` 建议按 SN 尾段区分（printer-189/printer-133）。

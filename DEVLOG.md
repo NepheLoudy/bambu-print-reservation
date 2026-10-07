@@ -1156,7 +1156,7 @@
 - **改动**：netlog v18（详见 netlog/DEVLOG.md：demoteStore 持久垫底+rankWithDemotions 排序+account_demoted 即时私聊，wanguard 52 断言三套 145 全绿）；dashboard/registry.js netlog role 补 v18；skill §十二.1 补「被抢持续垫底」段（含与「本月不再使用」两档区分）；memory 归档「曼波账号=20251852/31108753 疑被本主抢用/mismatch 让位实战生效」三条实锤
 - 部署：qianli-netlog pm2 重启在线，健康检查 lan/wan 全绿（egress 222.178.10.242）；账号池种子未动（垫底状态在数据目录独立文件，部署不覆盖）
 
-## v137 · 2026-10-07 · 随本提交落地 · chore
+## v137 · 2026-10-07 · `43a6dd8` · chore
 
 **遗留盘点批：duty-bot v45-v47 指针归档 + gitignore 敏感残留拦截 + 顶层远端补推（曼波令「盘点项目栈，push 和部署」）**
 
@@ -1165,3 +1165,15 @@
 - gitignore 补三类拦截（均为今日网络排查会话 untracked 残留，不拦截则下次顶层 push.js 的 git add -A 会卷进 GitHub）：`memory/`（她的记忆目录，家在大脑仓库经 brain-sync 同步，内含私人事件流不入公开归档仓）、`WLAN-*.xml`（WLAN profile 导出内含明文 WiFi 密码=裁判路由器凭据）+`.tmp-*`（裁判 WiFi/MAC 调试脚本与核对脚本）+`.dashboard-run.log`（旧规则 `dashboard-run.log` 没盖住带点变体）；**文件本体留本地未删，待曼波处置**；
 - 顶层远端补推：netlog v18+v136+v137 一并推 GitHub；
 - 遗留并入：运维台拓扑看板「裁判系统路由器」卡描述一行——同步曼波 2026-10-07 拍板（SSID 关停隐身不广播、链路未部署等 Engine 联调 PHY 墙待破）。
+
+## v138 · 2026-10-07 · 随本提交落地 · feat
+
+**bambu v45 FTPS 上传通道 + 4A 隔离区 31→2 路由打通批（曼波令「都做」：打印机双用途链路收口）**
+
+- 起因：曼波问 4A（192.168.31.98）要不要加「桥接」以兼顾打印机临时外网 + 打印预约 LAN 模式通信。评估结论=**不需要桥接**，4A 路由模式（LAN 2.x + wan 31.98）本就是双用途正确形态；bambu LAN 模式通信方向=机器人主动连打印机（MQTT 8883/FTPS 990），只需主网→2.x 可达。
+- **「31→2 转发待修」悬案销案（10-05 遗留）**：4A 侧防火墙/转发/nft 从来正常（规则②在内核实测在位），根因=**主网缺去程路由**——发往 192.168.2.0/24 的包在主路由被默认路由扔进校园网（4A nft counter 0 包不达实证）；解法=主网各机本地加静态路由 `192.168.2.0/24 → 192.168.31.98`（笔记本 UAC route add -p + 小电脑 SSH route add -p，**主路由零改动**；主网新机器要管打印机照加即可），小电脑→2.189:8883/990、2.133:8883 实测全 OPEN。
+- **打印机双机实锤（免上屏鉴定法沉淀进 skill）**：2.x 现役 6 台里两台 Bambu P1 系已连 Printer SSID（**云模式**，曼波未开 LAN 模式——实测云模式下 LAN 端口集 8883/990/6000 照样常开，机器人可先联调）；`openssl s_client` 证书 issuer=BBL Technologies、CN=SN：`00M09D541710031`=printer-189、`00M09A371900389`=printer-133，4A DHCP 静态租约同批固化。**旧铁指纹「21+80+1883」勘误**：真指纹=8883+990+6000，两台真机 21/22/80/443/1883 全 REFUSED。
+- bambu v45（详录该仓 DEVLOG）：新固件砍了社区明文上传通道（21/22 全关），`uploadBuffer` P1/A1 分流改 FTPS:990 优先（basic-ftp implicit TLS）+FTP:21 回退；新增 8 项分流单测，十一套 141 项全绿；`npm run push` 部署（printers:0 无行为变化，health ok）；PRINTER-LAN-API.md §1.4/§5、README 测试节同步。
+- lab-network skill §九三处更新：31→2 销案+路由方案、打印机双机状态、铁指纹勘误+证书鉴定法。
+- 顺手归档：duty-bot 指针 b5b11f3→`9f1d4fa`（他批 v47 部署须知拍板 docs，duty-bot 本仓 HEAD 干净）。
+- 遗留（唯一）：两台打印机 Access Code 待曼波上屏抄取 → `.env` 四列（PRINTER_HOSTS=192.168.2.189,192.168.2.133 / ACCESS_CODES / SERIALS / NAMES+MODELS=P1S）填入重启即联调；「打印机切局域网模式」可选（上线时切，断云防双通道打架）。

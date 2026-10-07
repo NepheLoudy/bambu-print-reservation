@@ -160,4 +160,5 @@ node test/taxonomy-test.js            # 需求标签池单测（结构铁律/校
 node test/process-rules-test.js       # 工艺映射规则库单测（种子自洽/叠加优先级/材料裁定/热改，17 项）
 node test/local-reservation-test.js   # 本地预约系统单测（存储/状态机/规则快照/审批入队集成，12 项）
 node test/auth-test.js                # 账号体系单测（注册/登录限速/会话/角色/中间件双通道，13 项）
+node test/printer-upload-channel-test.js  # 上传通道分流单测（FTPS 990 优先/FTP 21 回退/SFTP 机型分流/连接参数，8 项）
 ```
