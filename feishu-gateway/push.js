@@ -8,8 +8,8 @@
  * 说明：
  *   - 本项目位于顶层 monorepo 内，git 步骤只暂存 feishu-gateway/ 自身路径，
  *     推送到顶层仓库远端；push 失败不影响部署（走 SFTP 直传）。
- *   - 代码部署始终走 SFTP 打包直传（网关无独立仓库，NAS 上不拉 git）。
- *   - NAS 连接配置从 .env 读取（NAS_HOST/NAS_PORT/NAS_USER/NAS_PASSWORD），脚本不存任何密钥。
+ *   - 代码部署始终走 SFTP 打包直传（网关无独立仓库，部署目标上不拉 git）。
+ *   - 部署目标连接配置从 .env 读取（DEPLOY_HOST/DEPLOY_PORT/DEPLOY_USER/DEPLOY_PASSWORD），脚本不存任何密钥。
  */
 const { spawnSync } = require('child_process');
 const { Client } = require('ssh2');
@@ -54,14 +54,14 @@ const REMOTE_DIR = '/c/qianli/opt/feishu-gateway';
 const REMOTE_DIR_WIN = 'C:/qianli/opt/feishu-gateway';
 const PM2_NAME = 'feishu-gateway';
 
-const nasConfig = {
-  host: process.env.NAS_HOST,
-  port: Number(process.env.NAS_PORT || 22),
-  username: process.env.NAS_USER,
-  password: process.env.NAS_PASSWORD,
+const deployConfig = {
+  host: process.env.DEPLOY_HOST,
+  port: Number(process.env.DEPLOY_PORT || 22),
+  username: process.env.DEPLOY_USER,
+  password: process.env.DEPLOY_PASSWORD,
 };
-if (!nasConfig.host || !nasConfig.password) {
-  console.error('缺少 NAS 部署配置：请在 .env 中配置 NAS_HOST/NAS_PORT/NAS_USER/NAS_PASSWORD');
+if (!deployConfig.host || !deployConfig.password) {
+  console.error('缺少部署配置：请在 .env 中配置 DEPLOY_HOST/DEPLOY_PORT/DEPLOY_USER/DEPLOY_PASSWORD');
   process.exit(1);
 }
 
@@ -106,7 +106,7 @@ if (repoRoot) {
   console.log('⚠ 未找到 git 仓库根，跳过 git 步骤');
 }
 
-// ============ [2/4] 打包 SFTP 直传 NAS ============
+// ============ [2/4] 打包 SFTP 直传部署目标 ============
 console.log('\n========== [2/4] 打包并上传代码 ==========');
 const pack = spawnSync('tar', [
   '--force-local',
@@ -198,7 +198,7 @@ function npmInstall() {
           conn.end();
           process.exit(1);
         }
-        console.log('✓ .env 已上传到部署目标（含飞书密钥，仅存于 NAS）');
+        console.log('✓ .env 已上传到部署目标（含飞书密钥，仅存于部署目标）');
         restart();
       });
     });
@@ -208,7 +208,7 @@ function npmInstall() {
 // ============ [4/4] 重启服务 ============
 function restart() {
   console.log('\n========== [4/4] 重启服务 ==========');
-  // 注意：网关只收飞书出站长连接 + 本机回环转发，无需开放防火墙端口（与 NAS 系统环境隔离）
+  // 注意：网关只收飞书出站长连接 + 本机回环转发，无需开放防火墙端口（与目标机系统环境隔离）
   const cmd = 'pm2 restart ' + PM2_NAME + ' --update-env 2>/dev/null || pm2 start ' + REMOTE_DIR + '/src/index.js --name ' + PM2_NAME + '; pm2 save';
   exec(cmd, () => {
     console.log('\n✅ 部署完成，服务状态：');
@@ -221,4 +221,4 @@ function restart() {
 }
 
 console.log('正在连接部署目标...');
-conn.connect(nasConfig);
+conn.connect(deployConfig);
