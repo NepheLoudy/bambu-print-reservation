@@ -47,6 +47,25 @@ async function fetchWifiDetail(host, stok, cookie, fetchImpl) {
   return b.info;
 }
 
+/** 拉取在线设备数（misystem/devicelist 的 list 长度） */
+async function fetchDeviceCount(host, stok, cookie, fetchImpl) {
+  const r = await fetchImpl(`http://${host}/cgi-bin/luci/;stok=${stok}/api/misystem/devicelist`, {
+    cookie, signal: AbortSignal.timeout(8000),
+  });
+  let b = await r.text();
+  try { b = JSON.parse(b); } catch { throw new Error('devicelist 响应非 JSON'); }
+  if (!b || !Array.isArray(b.list)) throw new Error('devicelist 结构异常');
+  return b.list.length;
+}
+
+/** 滑动窗口中位数（v16 设备数基线） */
+function median(arr) {
+  if (!arr.length) return 0;
+  const s = [...arr].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
 /**
  * 创建观测器（依赖注入纯逻辑，可 stub）
  * @param {object} deps
@@ -56,10 +75,20 @@ async function fetchWifiDetail(host, stok, cookie, fetchImpl) {
  *   - now()            时间源（测试注入）
  */
 function createRouterWatch(deps) {
-  const { host, password, emit, fetchImpl = globalThis.fetch, now = () => new Date() } = deps;
+  const {
+    host, password, emit, fetchImpl = globalThis.fetch, now = () => new Date(),
+    dhcpProbe = null,            // (v16) () => Promise<{ok, skipped?}>，未注入=跳过 DHCP 探测
+    dhcpFailThreshold = 2,       // 连续 N 次无 OFFER 才判 DHCP down（防单包丢失误报）
+    clientBaselineWindow = 6,    // 设备数基线滑动窗口（tick 数）
+    clientDropRatio = 0.5,       // 低于基线该比例且基线≥clientBaselineMin 才判骤降
+    clientBaselineMin = 6,
+  } = deps;
   const disabled = !password;
   let last = null;      // { mgmtOk, radios: Map<ifname, {status, ax, ssid}> }——只存上次快照，状态翻转才发事件
   let lastTickAt = null;
+  let dhcpFailStreak = 0, dhcpWasDown = false;     // (v16) DHCP 连续失败计数/当前报警态
+  let clientSamples = [];                           // (v16) 设备数滑动基线
+  let clientsWasDown = false;                       // (v16) 骤降报警态
 
   function snapshotRadios(info) {
     const radios = new Map();
@@ -73,10 +102,10 @@ function createRouterWatch(deps) {
   async function tick() {
     if (disabled) return { skipped: 'disabled' };
     lastTickAt = now().toISOString();
-    let info;
+    let info, sess;
     try {
-      const s = await login(host, password, fetchImpl);
-      info = await fetchWifiDetail(host, s.stok, s.cookie, fetchImpl);
+      sess = await login(host, password, fetchImpl);
+      info = await fetchWifiDetail(host, sess.stok, sess.cookie, fetchImpl);
     } catch (err) {
       const repeated = last !== null && last.mgmtOk === false; // 持续失联不重发
       const first = !repeated;
@@ -107,6 +136,45 @@ function createRouterWatch(deps) {
         events.push(emit('router_ax_changed', `射频 ${ifname}(${r.ssid}) ax ${prev.ax}→${r.ax}（Wi-Fi6 模式翻转）`));
       }
     }
+    // (v16) DHCP 服务探测：连续 dhcpFailThreshold 次无 OFFER 判 down——2026-10-07 事故病灶
+    //（半死态 DHCP 僵死，新设备拿不到地址），有线侧既有探针测不到。skipped（68 端口被占等）
+    // 静默降级不告警；DISCOVER 不写租约，对真实客户端零副作用。
+    if (dhcpProbe) {
+      const d = await dhcpProbe();
+      if (!d.skipped) {
+        if (d.ok) {
+          dhcpFailStreak = 0;
+          if (dhcpWasDown) {
+            dhcpWasDown = false;
+            events.push(emit('router_dhcp_recover', '路由器 DHCP 服务恢复响应'));
+          }
+        } else {
+          dhcpFailStreak += 1;
+          if (dhcpFailStreak >= dhcpFailThreshold && !dhcpWasDown) {
+            dhcpWasDown = true;
+            events.push(emit('router_dhcp_down', `路由器 DHCP 无应答（连续 ${dhcpFailStreak} 次 DISCOVER）——新设备将拿不到地址（「连上没网」病灶），救场=重启路由器`));
+          }
+        }
+      }
+    }
+    // (v16) 在线设备数骤降旁证：无线出问题时客户端集体迁逃/掉线（2026-10-07 实况）。
+    // 基线=前几轮中位数；骤降只报一次，回升报 recover。devicelist 偶发失败静默（管理面
+    // 失联已有独立探测）。
+    try {
+      const n = await fetchDeviceCount(host, sess.stok, sess.cookie, fetchImpl);
+      clientSamples.push(n);
+      if (clientSamples.length > clientBaselineWindow) clientSamples.shift();
+      const base = median(clientSamples.slice(0, -1)); // 基线不含本轮
+      if (clientSamples.length >= 3 && base >= clientBaselineMin && n < base * clientDropRatio) {
+        if (!clientsWasDown) {
+          clientsWasDown = true;
+          events.push(emit('router_clients_massdrop', `在线设备数骤降（基线 ${base} → ${n}）——无线异常/设备集体迁逃的旁证，结合射频/DHCP 状态判断`));
+        }
+      } else if (clientsWasDown && base > 0 && n >= base * 0.8) {
+        clientsWasDown = false;
+        events.push(emit('router_clients_recover', `在线设备数回升（${n}，基线 ${base}）`));
+      }
+    } catch { /* 静默 */ }
     last = { mgmtOk: true, radios };
     await Promise.all(events);
     return { mgmtDown: false, ifnames: [...radios.keys()], events: events.length };

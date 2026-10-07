@@ -43,17 +43,23 @@ function makeFetch(state) {
       ];
       return res(JSON.stringify({ info, code: 0 }), 'application/json');
     }
+    if (u.includes('/api/misystem/devicelist')) {
+      if (state.mgmtDown) throw new Error('connect EHOSTUNREACH');
+      const n = state.clients == null ? 10 : state.clients;
+      return res(JSON.stringify({ list: Array.from({ length: n }, (_, i) => ({ mac: i })) }), 'application/json');
+    }
     throw new Error('unexpected url ' + u);
   };
 }
 
-function makeWatcher(state, events) {
+function makeWatcher(state, events, extra = {}) {
   return createRouterWatch({
     host: '192.168.31.1',
     password: 'test-pwd',
     emit: async (event, detail) => { events.push({ event, detail }); },
     fetchImpl: makeFetch(state),
     now: () => new Date(),
+    ...extra,
   });
 }
 
@@ -143,6 +149,60 @@ function makeWatcher(state, events) {
     const r = await w.tick();
     check('⑥无密码时停用（skipped）', r.skipped === 'disabled');
     check('⑥summary enabled=false', w.summary().enabled === false);
+  }
+
+  // ⑦（v16）DHCP 探测：连续 2 次失败才 down；恢复报 recover；skipped 静默
+  {
+    const state = {};
+    const events = [];
+    let dhcpResult = { ok: true };
+    const w = makeWatcher(state, events, { dhcpProbe: async () => dhcpResult, dhcpFailThreshold: 2 });
+    await w.tick(); // 基线（DHCP ok）
+    dhcpResult = { ok: false, reason: 'timeout' };
+    await w.tick();
+    check('⑦DHCP 首败（<threshold）不报警', events.filter((e) => e.event === 'router_dhcp_down').length === 0);
+    await w.tick();
+    check('⑦连续 2 次失败报 router_dhcp_down', events.filter((e) => e.event === 'router_dhcp_down').length === 1);
+    await w.tick();
+    check('⑦持续失败不重发', events.filter((e) => e.event === 'router_dhcp_down').length === 1);
+    dhcpResult = { ok: true };
+    await w.tick();
+    check('⑦恢复报 router_dhcp_recover', events.some((e) => e.event === 'router_dhcp_recover'));
+  }
+  {
+    const state = {};
+    const events = [];
+    const w = makeWatcher(state, events, { dhcpProbe: async () => ({ ok: false, skipped: 'bind', reason: 'EADDRINUSE' }) });
+    await w.tick();
+    await w.tick();
+    check('⑦skipped 静默降级不告警', events.filter((e) => e.event.startsWith('router_dhcp')).length === 0);
+  }
+
+  // ⑧（v16）在线设备数骤降旁证：基线≥6、低于 50% 报 massdrop，回升报 recover
+  {
+    const state = {};
+    const events = [];
+    const w = makeWatcher(state, events);
+    state.clients = 10; await w.tick();
+    state.clients = 10; await w.tick();
+    state.clients = 10; await w.tick(); // 基线 10
+    check('⑧正常基线无事件', events.length === 0);
+    state.clients = 4; await w.tick();
+    check('⑧骤降（10→4）报 router_clients_massdrop', events.filter((e) => e.event === 'router_clients_massdrop').length === 1);
+    await w.tick();
+    check('⑧持续骤降不重发', events.filter((e) => e.event === 'router_clients_massdrop').length === 1);
+    state.clients = 9; await w.tick();
+    check('⑧回升报 router_clients_recover', events.some((e) => e.event === 'router_clients_recover'));
+  }
+
+  // ⑨（v16）DHCP DISCOVER 报文结构（dhcpProbe.buildDiscover）
+  {
+    const { buildDiscover } = require(path.join(__dirname, '..', 'src', 'dhcpProbe.js'));
+    const { buf, xid } = buildDiscover();
+    check('⑨op=BOOTREQUEST + magic cookie', buf[0] === 1 && buf.readUInt32BE(236) === 0x63825363);
+    check('⑨option53=DHCPDISCOVER + end 标记', buf[240] === 53 && buf[242] === 1 && buf[243] === 255);
+    check('⑨xid 与报文一致', buf.readUInt32BE(4) === xid);
+    check('⑨flags 广播位', buf.readUInt16BE(10) === 0x8000);
   }
 
   console.log(`\n结果: ${pass} pass / ${fail} fail`);

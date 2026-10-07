@@ -55,6 +55,8 @@ curl -X POST localhost:3016/api/netlog/revive -H "X-API-Token: ..."  # 管理端
 
 **路由器无线状态观测（v15 routerWatch）**：`NETLOG_ROUTER_PASSWORD` 配置后启用（未配置=停用），每 `NETLOG_ROUTER_WATCH_INTERVAL_MS`（默认 10 分钟）登录 miwifi 拉射频状态——管理面失联/射频配置异常/ax 翻转 → 事件+飞书通知。只观测不动手：无线侧救场=每周二 04:03 定时重启（小电脑 schtask `qianli-router-weekly-reboot`）+人工。
 
+**检测细化（v16）**：① wan 数据面**三态**判定——全过=ok / 部分过=`wan_restricted`（即时私聊，认证/放行半残指纹）/ 全不过=down；② routerWatch 挂 **DHCP DISCOVER 主动探测**（连续 2 次无 OFFER 报 `router_dhcp_down`——「新设备连上没网」病灶的直接检测，对租约零副作用，68 端口被占自动静默降级）；③ **在线设备数骤降旁证**（devicelist 基线中位数 50% 阈值，`router_clients_massdrop/recover`）；④ `/api/netlog/summary` 新增 **probeMatrix**（wanTcp/wanDoh 逐目标/traffic 逐源 status）——报警一眼看清哪层坏。
+
 ## 部署
 
 ```bash
@@ -66,10 +68,10 @@ pm2 名 `qianli-netlog`，`pm2 save` 后并入小电脑 `qianli-bots-autostart`�
 ## 测试
 
 ```bash
-node scripts/stub-test-netlog.js       # 56 断言：防抖/恢复历时/积压补发/冲刷竞态回归/egress 变化/事件分级/复活自愈冲刷+DownSince清零/JSONL 结构/通知节流/wan 多供应商 AND
-node scripts/stub-test-routerwatch.js  # 13 断言：路由器无线观测（失联/恢复/射频异常/ax 翻转的翻转触发与去重/停用）
+node scripts/stub-test-netlog.js       # 60 断言：防抖/恢复历时/积压补发/冲刷竞态回归/egress 变化/事件分级/复活自愈冲刷+DownSince清零/JSONL 结构/通知节流/wan 三态判定
+node scripts/stub-test-routerwatch.js  # 26 断言：路由器无线观测（失联/恢复/射频异常/ax 翻转/DHCP 探测/设备数骤降的翻转触发与去重/停用/DISCOVER 报文结构）
 node scripts/stub-test-wanguard.js     # 38 断言：复活引擎（首选项优先/换号/慢速判定/exhausted 冷却/手动触发/基线）
-# npm test = 三套合计 107 断言（push 闸门）
+# npm test = 三套合计 124 断言（push 闸门）
 ```
 
 ## 已知限制
@@ -77,7 +79,7 @@ node scripts/stub-test-wanguard.js     # 38 断言：复活引擎（首选项优
 - 断网根因若为**生产机自身断电/系统挂**，探针同死——物理上无解，靠 pm2 resurrect + 路由器侧排查兜底；
 - lan 断而 wan 未断的组合（路由器半死）理论上可能：探测独立并行，各自如实记录；
 - egress 回显源全挂时该轮跳过（不误报 IP 变化）；
-- **路由器无线侧半死（射频信标不发/DHCP 僵死，2026-10-07 事故形态）有线侧探针全绿**——routerWatch（v15）补上观测盲区但只报警不救场；救场=每周二 04:03 定时重启（小电脑 schtask）+人工。
+- **路由器无线侧半死（射频信标不发/DHCP 僵死，2026-10-07 事故形态）有线侧探针全绿**——routerWatch（v15/v16）补上观测盲区（DHCP 探测/设备数旁证/射频配置层）但「信标停发本身」仍不可见（有线侧物理无感），只报警不救场；救场=每周二 04:03 定时重启（小电脑 schtask）+人工。
 
 ## 复活引擎（v2，2026-09-27）：断网自动换账号重认证
 

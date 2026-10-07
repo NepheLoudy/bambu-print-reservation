@@ -303,14 +303,22 @@ function makeDeps({ threshold = 2 } = {}) {
   check('wan 恢复翻转旁路：冷却未到也立即补发', d15.backlogFile.length === 0 && summaries() === sumBefore15 + 3,
     `backlog=${d15.backlogFile.length} sum=${summaries()}`);
 
-  // ⑯（v14）wan 数据面多供应商 AND 判定（2026-10-07「连上没网」事故：受限会话对阿里白名单
-  // 真实放行，单源测不出半残态——双源必须全过）
+  // ⑯（v14/v16）wan 数据面判定：多供应商 AND + 三态（ok/restricted/down）——
+  // restricted=「部分白名单通」的认证/放行半残指纹（2026-10-07 事故形态）
   {
-    const { wanPlanePass } = require(path.join(ROOT2, 'src', 'index.js'));
+    const { wanPlanePass, wanPlaneJudge } = require(path.join(ROOT2, 'src', 'index.js'));
     const ok = async () => true, bad = async () => false;
     check('⑯a 双源全过 → true', (await wanPlanePass(['a', 'b'], ok)) === true);
     check('⑯b 任一失败 → false', (await wanPlanePass(['a', 'b'], async (u) => u === 'a')) === false);
     check('⑯c 空目标表 → false（保守）', (await wanPlanePass([], ok)) === false);
+    const j1 = wanPlaneJudge([true, true]);
+    const j2 = wanPlaneJudge([true, false]);
+    const j3 = wanPlaneJudge([false, false]);
+    const j4 = wanPlaneJudge([]);
+    check('⑯d 全过=ok 非受限', j1.ok === true && j1.restricted === false);
+    check('⑯e 部分过=restricted（半残指纹）', j2.ok === false && j2.restricted === true);
+    check('⑯f 全不过=down 非受限', j3.ok === false && j3.restricted === false);
+    check('⑯g 空表=down 非受限', j4.ok === false && j4.restricted === false);
   }
 
   console.log(`\n结果: ${pass} 通过, ${fail} 失败`);

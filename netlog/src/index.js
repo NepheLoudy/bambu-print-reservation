@@ -152,6 +152,7 @@ function createEngine(deps) {
     'lan_recovered', 'wan_recovered', 'traffic_recovered',
     'egress_ip_changed', 'revive_exhausted', 'boot_after_offline',
     'revive_session_mismatch', // v12：出口本通但会话被他人账号放行，换号无效需人工——低频且必须知晓
+    'wan_restricted', // v16：出口半残（部分白名单通）——认证/放行异常指纹，翻转才发天然低频
   ]);
 
   // 即时事件冷却（v13）：冷却期内不私聊只落盘+进积压（汇总卡可见）。mismatch 在账号被抢
@@ -382,13 +383,33 @@ function createEngine(deps) {
 // ============================================================
 // 真实依赖组装 + HTTP 端点
 // ============================================================
-/** v14：wan 数据面多供应商 AND 判定（可测纯逻辑）——任一 DoH 目标失败即 false；空目标表=保守 false */
+/** v14：wan 数据面多供应商 AND（可测）——逐目标探测后交三态判定，取 ok 布尔 */
 async function wanPlanePass(httpsTargets, probeFn) {
-  if (!Array.isArray(httpsTargets) || httpsTargets.length === 0) return false;
-  for (const url of httpsTargets) {
-    if (!(await probeFn(url))) return false;
-  }
-  return true;
+  const results = [];
+  for (const url of httpsTargets || []) results.push(await probeFn(url));
+  return wanPlaneJudge(results).ok;
+}
+
+/**
+ * v16：wan 数据面三态判定（可测纯逻辑）。
+ *   全过 = { ok:true,  restricted:false }（健康）
+ *   部分过 = { ok:false, restricted:true }（受限/半残：认证或放行异常的指纹——
+ *            2026-10-07 实锤受限会话对阿里白名单真实放行，单看布尔会漏掉这层信息）
+ *   全不过 = { ok:false, restricted:false }（down）
+ */
+function wanPlaneJudge(results) {
+  const arr = Array.isArray(results) ? results : [];
+  if (arr.length === 0) return { ok: false, restricted: false };
+  const passed = arr.filter(Boolean).length;
+  return { ok: passed === arr.length, restricted: passed > 0 && passed < arr.length };
+}
+
+// ---- 探针矩阵（v16）：每轮逐目标结果快照，summary 直出 + 报警 detail 引用 ----
+let lastProbeMatrix = {};
+let engineRef = null; // engine 创建后回填（probeWan/probeTraffic 闭包里走事件链路）
+let lastRestricted = false;
+function noteProbeMatrix(patch) {
+  Object.assign(lastProbeMatrix, patch, { at: Date.now() });
 }
 
 function probeTcp(host, port, timeoutMs) {
@@ -573,20 +594,39 @@ try { feishu = require('./feishu'); } catch (err) { console.warn(`[netlog] 飞�
 const engine = createEngine({
   probeLan: () => probeTcp(CONFIG.lanHost, CONFIG.lanPort, CONFIG.timeoutMs),
   probeWan: async () => {
-    // v12：TCP 预检（真断网时快速失败）→ HTTPS 数据面验证（戳穿认证网关代答的握手假阴性：
-    // 认证死掉后 TCP 223.5.5.5:443 照样握手成功，但 TLS 上的合法 DoH 响应伪造不了）
-    // v14：DoH 多供应商 AND——受限会话对阿里白名单是真实放行（2026-10-07 实锤），
-    // 「任一通过即出网」会漏掉只能上阿里的半残态；全部通过才算出网
+    // v12 TCP 预检（真断网快速失败）→ v14/v16 多供应商 DoH 数据面三态判定：
+    // 全过=ok；部分过=restricted（受限/半残指纹——2026-10-07 实锤受限会话对阿里白名单
+    // 真实放行）；全不过=down。布尔主链只看 ok；restricted 翻转补发精准事件。
     let tcpOk = false;
+    let wanTcpTarget = null;
     for (const t of CONFIG.wanTargets) {
-      if (await probeTcp(t.host, t.port, CONFIG.timeoutMs)) { tcpOk = true; break; }
+      if (await probeTcp(t.host, t.port, CONFIG.timeoutMs)) { tcpOk = true; wanTcpTarget = `${t.host}:${t.port}`; break; }
     }
-    if (!tcpOk) return false;
-    return wanPlanePass(CONFIG.httpsTargets, probeHttps);
+    if (!tcpOk) {
+      noteProbeMatrix({ wanTcp: null, wanDoh: [], wanState: 'down' });
+      return false;
+    }
+    const results = [];
+    for (const url of CONFIG.httpsTargets) {
+      const label = new URL(url).host;
+      results.push({ target: label, ok: await probeHttps(url) });
+    }
+    const judge = wanPlaneJudge(results.map((r) => r.ok));
+    noteProbeMatrix({ wanTcp: wanTcpTarget, wanDoh: results, wanState: judge.ok ? 'ok' : judge.restricted ? 'restricted' : 'down' });
+    if (judge.restricted !== lastRestricted && engineRef) {
+      lastRestricted = judge.restricted;
+      const detail = `出口半残（${results.map((r) => `${r.target}=${r.ok ? '通' : '断'}`).join('，')}）——认证/放行异常指纹，复活引擎已介入；若持续请检查主路由认证会话`;
+      engineRef.emit(judge.restricted ? 'wan_restricted' : 'wan_restricted_recover', detail).catch(() => {});
+    } else {
+      lastRestricted = judge.restricted;
+    }
+    return judge.ok;
   },
   // 流量探测（v9）：generate_204 源 HTTP 全链路，status=204 即通过；超时取 TCP 的 2 倍
   //（HTTP 完整往返比握手慢，但目标极轻，正常 <200ms）
   probeTraffic: async () => {
+    const perSource = [];
+    let anyOk = false;
     for (const url of CONFIG.trafficUrls) {
       const status = await new Promise((resolve) => {
         let settled = false;
@@ -601,9 +641,11 @@ const engine = createEngine({
           req.end();
         } catch { done(0); }
       });
-      if (status === 204) return true;
+      perSource.push({ target: new URL(url).host, status });
+      if (status === 204) anyOk = true;
     }
-    return false;
+    noteProbeMatrix({ traffic: perSource });
+    return anyOk;
   },
   fetchEgressIp,
   appendLog,
@@ -620,6 +662,7 @@ const engine = createEngine({
   },
 });
 emitRef = (event, detail) => engine.emit(event, detail); // 回填：guard 事件进引擎的记录+通知链路
+engineRef = engine; // v16：probeWan/probeTraffic 闭包的 restricted 等事件出口
 
 // ============================================================
 // 路由器无线状态观测（v14）：主路由半死（射频信标不发/DHCP 僵死）时有线侧
@@ -629,10 +672,12 @@ emitRef = (event, detail) => engine.emit(event, detail); // 回填：guard 事�
 let routerWatch = { tick: async () => ({ skipped: 'disabled' }), summary: () => ({ enabled: false }) };
 try {
   const { createRouterWatch } = require('./routerWatch');
+  const { probeDhcp } = require('./dhcpProbe');
   routerWatch = createRouterWatch({
     host: CONFIG.routerWatchHost,
     password: process.env.NETLOG_ROUTER_PASSWORD || '',
     emit: async (event, detail) => { if (emitRef) await emitRef(event, detail); },
+    dhcpProbe: () => probeDhcp({ broadcastAddr: process.env.NETLOG_DHCP_BROADCAST || `${(CONFIG.routerWatchHost.split('.').slice(0, 3).join('.'))}.255` }),
   });
 } catch (err) {
   console.error(`[netlog] routerWatch 初始化失败（观测停用）: ${err.message}`);
@@ -688,6 +733,7 @@ function startServer() {
       const s = engine.summary();
       s.guard = guard ? guard.summary() : null;
       s.routerWatch = routerWatch.summary();
+      s.probeMatrix = lastProbeMatrix; // v16：逐目标探针矩阵（wanTcp/wanDoh/traffic，排查哪层坏了一眼看清）
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify(s, null, 2));
       return;
@@ -727,4 +773,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { createEngine, CONFIG, fmtShanghai: (ts) => new Date(ts + 8 * 3600 * 1000).toISOString(), offlineGapInfo, dohResponseOk, probeHttps, wanPlanePass };
+module.exports = { createEngine, CONFIG, fmtShanghai: (ts) => new Date(ts + 8 * 3600 * 1000).toISOString(), offlineGapInfo, dohResponseOk, probeHttps, wanPlanePass, wanPlaneJudge };
