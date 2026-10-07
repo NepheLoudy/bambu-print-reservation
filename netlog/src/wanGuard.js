@@ -5,8 +5,12 @@
  *   ①复活强化：wan 断或「握手通但流量断（软踢/限速）」（当轮原始信号，抢在防抖判定前自愈）
  *     + lan 活 → 按账号池顺序逐个调 eportal login，
  *     每个 tick 尝试一个账号，wan+traffic 真恢复才算成功；全用尽 → 通知 + 30 分钟冷却重试；
- *   ①.5 近期被踢轮换（2026-10-05 曼波定）：复活成功后 30 分钟内又掉线 = 该账号被别人抢，
- *     本轮复活把它排到队尾换下一个，不做互踢对拍；窗口外的全新掉线仍按优先级首选开始；
+ *   ①.5 被抢持续垫底（v18，曼波 2026-10-07 定「首选只是优先不是拉锯」）：复活成功后
+ *     30 分钟内又掉线 = 该账号被别人抢——持久垫底 kickDemoteHours 小时（默认 24h，
+ *     accountPool 垫底 store 持久化、跨重启保留），换下一个账号；到期自动复位，
+ *     若仍被抢再次命中检测继续垫底（自适应）。检测窗口 30 分钟不变（判定依据）；
+ *     窗口外的新掉线（无法判定被抢）仍按优先级首选开始。未注入 demote 时退化旧语义
+ *     （仅本轮排队尾）。
  *   ②首选项：31108753 永远先试（accountPool.listCandidates 已保证）；
  *   ③慢速降级：复活恢复后 20s 宽限 → 连 3 次探针取中位数，超过健康基线 3 倍
  *     → 判该账号被限速 → 打「本月不再使用」→ 自动换下一个账号复活。
@@ -24,7 +28,8 @@ const SLOW_PROBE_COUNT = 3;
 const SLOW_PROBE_GAP_MS = 2000;
 const RECOVER_GRACE_MS = 20000; // 恢复后宽限：新会话/路由冷启动可能偏慢，等 20s 再判
 const EXHAUSTED_COOLDOWN_MS = 30 * 60 * 1000;
-const KICK_ROTATE_WINDOW_MS = 30 * 60 * 1000; // 近期被踢轮换窗口：复活成功后 30 分钟内又掉线=账号被抢，换下一个（曼波 2026-10-05）
+const KICK_ROTATE_WINDOW_MS = 30 * 60 * 1000; // 被抢判定窗口：复活成功后 30 分钟内又掉线=账号被抢（判定依据不变）
+const DEFAULT_KICK_DEMOTE_HOURS = 24; // 被抢垫底时长（v18）：24h 内持续避开，到期自动复位首选
 
 function median(arr) {
   if (!arr.length) return 0;
@@ -35,18 +40,21 @@ function median(arr) {
 
 /**
  * @param {object} deps
- *   candidates() → [{user,password,priority}] 当前可用账号（弃用已滤）
+ *   candidates() → [{user,password,priority}] 当前可用账号（弃用已滤；组装层按垫底状态重排）
  *   authIp() → Promise<string|null> 要放行的 IP（主路由 WAN IP）
  *   login({user,password,authIp}) → Promise 登录请求（成败由 wan 验证裁决）
  *   probeLatency() → Promise<number|null> 单次探测延迟 ms（失败 null）
  *   verifySession(user) → Promise<boolean> online_list 会话归属核验（v12：user 在线=true；
  *     无会话/他人会话=false；异常抛出由 guard 捕获降级）——未注入时退化为按 wan 探测放行
  *   ban(user, reason) → 打当月弃用
+ *   [demote(user, hours, reason)] → 被抢垫底（v18；未注入=退化为本轮排队尾旧语义）
+ *   [demotions()] → 当前垫底列表（summary 展示）
+ *   [kickDemoteHours] → 垫底时长，默认 24
  *   emit(event, detail) → 事件上报（engine 的 record+notify）
  *   now() → Date；tickMs 探测周期
  */
 function createWanGuard(deps) {
-  const { candidates, authIp, login, probeLatency, verifySession, ban, emit, now = () => new Date(), tickMs = 60000 } = deps;
+  const { candidates, authIp, login, probeLatency, verifySession, ban, emit, demote, demotions, kickDemoteHours = DEFAULT_KICK_DEMOTE_HOURS, now = () => new Date(), tickMs = 60000 } = deps;
 
   const state = {
     reviving: false,
@@ -87,23 +95,30 @@ function createWanGuard(deps) {
       await emit('revive_no_candidates', `账号池全空或当月全弃用（${reason}），30 分钟后自动重试`);
       return;
     }
-    // 近期被踢轮换（2026-10-05 曼波定）：复活成功后短时间内又掉线 = 该账号有别人在抢，
-    // 本轮把它排到队尾换下一个，而不是跟人对拍互踢；窗口外的新掉线仍按优先级正常走
-    let rotatedNote = '';
+    // 被抢持续垫底（v18，曼波定「首选只是优先不是拉锯」）：复活成功后短时间内又掉线 =
+    // 该账号有别人在抢——持久垫底（默认 24h）换其它账号，不再跟人对拍；到期自动复位，
+    // 仍被抢会再次命中检测继续垫底。窗口外的新掉线（无法判定被抢）仍按优先级首选开始。
+    let kickNote = '';
     const lr = state.lastRevive;
-    if (lr && lr.user && now().getTime() - lr.at < KICK_ROTATE_WINDOW_MS) {
-      const idx = list.findIndex((a) => a.user === lr.user);
-      if (idx >= 0 && list.length > 1) {
+    if (lr && lr.user && now().getTime() - lr.at < KICK_ROTATE_WINDOW_MS && list.some((a) => a.user === lr.user)) {
+      if (typeof demote === 'function') {
+        await demote(lr.user, kickDemoteHours, 'kicked');
+        await emit('account_demoted', `账号 ${lr.user} 疑被抢（复活成功 ${Math.max(1, Math.round((now().getTime() - lr.at) / 60000))} 分钟后又掉线），已垫底 ${kickDemoteHours} 小时——本轮起换其它账号，到期自动复位（池文件独立状态 account-demotions.json）`);
+        kickNote = `；上次 ${lr.user} 刚被踢，已垫底 ${kickDemoteHours}h（换号避开）`;
+      } else if (list.length > 1) {
+        // 未注入垫底（旧桩/降级）：保持 v10 旧语义——仅本轮排队尾
+        const idx = list.findIndex((a) => a.user === lr.user);
         list = list.slice(idx + 1).concat(list.slice(0, idx + 1));
-        rotatedNote = `；上次 ${lr.user} 刚被踢，本轮轮换避开（排最后）`;
+        kickNote = `；上次 ${lr.user} 刚被踢，本轮轮换避开（排最后）`;
       }
     }
+    if (typeof demote === 'function') list = candidates(); // 垫底已落盘：重取组装层排序后的候选
     state.reviving = true;
     state.queue = list.slice();
     state.current = null;
     state.pendingSlow = null; // 新一轮复活开始：上一会话的慢速判定作废（否则吞掉本轮 success 一个 tick）
     state.roundStartedAt = now().getTime();
-    await emit('revive_start', `断网复活启动（${reason}${rotatedNote}）：候选 ${list.map((a) => a.user).join(' → ')}`);
+    await emit('revive_start', `断网复活启动（${reason}${kickNote}）：候选 ${list.map((a) => a.user).join(' → ')}`);
     await tryNextCandidate();
   }
 
@@ -240,6 +255,7 @@ function createWanGuard(deps) {
       exhaustedUntil: state.exhaustedUntil ? new Date(state.exhaustedUntil + 8 * 3600 * 1000).toISOString().slice(0, 19).replace('T', ' ') + '+08:00' : null,
       pendingSlow: state.pendingSlow ? state.pendingSlow.user : null,
       lastRevive: state.lastRevive ? { user: state.lastRevive.user, at: new Date(state.lastRevive.at + 8 * 3600 * 1000).toISOString().slice(0, 19).replace('T', ' ') + '+08:00' } : null,
+      demotions: typeof demotions === 'function' ? demotions() : [], // v18：当前垫底中的账号（summary 可观测）
       lastActions: state.lastActions,
     };
   }

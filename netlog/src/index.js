@@ -40,6 +40,7 @@ function loadDotEnv() {
 }
 loadDotEnv();
 
+const DATA_DIR = process.env.NETLOG_DATA_DIR || path.join(os.homedir(), 'qianli-data', 'netlog');
 const CONFIG = {
   port: Number(process.env.NETLOG_PORT || 3016),
   intervalMs: Number(process.env.NETLOG_INTERVAL_MS || 60 * 1000),
@@ -83,7 +84,11 @@ const CONFIG = {
   egressIntervalMs: Number(process.env.NETLOG_EGRESS_INTERVAL_MS || 30 * 60 * 1000),
   egressUrls: (process.env.NETLOG_EGRESS_URLS || 'http://members.3322.org/dyndns/getip,http://ip.3322.net,https://api.ipify.org')
     .split(',').map((s) => s.trim()).filter(Boolean),
-  dataDir: process.env.NETLOG_DATA_DIR || path.join(os.homedir(), 'qianli-data', 'netlog'),
+  dataDir: DATA_DIR,
+  // ---- 被抢垫底（v18，曼波「首选只是优先不是拉锯」）：状态文件独立于池配置（池文件=
+  // push.js 上传的种子，垫底=运行时状态不随部署丢失）；时长默认 24h，到期自动复位 ----
+  demoteFile: process.env.NETLOG_DEMOTE_FILE || path.join(DATA_DIR, 'account-demotions.json'),
+  kickDemoteHours: Number(process.env.NETLOG_KICK_DEMOTE_HOURS || 24),
   // ---- 复活引擎（v2）：账号池 + Dr.COM eportal 认证 + 慢速降级 ----
   accountPool: process.env.NETLOG_ACCOUNT_POOL || path.join(os.homedir(), 'qianli-data', 'netlog', 'campus-accounts.local.json'),
   apiToken: process.env.NETLOG_API_TOKEN || '', // 手动复活端点鉴权（管理端点必须鉴权；未配置=端点锁定）
@@ -152,12 +157,13 @@ function createEngine(deps) {
     'lan_recovered', 'wan_recovered', 'traffic_recovered',
     'egress_ip_changed', 'revive_exhausted', 'boot_after_offline',
     'revive_session_mismatch', // v12：出口本通但会话被他人账号放行，换号无效需人工——低频且必须知晓
+    'account_demoted', // v18：账号被抢垫底 24h（池里有别人在用这个号——曼波需要知晓）
     'wan_restricted', // v16：出口半残（部分白名单通）——认证/放行异常指纹，翻转才发天然低频
   ]);
 
   // 即时事件冷却（v13）：冷却期内不私聊只落盘+进积压（汇总卡可见）。mismatch 在账号被抢
   // 拉锯期每 30 分钟一条 × 全天 20 条——同一局面重复播报没有信息增量。
-  const NOTIFY_COOLDOWN_MS = { revive_session_mismatch: mismatchNotifyMs };
+  const NOTIFY_COOLDOWN_MS = { revive_session_mismatch: mismatchNotifyMs, account_demoted: mismatchNotifyMs };
   const lastImmediateOkAt = {}; // event → 上次私聊成功时刻（只成功才占用冷却）
 
   async function notify(event, detail) {
@@ -549,11 +555,12 @@ async function fetchEgressIp() {
 let guard = null;
 let emitRef = (event, detail) => console.log(`[netlog] (emit 未就绪) ${event} ${detail || ''}`);
 try {
-  const { createAccountPool } = require('./accountPool');
+  const { createAccountPool, createDemoteStore, rankWithDemotions } = require('./accountPool');
   const campusAuth = require('./campusAuth');
   const { createWanGuard } = require('./wanGuard');
 
   const pool = createAccountPool(CONFIG.accountPool);
+  const demoteStore = createDemoteStore(CONFIG.demoteFile);
 
   /** 单次 wan 探测延迟（v12 走 HTTPS 数据面：TCP 代答握手只有几 ms，会把基线压到
    *  下限 30ms 使慢速判定永远通过；TLS 往返才反映真实链路质量） */
@@ -567,7 +574,8 @@ try {
   }
 
   guard = createWanGuard({
-    candidates: () => pool.listCandidates(),
+    // v18：候选按垫底状态重排（健康的在前、被抢垫底的沉底——「首选只是优先不是拉锯」）
+    candidates: () => rankWithDemotions(pool.listCandidates(), demoteStore.active()),
     authIp: () => campusAuth.fetchAuthIp(),
     login: (acct) => campusAuth.login(acct),
     probeLatency,
@@ -577,6 +585,9 @@ try {
       return Array.isArray(list) && list.some((s) => s.user === user);
     },
     ban: (user, reason) => pool.banThisMonth(user, reason),
+    demote: (user, hours, reason) => demoteStore.demote(user, hours, reason),
+    demotions: () => demoteStore.active(),
+    kickDemoteHours: CONFIG.kickDemoteHours,
     emit: (event, detail) => emitRef(event, detail),
   });
 

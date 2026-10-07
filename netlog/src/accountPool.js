@@ -13,6 +13,12 @@
  *   - 其余按 priority 升序轮换；
  *   - 弃用（本月不再使用）：慢速判定命中的账号记入 bannedThisMonth，当月不再被选，自然月 1 号自动失效；
  *   - 弃用记录持久化回写配置文件（跨重启保留），原子写（tmp+rename）。
+ *
+ * 垫底（v18，曼波 2026-10-07 定「首选只是优先不是拉锯」）：被抢（复活成功后短时间又掉线）
+ * 的账号持久垫底一段时间——排序沉到所有健康账号之后（垫底档内仍按优先级轮换，池不失能），
+ * 到期自动复位。与「弃用」的两档语义：弃用=当月彻底不选；垫底=可用但只在没得选时才轮到。
+ * 垫底是运行时状态，存独立状态文件（NETLOG_DEMOTE_FILE，默认 <数据目录>/account-demotions.json，
+ * push.js 不上传——池配置文件是种子会被部署覆盖，垫底状态不应随部署丢失）。
  */
 const fs = require('fs');
 const path = require('path');
@@ -79,4 +85,55 @@ function createAccountPool(file, nowLike = () => new Date()) {
   return { listCandidates, isBanned, banThisMonth, currentMonth };
 }
 
-module.exports = { createAccountPool, currentMonth, loadPool, savePool };
+/**
+ * 账号垫底 store（v18）：持久化被抢账号的垫底状态，跨重启保留。
+ * 文件格式（JSON 数组）：[{ "user", "until"(epoch ms), "reason", "demotedAt"(ISO) }, ...]
+ * 读时惰性过滤过期条目（不主动回收写盘，下次 demote 时顺带清理）。
+ */
+function createDemoteStore(file, nowLike = () => new Date()) {
+  const now = () => (typeof nowLike === 'function' ? nowLike() : nowLike);
+
+  function load() {
+    try {
+      const arr = JSON.parse(fs.readFileSync(file, 'utf8'));
+      return Array.isArray(arr) ? arr.filter((d) => d && d.user) : [];
+    } catch {
+      return []; // 无文件/半截写=无垫底
+    }
+  }
+
+  function save(list) {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const tmp = `${file}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(list, null, 2));
+    fs.renameSync(tmp, file);
+  }
+
+  /** 垫底账号 hours 小时（幂等：同账号重复垫底刷新 until 取更晚） */
+  function demote(user, hours, reason = 'kicked') {
+    const t = now().getTime();
+    const until = t + hours * 3600 * 1000;
+    const list = load().filter((d) => d.user !== user && d.until > t);
+    const prev = load().find((d) => d.user === user);
+    list.push({ user, until: prev && prev.until > until ? prev.until : until, reason, demotedAt: new Date(t).toISOString() });
+    save(list);
+    return list;
+  }
+
+  /** 当前仍生效的垫底列表 */
+  function active() {
+    const t = now().getTime();
+    return load().filter((d) => d.until > t);
+  }
+
+  return { demote, active };
+}
+
+/** 纯函数（stub 可测）：候选按垫底状态重排——健康的在前、垫底的沉底，各自保持原序 */
+function rankWithDemotions(candidates, demotions) {
+  const list = Array.isArray(candidates) ? candidates : [];
+  const demotedSet = new Set((demotions || []).map((d) => d.user));
+  return [...list.filter((a) => !demotedSet.has(a.user)), ...list.filter((a) => demotedSet.has(a.user))];
+}
+
+module.exports = { createAccountPool, createDemoteStore, rankWithDemotions, currentMonth, loadPool, savePool };

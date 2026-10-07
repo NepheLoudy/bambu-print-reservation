@@ -29,7 +29,7 @@
 - **断网时即时私聊必然推不出去，自动入积压**（`backlog.json`，上限 50 条丢最旧）；wan 恢复瞬间把积压**汇总成一张卡**补发（哪断的、断了几段、各多久，一眼看完）；
 - 通知目标未配置时事件同样入积压，配置补上并重启后由启动补发送达；
 - 冲刷时机（2026-10-04 引入每轮尝试 → v13 加限频）：三条件任一才发——wan 恢复翻转旁路 / 攒够 10 条 / 距上次补发超 2h。只认翻转会滞留复活通知（10-04 20:21 实况），不限频会在拉锯期每分钟一张汇总卡。
-- **近期被踢轮换（v10，曼波定）**：复活成功后 30 分钟内又掉线 = 该账号有别人在抢，本轮复活自动把它排到队尾换下一个（不做互踢对拍），事件注记「XX 刚被踢」；窗口外（≥30 分钟）的全新掉线仍按优先级首选开始。summary 的 guard 段带 lastRevive 供观察。
+- **被抢持续垫底（v18，曼波定「首选只是优先不是拉锯」）**：复活成功后 30 分钟内又掉线 = 该账号被别人抢——**持久垫底 24 小时**（`NETLOG_KICK_DEMOTE_HOURS` 可调，跨重启保留），期间候选排序沉底、只在没得选时才轮到，到期自动复位（若仍被抢再次命中检测继续垫底，自适应）。事件 `account_demoted` 即时私聊（4h 冷却）。垫底状态存独立文件 `account-demotions.json`（数据目录，push.js 不上传——池配置文件是部署种子，垫底=运行时状态不随部署丢失）。判定窗口 30 分钟不变（判定依据）；窗口外（≥30 分钟）的全新掉线不误判被抢，仍按优先级首选开始。summary 的 guard 段带 `lastRevive` + `demotions` 供观察。
 - **软踢复活（v9）**：复活引擎收到当轮 trafficOk——「wan 握手通但流量断」同样触发复活（重新认证换号可救），wan+traffic 双通才判复活成功；恢复判定不看流量会把软踢会话误判为已复活。
 - 补发按条目 id 精确剔除已发——冲刷期间新落盘的积压不被覆盖丢失（quiet-flush v87 同款教训回归，stub 有断言）。
 
@@ -37,7 +37,8 @@
 
 - 默认 `~/qianli-data/netlog/`（部署目标 .env 显式配 `NETLOG_DATA_DIR=C:/qianli/data/netlog`），**项目外**，重部署不丢；
 - `net-log.jsonl`：状态行（每轮）+ 事件行（状态变化必记 + 15 分钟心跳行防纯空白），~100 行/天，不做轮转；
-- `backlog.json`：待补发通知积压。
+- `backlog.json`：待补发通知积压；
+- `account-demotions.json`（v18）：账号垫底状态（被抢 24h 沉底），独立于池配置文件、push.js 不触碰。
 
 ## HTTP 端点
 
@@ -72,8 +73,8 @@ pm2 名 `qianli-netlog`，`pm2 save` 后并入小电脑 `qianli-bots-autostart`�
 ```bash
 node scripts/stub-test-netlog.js       # 60 断言：防抖/恢复历时/积压补发/冲刷竞态回归/egress 变化/事件分级/复活自愈冲刷+DownSince清零/JSONL 结构/通知节流/wan 三态判定
 node scripts/stub-test-routerwatch.js  # 33 断言：路由器无线观测（失联/恢复/射频异常/ax 翻转/DHCP 探测/设备数骤降的翻转触发与去重/停用/DISCOVER 报文结构/v17 固定探针 MAC 与超时）
-node scripts/stub-test-wanguard.js     # 38 断言：复活引擎（首选项优先/换号/慢速判定/exhausted 冷却/手动触发/基线）
-# npm test = 三套合计 131 断言（push 闸门）
+node scripts/stub-test-wanguard.js     # 52 断言：复活引擎（首选项优先/换号/慢速判定/exhausted 冷却/手动触发/基线/被抢持续垫底+跨轮避开/到期复位/全垫底不失能）
+# npm test = 三套合计 145 断言（push 闸门）
 ```
 
 ## 已知限制
@@ -87,7 +88,7 @@ node scripts/stub-test-wanguard.js     # 38 断言：复活引擎（首选项优
 
 「网关实现途径」考古结论：主路由 WAN=纯 DHCP，被踢秒级自愈靠 Dr.COM **MAC 无感知认证**（无账号池无策略，失效即"根本连不上"）；真正的重连逻辑是 4A 时代保活脚本 `ping.sh`（归档桌面 `qianli-backups/4a-root-ping-archive-20260920.tar.gz`，内含两个账号），其弱点=两账号无脑都发、发完不验证、无限速检测、极端失败 reboot 路由器。v2 按同一协议（`http://10.10.8.162:801/eportal/portal/`，端口 801 是 API，80/443 只是登录页）重写为可持续维护的引擎：
 
-- **账号池**（`campus-accounts.local.json`，凭据不进 git；部署目标 `C:/qianli/data/netlog/`，push.js 带备份+条数守卫上传）：`preferred` 首选项**永远先试**（曼波钦定 31108753），其余按 priority 轮换；
+- **账号池**（`campus-accounts.local.json`，凭据不进 git；部署目标 `C:/qianli/data/netlog/`，push.js 带备份+条数守卫上传）：`preferred` 首选项**永远先试**（曼波钦定 31108753），其余按 priority 轮换；首选项语义=**优先不是拉锯**（v18）——被抢的号持久垫底 24h，只在没得选时才轮到；
 - **复活**：wan 断（防抖 2 轮）+ lan 活 → 每 tick 尝试一个账号 login，**以 wan 真恢复为成败**（不轻信 eportal 响应文案）；全用尽 → 飞书通知 + 30 分钟冷却重试；
 - **慢速降级（自适应基线，曼波拍板）**：恢复后 20s 宽限 → 3 次探针取中位数，> 健康基线（滑动 20 样本中位数，下限 30ms）×3 → 判限速 → 打「**本月不再使用**」（`bannedThisMonth`，自然月自动失效）→ 自动换号；
 - **手动触发**：`POST /api/netlog/revive`（`X-API-Token: NETLOG_API_TOKEN`，未配置=锁定）——网络已通时也可触发，供协议实测；`GET /api/netlog/summary` 的 `guard` 字段看引擎状态（基线/队列/最近动作）；

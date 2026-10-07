@@ -32,6 +32,7 @@ function makeDeps({ poolUsers, preferred = '31108753', baseline = 100, verifySes
     events: [],
     logins: [],
     banned: [],
+    demoted: [],        // v18：demote 调用记录（参数审计）
     latencyQueue: [],   // probeLatency 依次弹出的值（null=失败）
     wanOk: false,
     lanOk: true,
@@ -39,20 +40,27 @@ function makeDeps({ poolUsers, preferred = '31108753', baseline = 100, verifySes
     lanFailTicks: 0,
     poolFile: makePoolFile(poolUsers.map(([user, password, priority]) => ({ user, password, priority })), preferred),
   };
-  const { createAccountPool } = require(path.join(__dirname, '..', 'src', 'accountPool.js'));
+  const { createAccountPool, createDemoteStore, rankWithDemotions } = require(path.join(__dirname, '..', 'src', 'accountPool.js'));
   const pool = createAccountPool(d.poolFile, () => new Date(d.clock));
+  // v18：垫底 store 与组装层同构（独立状态文件 + 排序合成）
+  d.demoteFile = path.join(os.tmpdir(), `demote-test-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.json`);
+  const demotes = createDemoteStore(d.demoteFile, () => new Date(d.clock));
   const guard = createWanGuard({
-    candidates: () => pool.listCandidates(),
+    candidates: () => rankWithDemotions(pool.listCandidates(), demotes.active()),
     authIp: async () => '10.253.32.177',
     login: async (acct) => { d.logins.push(acct.user); },
     probeLatency: async () => (d.latencyQueue.length ? d.latencyQueue.shift() : baseline),
     verifySession,
     ban: (user, reason) => d.banned.push({ user, reason }),
+    demote: (user, hours, reason) => { d.demoted.push({ user, hours, reason }); return demotes.demote(user, hours, reason); },
+    demotions: () => demotes.active(),
+    kickDemoteHours: 24,
     emit: (event, detail) => d.events.push({ event, detail }),
     now: () => new Date(d.clock),
     tickMs: 60000,
   });
   d.pool = pool;
+  d.demotes = demotes;
   d.guard = guard;
   d.nextTick = async () => guard.onTick(d.wanOk, d.lanOk, d.trafficOk);
   return d;
@@ -148,7 +156,7 @@ function makeDeps({ poolUsers, preferred = '31108753', baseline = 100, verifySes
   await d10.nextTick(); // 流量仍断 → 换下一个候选
   check('流量未恢复换下一候选', d10.logins.includes('20261103'), JSON.stringify(d10.logins));
 
-  console.log('\n== 11. 近期被踢轮换（v10，曼波定）：复活后 30 分钟内再掉线 → 上次的号排队尾 ==');
+  console.log('\n== 11. 被抢持续垫底（v18，曼波定「首选只是优先不是拉锯」）：复活后 30 分钟内再掉线 → 垫底 24h 换号 ==');
   const d11 = makeDeps({ poolUsers: [['31108753', 'pw1', 1], ['20261103', 'pw2', 2], ['20253548', 'pw3', 3]] });
   // 第一轮：正常复活，用首选项 31108753
   d11.wanOk = false;
@@ -157,19 +165,64 @@ function makeDeps({ poolUsers, preferred = '31108753', baseline = 100, verifySes
   await d11.nextTick(); // revive_success（31108753）
   check('第一轮复活用首选 31108753', d11.logins[0] === '31108753' && d11.events.some((e) => e.event === 'revive_success'), JSON.stringify(d11.logins));
   check('lastRevive 已登记', d11.guard.summary().lastRevive && d11.guard.summary().lastRevive.user === '31108753', JSON.stringify(d11.guard.summary().lastRevive));
-  // 第二轮：29 分钟后又掉线（窗口内）→ 被踢轮换，31108753 排队尾，先试 20261103
+  // 第二轮：29 分钟后又掉线（窗口内）→ 被抢判定 → 持久垫底 24h，先试 20261103
   d11.clock += 29 * 60 * 1000;
   d11.wanOk = false;
   d11.trafficOk = true;
   await d11.nextTick();
-  check('窗口内再掉线轮换避开刚被踢的号', d11.logins[d11.logins.length - 1] === '20261103', JSON.stringify(d11.logins));
-  check('轮换事件注记被踢账号', d11.events.some((e) => e.event === 'revive_start' && /31108753 刚被踢/.test(e.detail)), JSON.stringify(d11.events.filter((e) => e.event === 'revive_start').pop()));
+  check('窗口内再掉线立即换下一个账号', d11.logins[d11.logins.length - 1] === '20261103', JSON.stringify(d11.logins));
+  check('demote 被调（31108753，24h）', d11.demoted.some((x) => x.user === '31108753' && x.hours === 24), JSON.stringify(d11.demoted));
+  check('垫底已持久化（store active 含 31108753）', d11.demotes.active().some((x) => x.user === '31108753'), JSON.stringify(d11.demotes.active()));
+  check('account_demoted 事件已发', d11.events.some((e) => e.event === 'account_demoted' && /31108753/.test(e.detail)), JSON.stringify(d11.events.map((e) => e.event)));
+  check('revive_start 注记垫底', d11.events.some((e) => e.event === 'revive_start' && /31108753 刚被踢，已垫底/.test(e.detail)), JSON.stringify(d11.events.filter((e) => e.event === 'revive_start').pop()));
+  check('summary 暴露垫底列表', d11.guard.summary().demotions.some((x) => x.user === '31108753'), JSON.stringify(d11.guard.summary().demotions));
   // 第二轮复活成功用 20261103
   d11.wanOk = true;
   await d11.nextTick();
   check('第二轮复活用 20261103', d11.guard.summary().lastRevive.user === '20261103', JSON.stringify(d11.guard.summary().lastRevive));
 
-  console.log('\n== 12. 轮换窗口过期：全新掉线仍按优先级首选开始 ==');
+  console.log('\n== 11.5 垫底跨轮持续（v18 核心）：检测窗口过期后掉线，被垫底的号仍被避开 ==');
+  // 第三轮：31 分钟后掉线（lastRevive=20261103 的检测窗口已过——旧逻辑此时会回到首选 31108753 跟人对拍）
+  d11.clock += 31 * 60 * 1000;
+  d11.wanOk = false;
+  d11.trafficOk = true;
+  await d11.nextTick();
+  check('窗口过期后仍避开垫底中的 31108753（改试 20261103）', d11.logins[d11.logins.length - 1] === '20261103', JSON.stringify(d11.logins));
+  const start115 = d11.events.filter((e) => e.event === 'revive_start').pop();
+  check('候选串中 31108753 沉底（垫底档在健康档之后）', /候选 .*20261103 → 20253548 → 31108753$/.test(start115.detail), start115.detail);
+  check('垫底账号不重复 demote（窗口外掉线不算新被抢）', d11.demoted.filter((x) => x.user === '31108753').length === 1, JSON.stringify(d11.demoted));
+
+  console.log('\n== 11.6 垫底到期自动复位：24h 后新一轮复活排序恢复首选优先 ==');
+  const d116 = makeDeps({ poolUsers: [['31108753', 'pw1', 1], ['20261103', 'pw2', 2]] });
+  d116.wanOk = false;
+  await d116.nextTick();
+  d116.wanOk = true;
+  await d116.nextTick(); // 第一轮复活成功（31108753）
+  d116.clock += 10 * 60 * 1000;
+  d116.wanOk = false;
+  await d116.nextTick(); // 窗口内再掉线 → 31108753 垫底，login 20261103
+  check('11.6 垫底已生效', d116.demotes.active().some((x) => x.user === '31108753'));
+  d116.wanOk = true;
+  await d116.nextTick(); // 第二轮复活成功（20261103）
+  check('11.6 第二轮用垫底替代号成功', d116.guard.summary().lastRevive.user === '20261103', JSON.stringify(d116.guard.summary().lastRevive));
+  d116.clock += 25 * 60 * 60 * 1000; // 25 小时后（垫底 24h 与检测窗口 30min 均已过期）
+  d116.wanOk = false;
+  d116.trafficOk = true;
+  await d116.nextTick();
+  check('11.6 垫底到期复位：新一轮复活重新首选 31108753', d116.logins[d116.logins.length - 1] === '31108753', JSON.stringify(d116.logins));
+  check('11.6 store 里过期条目不再生效', d116.demotes.active().length === 0, JSON.stringify(d116.demotes.active()));
+
+  console.log('\n== 11.7 全池垫底不失能：垫底档内仍保持原序、账号不被剔除 ==');
+  const d117 = makeDeps({ poolUsers: [['31108753', 'pw1', 1], ['20261103', 'pw2', 2]] });
+  // 直接把两个号都垫底（模拟连续被抢），再手动触发复活
+  d117.demotes.demote('31108753', 24, 'kicked');
+  d117.demotes.demote('20261103', 24, 'kicked');
+  await d117.guard.forceRevive();
+  check('11.7 全垫底时仍正常 login（池不失能）', d117.logins.length === 1 && d117.logins[0] === '31108753', JSON.stringify(d117.logins));
+  const start117 = d117.events.filter((e) => e.event === 'revive_start').pop();
+  check('11.7 垫底档保持原序（首选仍领队，无账号被剔除）', /候选 31108753 → 20261103$/.test(start117.detail), start117.detail);
+
+  console.log('\n== 12. 被抢判定窗口外的全新掉线：无垫底记录的号仍按优先级首选开始 ==');
   const d12 = makeDeps({ poolUsers: [['31108753', 'pw1', 1], ['20261103', 'pw2', 2]] });
   d12.wanOk = false;
   await d12.nextTick();
@@ -179,6 +232,7 @@ function makeDeps({ poolUsers, preferred = '31108753', baseline = 100, verifySes
   d12.wanOk = false;
   d12.trafficOk = true;
   await d12.nextTick();
+  check('窗口外掉线不误判被抢（无 demote）', d12.demoted.length === 0, JSON.stringify(d12.demoted));
   check('窗口外掉线仍首选 31108753（不做无谓轮换）', d12.logins[d12.logins.length - 1] === '31108753', JSON.stringify(d12.logins));
 
   console.log('\n== 13. 成功判定核会话归属（v12）：出口本通/IP 已被他人放行时拒绝假阳性 ==');
