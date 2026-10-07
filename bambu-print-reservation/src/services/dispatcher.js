@@ -450,18 +450,23 @@ class Dispatcher {
 
   /**
    * 多色匹配（2026-10-05）：打印机 AMS 是否覆盖全部颜色——逐色找近似色槽、
-   * 各色不共槽，exact 全过或 family 全过。needMaterial 限定槽材料（多色件通常同材料）
+   * 各色不共槽，材料精确全过或家族全过两档。needMaterial 留空（材料反推场景）
+   * 材料维度放行、仅要求槽上有料（2026-10-07 修复：materialMatch 空串恒 false，
+   * 原实现会让「多色+材料留空」永远选不中机）
    */
   amsCoversColors(printer, colors, needMaterial, trayOpts = {}) {
+    const m = String(needMaterial || '').trim().toUpperCase();
     const trays = (printer.ams || []).filter((t) => t.type && trayAllowed(t, trayOpts.exclude));
     for (const level of ['exact', 'family']) {
       const used = new Set();
       let ok = true;
       for (const color of colors) {
         const rgb = config.colorReference[color] || null;
-        const tray = trays.find((t) => !used.has(t)
-          && materialMatch(needMaterial, t.type) === level
-          && (!rgb || !t.colorHex || colorDistance(t.colorHex, rgbToHex(rgb)) <= config.dispatch.colorDistanceThreshold));
+        const tray = trays.find((t) => {
+          if (used.has(t)) return false;
+          if (m && materialMatch(m, t.type) !== level) return false;
+          return !rgb || !t.colorHex || colorDistance(t.colorHex, rgbToHex(rgb)) <= config.dispatch.colorDistanceThreshold;
+        });
         if (!tray) { ok = false; break; }
         used.add(tray);
       }

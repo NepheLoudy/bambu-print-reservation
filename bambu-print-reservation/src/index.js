@@ -327,14 +327,19 @@ app.post('/api/reservations', requireUser(), upload.single('file'), async (req, 
     }
 
     // 3mf 审批透明化（2026-10-06）：提取文件内嵌切片参数摘要随单存档——审批人
-    // 不用下载文件开 Bambu Studio 就能看参数。提取失败不阻塞提交（摘要置空）
+    // 不用下载文件开 Bambu Studio 就能看参数。提取失败不阻塞提交（摘要置空）；
+    // 大于 50MB 跳过提取（adm-zip 需整文件进内存，大文件会拖垮提交请求）
     let embeddedParams = null;
     if (isSliced) {
-      try {
-        const extracted = require('./services/slicerExtract').extractFrom3mf(fs.readFileSync(req.file.path));
-        embeddedParams = { source: extracted.source, params: extracted.params };
-      } catch (err) {
-        console.warn(`[提交] 3mf 参数提取失败（不影响提交）: ${err.message}`);
+      if (req.file.size > 50 * 1024 * 1024) {
+        console.log(`[提交] 3mf 过大（${Math.round(req.file.size / 1048576)}MB），跳过参数提取`);
+      } else {
+        try {
+          const extracted = require('./services/slicerExtract').extractFrom3mf(fs.readFileSync(req.file.path));
+          embeddedParams = { source: extracted.source, params: extracted.params };
+        } catch (err) {
+          console.warn(`[提交] 3mf 参数提取失败（不影响提交）: ${err.message}`);
+        }
       }
     }
 

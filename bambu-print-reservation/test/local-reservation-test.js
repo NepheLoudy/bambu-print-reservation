@@ -314,6 +314,19 @@ check('双通道分流:3mf 提交跳过定档(processParams null),stl/step 照�
   assert.equal(t.materialType, 'PETG');
 });
 
+check('多色+材料留空(反推场景)可选机(2026-10-07 死区修复)', () => {
+  const mk = (ams) => ({ autoDispatch: true, status: '空闲', name: 'T', ams });
+  const full = mk([
+    { type: 'PLA', colorHex: '#ffffff' },
+    { type: 'PLA', colorHex: '#000000' },
+  ]);
+  const task = { materialType: '', color: '白色+黑色', materialExclude: [], materialPrefer: [] };
+  assert.equal(dispatcher.matchPrinter(task, [full])?.name, 'T', '材料空时材料维度放行,按颜色匹配');
+  // 材料空+排除 PLA:PLA 槽被排除 → 不可选
+  const blocked = dispatcher.matchPrinter({ ...task, materialExclude: ['^PLA'] }, [full]);
+  assert.equal(blocked, null, '反推排除应让全 PLA 槽机器不可选');
+});
+
 // ---------- 收尾：异步用例全部落定后清理与总结 ----------
 Promise.all(pending).then(() => {
   for (const f of [process.env.RESERVATIONS_STORE_FILE, process.env.DISPATCH_STATE_FILE, process.env.QUIET_BACKLOG_FILE]) {

@@ -9,7 +9,7 @@
  *   [2/3] 上传 .env 到部署目标（含飞书密钥，只单独存部署目标，绝不进 git）
  *   [3/3] npm install + 重启服务
  *
- * NAS 连接配置从 .env 读取（NAS_HOST/NAS_PORT/NAS_USER/NAS_PASSWORD），脚本不存任何密钥。
+ * 部署目标连接配置从 .env 读取（DEPLOY_HOST/DEPLOY_PORT/DEPLOY_USER/DEPLOY_PASSWORD），脚本不存任何密钥。
  */
 const { spawnSync } = require('child_process');
 const { Client } = require('ssh2');
@@ -45,14 +45,14 @@ const REMOTE_DIR = '/c/qianli/opt/bambu-print-server';
 const REMOTE_DIR_WIN = 'C:/qianli/opt/bambu-print-server';
 const PM2_NAME = 'bambu-print-server';
 
-const nasConfig = {
-  host: process.env.NAS_HOST,
-  port: Number(process.env.NAS_PORT || 22),
-  username: process.env.NAS_USER,
-  password: process.env.NAS_PASSWORD,
+const deployConfig = {
+  host: process.env.DEPLOY_HOST,
+  port: Number(process.env.DEPLOY_PORT || 22),
+  username: process.env.DEPLOY_USER,
+  password: process.env.DEPLOY_PASSWORD,
 };
-if (!nasConfig.host || !nasConfig.password) {
-  console.error('缺少 NAS 部署配置：请在 .env 中配置 NAS_HOST/NAS_PORT/NAS_USER/NAS_PASSWORD');
+if (!deployConfig.host || !deployConfig.password) {
+  console.error('缺少部署配置：请在 .env 中配置 DEPLOY_HOST/DEPLOY_PORT/DEPLOY_USER/DEPLOY_PASSWORD');
   process.exit(1);
 }
 
@@ -157,7 +157,7 @@ function deployCode() {
           conn.end();
           process.exit(1);
         }
-        console.log('✓ .env 已上传到部署目标（含飞书密钥，仅存于 NAS）');
+        console.log('✓ .env 已上传到部署目标（含飞书密钥，仅存于部署目标）');
         restart();
       });
     });
@@ -181,4 +181,4 @@ function restart() {
 }
 
 console.log('正在连接部署目标...');
-conn.connect(nasConfig);
+conn.connect(deployConfig);
