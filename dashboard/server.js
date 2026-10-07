@@ -6,12 +6,12 @@ const path = require('path');
 const registry = require('./registry');
 
 // ============================================================
-// qianli 本地运维台（仅 127.0.0.1，不部署 NAS）
-// - 可视化：各机器人端口职能/权限/指令/监听 + 本地 git 更新状态 + NAS pm2 状态
+// qianli 本地运维台（仅 127.0.0.1，不部署，仅本机）
+// - 可视化：各机器人端口职能/权限/指令/监听 + 本地 git 更新状态 + 部署目标 pm2 状态
 // - 总览仪表台：服务状态矩阵 / 1h 状态时间线 / 24h 可用率 / 掉线事件 / 近 7 天提交活跃（/api/stats）
 // - 本地测试进程：start/stop/log（自动 QUIET_HOURS_DISABLED=1，手动触发不受静默限制）
 // - 快捷指令：npm push / install / stub 测试（注册表 quickActions）
-// - NAS：pm2 状态 / 日志 tail / 重启（走 SSH，凭据直读 approval-bot/.env）
+// - 部署目标：pm2 状态 / 日志 tail / 重启（走 SSH，凭据直读 approval-bot/.env）
 // ============================================================
 
 const ROOT = path.join(__dirname, '..');
@@ -31,7 +31,7 @@ app.use((req, res, next) => {
   next();
 });
 // 防跨站 POST（2026-09-27 审查批）：恶意网页可对 127.0.0.1:3100 发 no-cors 表单/fetch POST，
-// 打到 /api/nas/restart/:name、/api/local/:id/start|stop、/api/action/:id 等写端点。
+// 打到 /api/deploy/restart/:name、/api/local/:id/start|stop、/api/action/:id 等写端点。
 // 全局要求自定义头 X-Requested-With: qianli-dashboard——跨站表单 POST 无法携带自定义头
 // （过不了 CORS 预检），缺失即 403；与 Host 校验叠加构成双保险
 app.use((req, res, next) => {
@@ -42,20 +42,20 @@ app.use((req, res, next) => {
 });
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ---------- NAS 连接配置：直读 approval-bot/.env（单一来源，不复制凭据） ----------
-function readNasConfig() {
+// ---------- 部署目标连接配置：直读 approval-bot/.env（单一来源，不复制凭据） ----------
+function readDeployConfig() {
   try {
     const text = fs.readFileSync(path.join(ROOT, 'approval-bot', '.env'), 'utf-8');
     const get = (k) => (text.match(new RegExp(`^${k}=(.*)$`, 'm')) || [])[1] || '';
-    return { host: get('NAS_HOST').trim(), port: Number(get('NAS_PORT').trim() || 22), username: get('NAS_USER').trim(), password: get('NAS_PASSWORD').trim(), apiToken: (get('API_TOKEN') || get('QIANLI_API_TOKEN') || '').trim(), routerPassword: get('ROUTER_PASSWORD').trim() };
+    return { host: get('DEPLOY_HOST').trim(), port: Number(get('DEPLOY_PORT').trim() || 22), username: get('DEPLOY_USER').trim(), password: get('DEPLOY_PASSWORD').trim(), apiToken: (get('API_TOKEN') || get('QIANLI_API_TOKEN') || '').trim(), routerPassword: get('ROUTER_PASSWORD').trim() };
   } catch (err) {
     return null;
   }
 }
 
 function sshExec(cmd, timeoutMs = 15000) {
-  const cfg = readNasConfig();
-  if (!cfg || !cfg.host || !cfg.password) return Promise.reject(new Error('未读到部署目标配置（approval-bot/.env 的 NAS_* 键,历史命名）'));
+  const cfg = readDeployConfig();
+  if (!cfg || !cfg.host || !cfg.password) return Promise.reject(new Error('未读到部署目标配置（approval-bot/.env 的 DEPLOY_* 键）'));
   return new Promise((resolve, reject) => {
     const conn = new Client();
     const timer = setTimeout(() => { conn.end(); reject(new Error('SSH 超时')); }, timeoutMs);
@@ -165,8 +165,8 @@ function gitInfo(dir) {
   return data;
 }
 
-async function nasStatus() {
-  const cached = nasStatus.cache;
+async function deployStatus() {
+  const cached = deployStatus.cache;
   if (cached && Date.now() - cached.t < 20 * 1000) return cached.data;
   try {
     const out = await sshExec('pm2 jlist', 20000);
@@ -180,7 +180,7 @@ async function nasStatus() {
         memMb: p.monit ? Math.round(p.monit.memory / 1048576) : null,
       })),
     };
-    nasStatus.cache = { t: Date.now(), data };
+    deployStatus.cache = { t: Date.now(), data };
     return data;
   } catch (err) {
     return { online: false, error: err.message, procs: [] };
@@ -199,7 +199,7 @@ const HISTORY_FILE = path.join(__dirname, '.status-history.json');
 const SAMPLE_MIN_GAP = 25 * 1000;          // 采样最小间隔（前端 4s 轮询，实际约 25~30s 一针）
 const SAME_STATE_MERGE_MS = 10 * 60 * 1000; // 状态未变化时原地推进时间点，超过该时长才落新针（兜底）
 const HISTORY_KEEP_MS = 3 * 24 * 3600 * 1000;
-// s：2=NAS 在线 1=仅本地测试进程在跑 0=离线 3=未知（NAS 不可达，不计入可用率分母）
+// s：2=部署目标在线 1=仅本地测试进程在跑 0=离线 3=未知（部署目标不可达，不计入可用率分母）
 // 段结构 {t0 段起点, t 末次确认}：同态并段只推进 t，t0 保留状态起始时刻（持续时长/时间线/事件都靠它）
 const history = { samples: {}, dirty: false };
 try {
@@ -217,15 +217,15 @@ setInterval(() => {
   fs.writeFile(HISTORY_FILE, JSON.stringify({ v: 1, samples: history.samples }), () => {});
 }, 60 * 1000);
 
-function recordSamples(projects, nas) {
+function recordSamples(projects, deploy) {
   const now = Date.now();
   for (const p of projects) {
     const arr = history.samples[p.id] || (history.samples[p.id] = []);
     const last = arr[arr.length - 1];
     if (last && now - last.t < SAMPLE_MIN_GAP) continue;
     const s = p.id === 'dashboard' ? 2
-      : !nas.online ? 3
-      : p.pm2Name ? (p.nas && p.nas.status === 'online' ? 2 : (p.localRunning ? 1 : 0))
+      : !deploy.online ? 3
+      : p.pm2Name ? (p.deploy && p.deploy.status === 'online' ? 2 : (p.localRunning ? 1 : 0))
       : (p.localRunning ? 1 : 3);
     if (last && last.s === s && now - last.t < SAME_STATE_MERGE_MS) last.t = now;
     else arr.push({ t0: now, t: now, s });
@@ -291,19 +291,19 @@ function timeline(id, winMs = 60 * 60 * 1000, n = 30) {
   return cells;
 }
 
-// ---------- 总览仪表台：NAS 批量 HTTP 深度健康（一次 SSH 探全部 /api/health，pm2 online 但接口僵死可现形） ----------
-async function nasHttpHealth() {
-  if (nasHttpHealth.cache && Date.now() - nasHttpHealth.cache.t < 60 * 1000) return nasHttpHealth.cache.map;
+// ---------- 总览仪表台：部署目标批量 HTTP 深度健康（一次 SSH 探全部 /api/health，pm2 online 但接口僵死可现形） ----------
+async function deployHttpHealth() {
+  if (deployHttpHealth.cache && Date.now() - deployHttpHealth.cache.t < 60 * 1000) return deployHttpHealth.cache.map;
   const targets = registry.projects.filter((p) => p.pm2Name && p.port);
   const cmd = targets.map((p) => `printf '${p.port} '; curl -s -o /dev/null -w '%{http_code}' -m 4 http://127.0.0.1:${p.port}/api/health; echo`).join('\n');
   try {
     const out = await sshExec(cmd, 35000);
     const map = {};
     out.split('\n').forEach((line) => { const m = line.match(/^(\d+)\s+(\d+)$/); if (m) map[m[1]] = m[2] === '200'; });
-    if (targets.some((p) => map[p.port] !== undefined)) nasHttpHealth.cache = { t: Date.now(), map };
+    if (targets.some((p) => map[p.port] !== undefined)) deployHttpHealth.cache = { t: Date.now(), map };
     return map;
   } catch (err) {
-    return nasHttpHealth.cache ? nasHttpHealth.cache.map : {};
+    return deployHttpHealth.cache ? deployHttpHealth.cache.map : {};
   }
 }
 
@@ -381,7 +381,7 @@ app.get('/api/team-load', async (req, res) => {
 const actionStats = { total: 0, last: null }; // 本次运维台开机以来的一次性动作执行计数
 
 app.get('/api/overview', async (req, res) => {
-  const nas = await nasStatus();
+  const deploy = await deployStatus();
   const projects = [];
   for (const p of registry.projects) {
     const local = localProcs.get(p.id);
@@ -389,37 +389,37 @@ app.get('/api/overview', async (req, res) => {
     projects.push({
       ...p,
       git: p.repo ? gitInfo(p.repo === 'own' ? p.dir : '.') : null,
-      nas: p.pm2Name ? nas.procs.find((x) => x.name === p.pm2Name) || null : null,
+      deploy: p.pm2Name ? deploy.procs.find((x) => x.name === p.pm2Name) || null : null,
       localRunning: Boolean(local && local.child.exitCode === null),
       localHealth: local && local.child.exitCode === null ? await localHealth(p.port) : false,
       actionRunning: Boolean(action?.running),
       hasActionLog: Boolean(action),
     });
   }
-  recordSamples(projects, nas);
-  res.json({ time: new Date().toISOString(), nas, projects });
+  recordSamples(projects, deploy);
+  res.json({ time: new Date().toISOString(), deploy, projects });
 });
 
 // 总览仪表台数据：状态矩阵 / 可用率 / 掉线事件 / 提交活跃 / 汇总指标
 app.get('/api/stats', async (req, res) => {
-  const nas = await nasStatus();
-  const httpMap = await nasHttpHealth();
+  const deploy = await deployStatus();
+  const httpMap = await deployHttpHealth();
   const now = Date.now();
   const DAY = 24 * 3600 * 1000;
 
   const services = registry.projects.map((p) => {
-    const nasProc = p.pm2Name ? nas.procs.find((x) => x.name === p.pm2Name) || null : null;
+    const deployProc = p.pm2Name ? deploy.procs.find((x) => x.name === p.pm2Name) || null : null;
     const local = localProcs.get(p.id);
     const cur = currentState(p.id);
     return {
       id: p.id, name: p.name, label: p.label, port: p.port,
       hasPm2: Boolean(p.pm2Name),
-      nasStatus: nasProc ? nasProc.status : null,
+      deployStatus: deployProc ? deployProc.status : null,
       localRunning: Boolean(local && local.child.exitCode === null),
-      httpOk: p.pm2Name && nas.online ? (httpMap[p.port] ?? null) : null,
-      memMb: nasProc ? nasProc.memMb : null,
-      uptimeMs: nasProc ? nasProc.uptimeMs : 0,
-      restarts: nasProc ? nasProc.restarts : null,
+      httpOk: p.pm2Name && deploy.online ? (httpMap[p.port] ?? null) : null,
+      memMb: deployProc ? deployProc.memMb : null,
+      uptimeMs: deployProc ? deployProc.uptimeMs : 0,
+      restarts: deployProc ? deployProc.restarts : null,
       avail24h: availability(p.id, DAY),
       current: cur,
       timeline: timeline(p.id),
@@ -446,9 +446,9 @@ app.get('/api/stats', async (req, res) => {
     if (gi.inRepo) dirtyTotal += gi.dirty;
   }
   const summary = {
-    nasOnline: nas.online,
+    deployOnline: deploy.online,
     pm2Total: services.filter((s) => s.hasPm2).length,
-    pm2Online: services.filter((s) => s.hasPm2 && s.nasStatus === 'online').length,
+    pm2Online: services.filter((s) => s.hasPm2 && s.deployStatus === 'online').length,
     httpProbed: services.filter((s) => s.httpOk != null).length,
     httpOkCount: services.filter((s) => s.httpOk === true).length,
     localRunning: services.filter((s) => s.localRunning).length,
@@ -502,8 +502,8 @@ app.get('/api/action/:id/log', (req, res) => {
   res.json({ running: Boolean(a?.running), cmd: a?.cmd || '', exitCode: a?.exitCode ?? null, log: a ? a.log.join('\n') : '(无动作记录)' });
 });
 
-// NAS：pm2 日志 / 重启
-app.get('/api/nas/log/:name', async (req, res) => {
+// 部署目标：pm2 日志 / 重启
+app.get('/api/deploy/log/:name', async (req, res) => {
   const lines = Math.min(400, Number(req.query.lines) || 120);
   const name = String(req.params.name).replace(/[^a-zA-Z0-9_-]/g, '');
   try {
@@ -514,18 +514,18 @@ app.get('/api/nas/log/:name', async (req, res) => {
   }
 });
 
-app.post('/api/nas/restart/:name', async (req, res) => {
+app.post('/api/deploy/restart/:name', async (req, res) => {
   const name = String(req.params.name).replace(/[^a-zA-Z0-9_-]/g, '');
   try {
     const out = await sshExec(`pm2 restart ${name} --update-env && pm2 save`, 30000);
-    nasStatus.cache = null;
+    deployStatus.cache = null;
     res.json({ ok: true, out: out.slice(-400) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ---------- 定制中心：窗口清单 + NAS 本机服务 HTTP 代理（SSH curl，仅本机可用） ----------
+// ---------- 定制中心：窗口清单 + 部署目标本机服务 HTTP 代理（SSH curl，仅本机可用） ----------
 
 // 各项目已登记的定制窗口（registry.js 的 windows 字段）
 app.get('/api/windows', (req, res) => {
@@ -534,8 +534,8 @@ app.get('/api/windows', (req, res) => {
     .map((p) => ({ id: p.id, name: p.name, label: p.label, port: p.port, windows: p.windows })));
 });
 
-// 代理到 NAS 本机端口的窗口接口：{ port, method:'GET'|'POST', path, body? }
-app.post('/api/nas/api', async (req, res) => {
+// 代理到部署目标本机端口的窗口接口：{ port, method:'GET'|'POST', path, body? }
+app.post('/api/deploy/api', async (req, res) => {
   const port = Number(req.body?.port);
   const method = String(req.body?.method || 'GET').toUpperCase();
   const apiPath = String(req.body?.path || '/');
@@ -552,7 +552,7 @@ app.post('/api/nas/api', async (req, res) => {
     const bodyB64 = Buffer.from(JSON.stringify(req.body?.body ?? {}), 'utf-8').toString('base64');
     cmd = `printf '%s' ${shQuote(bodyB64)} | base64 -d | ` + cmd + ` --data-binary @-`;
     // 管理端点鉴权（2026-09-13）：POST 自动附共享 X-API-Token（凭据直读 approval-bot/.env）
-    const apiToken = (readNasConfig() || {}).apiToken || '';
+    const apiToken = (readDeployConfig() || {}).apiToken || '';
     if (apiToken) cmd += ` -H ` + shQuote(`X-API-Token: ${apiToken}`);
   }
   cmd += ` ` + shQuote(`http://localhost:${port}${apiPath}`);
@@ -702,7 +702,7 @@ function loadBans() {
 }
 function saveBans(b) { fs.writeFileSync(BAN_FILE, JSON.stringify(b, null, 2) + '\n'); }
 function routerCreds() {
-  const cfg = readNasConfig();
+  const cfg = readDeployConfig();
   const rp = cfg.routerPassword || (process.env.ROUTER_PASSWORD || '');
   if (!rp) throw Object.assign(new Error('未配置路由器管理密码：在 approval-bot/.env 加 ROUTER_PASSWORD=<管理密码> 后重启运维台'), { code: 'NO_CONFIG' });
   return { host: process.env.ROUTER_HOST || '192.168.31.1', password: rp };
@@ -750,7 +750,7 @@ app.post('/api/network/lan/unban', (req, res) => {
     });
 });
 app.get('/api/router/status', (req, res) => {
-  res.json({ configured: Boolean((readNasConfig() || {}).routerPassword || process.env.ROUTER_PASSWORD), bans: Object.keys(loadBans()).length });
+  res.json({ configured: Boolean((readDeployConfig() || {}).routerPassword || process.env.ROUTER_PASSWORD), bans: Object.keys(loadBans()).length });
 });
 app.get('/api/network/lan', async (req, res) => {
   if (LAN_SCAN.cache && Date.now() - LAN_SCAN.at < 60000) return res.json(LAN_SCAN.cache);

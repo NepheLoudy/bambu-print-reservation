@@ -10,7 +10,7 @@
   body { background:var(--bg); color:var(--txt); font:14px/1.6 "Segoe UI","Microsoft YaHei",sans-serif; padding:18px; }
   header { display:flex; align-items:center; gap:14px; margin-bottom:16px; flex-wrap:wrap; }
   header h1 { font-size:20px; }
-  .nas { font-size:13px; color:var(--dim); }
+  .deploy { font-size:13px; color:var(--dim); }
   .badge { display:inline-block; padding:1px 9px; border-radius:10px; font-size:12px; background:var(--line); }
   .badge.ok { color:var(--ok); } .badge.err { color:var(--err); } .badge.warn { color:var(--warn); }
   .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(430px, 1fr)); gap:14px; }
@@ -143,9 +143,9 @@
 <body>
 <header>
   <h1>🌊 曼波大模型</h1>
-  <span class="nas" id="nasSummary">主机状态加载中…</span>
+  <span class="deploy" id="deploySummary">主机状态加载中…</span>
   <span style="flex:1"></span>
-  <span class="nas" id="updatedAt"></span>
+  <span class="deploy" id="updatedAt"></span>
 </header>
 
 <section class="board" id="board">
@@ -188,7 +188,7 @@
 
 <script>
 let DATA = null;
-let drawerCtx = null; // {type:'local'|'action'|'nas', id, name}
+let drawerCtx = null; // {type:'local'|'action'|'deploy', id, name}
 
 function toast(msg) {
   const t = document.getElementById('toast');
@@ -205,15 +205,15 @@ function sec(title, items) {
 
 function render() {
   if (!DATA) return;
-  const nas = DATA.nas;
-  document.getElementById('nasSummary').innerHTML = nas.online
-    ? `主机 <span class="badge ok">在线</span> 进程：${nas.procs.map((p) => `${p.name} ${badge(p.status, p.status === 'online' ? 'ok' : 'err')}`).join(' ')}`
-    : `主机 <span class="badge err">不可达</span> ${nas.error || ''}`;
+  const deploy = DATA.deploy;
+  document.getElementById('deploySummary').innerHTML = deploy.online
+    ? `主机 <span class="badge ok">在线</span> 进程：${deploy.procs.map((p) => `${p.name} ${badge(p.status, p.status === 'online' ? 'ok' : 'err')}`).join(' ')}`
+    : `主机 <span class="badge err">不可达</span> ${deploy.error || ''}`;
   document.getElementById('updatedAt').textContent = '更新于 ' + new Date(DATA.time).toLocaleTimeString('zh-CN');
 
   document.getElementById('grid').innerHTML = DATA.projects.map((p) => {
-    const nasBadge = p.pm2Name
-      ? (p.nas ? badge(`主机 ${p.nas.status}`, p.nas.status === 'online' ? 'ok' : 'err') : badge('主机未发现', 'warn'))
+    const deployBadge = p.pm2Name
+      ? (p.deploy ? badge(`主机 ${p.deploy.status}`, p.deploy.status === 'online' ? 'ok' : 'err') : badge('主机未发现', 'warn'))
       : badge('仅本机', 'warn');
     const localBadge = p.localRun
       ? (p.localRunning ? badge(p.localHealth ? '本地运行✓健康' : '本地运行', 'ok') : badge('本地未启动', ''))
@@ -233,9 +233,9 @@ function render() {
     if ((p.quickActions || []).some((a) => a.id !== 'push')) {
       btns.push(`<button ${p.actionRunning ? 'disabled' : ''} class="primary" onclick="promptPush('${p.id}')">npm push 部署</button>`);
     }
-    if (p.nas) {
-      btns.push(`<button onclick="openNasLog('${p.pm2Name}')">主机日志</button>`);
-      btns.push(`<button class="danger" onclick="nasRestart('${p.pm2Name}')">主机重启</button>`);
+    if (p.deploy) {
+      btns.push(`<button onclick="openDeployLog('${p.pm2Name}')">主机日志</button>`);
+      btns.push(`<button class="danger" onclick="deployRestart('${p.pm2Name}')">主机重启</button>`);
     }
     if (p.actionRunning) btns.push(`<button onclick="openActionLog('${p.id}')">动作输出中…</button>`);
     else if (p.hasActionLog) btns.push(`<button onclick="openActionLog('${p.id}')">上次动作输出</button>`);
@@ -244,13 +244,13 @@ function render() {
       ? `<span style="flex:1"></span><button class="win-toggle" onclick="toggleWinPanel('${p.id}', event)">🧰 定制</button>` : '';
 
     return `<div class="card" id="card-${p.id}">
-      <h2><span class="port">:${p.port}</span> ${p.name} <span class="label">${p.label}</span> ${nasBadge} ${localBadge} ${winToggle}</h2>
+      <h2><span class="port">:${p.port}</span> ${p.name} <span class="label">${p.label}</span> ${deployBadge} ${localBadge} ${winToggle}</h2>
       <div class="role">${p.role}</div>
       <div class="status-row">
         <span class="badge">部署：${p.deploy}</span>
-        ${p.nas && p.nas.restarts != null ? `<span class="badge">重启 ${p.nas.restarts} 次</span>` : ''}
-        ${p.nas && p.nas.uptimeMs ? `<span class="badge">已运行 ${fmtDur(p.nas.uptimeMs)}</span>` : ''}
-        ${p.nas && p.nas.memMb ? `<span class="badge">内存 ${p.nas.memMb}MB</span>` : ''}
+        ${p.deploy && p.deploy.restarts != null ? `<span class="badge">重启 ${p.deploy.restarts} 次</span>` : ''}
+        ${p.deploy && p.deploy.uptimeMs ? `<span class="badge">已运行 ${fmtDur(p.deploy.uptimeMs)}</span>` : ''}
+        ${p.deploy && p.deploy.memMb ? `<span class="badge">内存 ${p.deploy.memMb}MB</span>` : ''}
       </div>
       ${sec('监听', p.listening)}
       ${sec('指令/接口', p.commands)}
@@ -299,7 +299,7 @@ function renderBoard() {
   if (!STATS) return;
   const sm = STATS.summary;
   const tiles = [
-    kpiTile('主机进程', sm.nasOnline ? `${sm.pm2Online}/${sm.pm2Total}` : '不可达', sm.nasOnline ? (sm.pm2Online === sm.pm2Total ? 'ok' : 'warn') : 'err', sm.nasOnline ? 'pm2 online / 应在线' : ''),
+    kpiTile('主机进程', sm.deployOnline ? `${sm.pm2Online}/${sm.pm2Total}` : '不可达', sm.deployOnline ? (sm.pm2Online === sm.pm2Total ? 'ok' : 'warn') : 'err', sm.deployOnline ? 'pm2 online / 应在线' : ''),
     kpiTile('HTTP 健康', sm.httpProbed ? `${sm.httpOkCount}/${sm.httpProbed}` : '-', sm.httpProbed && sm.httpOkCount === sm.httpProbed ? 'ok' : (sm.httpProbed ? 'err' : ''), '探测各服务 /api/health'),
     kpiTile('本地测试进程', `${sm.localRunning}/${sm.localRunnable}`, sm.localRunning ? 'ok' : '', '本台拉起的进程'),
     kpiTile('24h 平均可用率', sm.avail24h != null ? sm.avail24h + '%' : '-', sm.avail24h == null ? '' : (sm.avail24h >= 99 ? 'ok' : sm.avail24h >= 95 ? 'warn' : 'err'), '主机或本地任一在跑即可用'),
@@ -315,14 +315,14 @@ function renderBoard() {
   document.getElementById('matrix').innerHTML = STATS.services.map((s) => {
     const cur = s.current || {};
     const stBadge = badge(STATE_TXT[cur.s] ?? '无数据', STATE_CLS[cur.s] ?? '');
-    const since = cur.sinceMs ? ` <span class="nas">${cur.sinceMs < 60000 ? '刚刚' : fmtDur(cur.sinceMs)}</span>` : '';
+    const since = cur.sinceMs ? ` <span class="deploy">${cur.sinceMs < 60000 ? '刚刚' : fmtDur(cur.sinceMs)}</span>` : '';
     const http = s.httpOk == null ? '<span class="dot" title="未探测（主机离线或非 pm2 项目）"></span>'
       : `<span class="dot ${s.httpOk ? 'ok' : 'err'}" title="${s.httpOk ? 'HTTP 200' : 'HTTP 探测异常（pm2 在线但接口可能僵死）'}"></span>`;
     const mem = s.memMb != null
       ? `<div class="membar"><div class="track"><div class="fill ${s.memMb > 250 ? 'hot' : ''}" style="width:${Math.min(100, Math.round(s.memMb / 4))}%"></div></div><span>${s.memMb}MB</span></div>`
-      : '<span class="nas">—</span>';
-    const run = (s.hasPm2 && s.uptimeMs ? fmtDur(s.uptimeMs) : '—') + (s.restarts != null ? ` <span class="nas">↻${s.restarts}</span>` : '');
-    const spark = s.timeline ? `<div class="spark" title="绿=在线 橙=仅本地 红=离线 灰=未知">${s.timeline.map((c) => `<i class="${c >= 0 ? 's' + c : ''}"></i>`).join('')}</div>` : '<span class="nas">无采样</span>';
+      : '<span class="deploy">—</span>';
+    const run = (s.hasPm2 && s.uptimeMs ? fmtDur(s.uptimeMs) : '—') + (s.restarts != null ? ` <span class="deploy">↻${s.restarts}</span>` : '');
+    const spark = s.timeline ? `<div class="spark" title="绿=在线 橙=仅本地 红=离线 灰=未知">${s.timeline.map((c) => `<i class="${c >= 0 ? 's' + c : ''}"></i>`).join('')}</div>` : '<span class="deploy">无采样</span>';
     const dirty = dirtyById[s.id] ? `<span class="dirty">●${dirtyById[s.id]}</span>` : '';
     return `<div class="mrow">
       <span class="svc" onclick="jumpCard('${s.id}')" title="跳到详情卡片">:${s.port} ${esc(s.name)}${dirty}</span>
@@ -342,7 +342,7 @@ function renderBoard() {
         const live = !e.end;
         const dur = fmtDur((e.end || Date.now()) - e.start);
         return `<div class="evt-row ${live ? 'live' : ''}"><span class="dot ${live ? 'err' : ''}"></span>
-          <b>${esc(e.name)}</b> ${fmtClock(e.start)} – ${live ? '仍在离线' : fmtClock(e.end)} <span class="nas">（${dur}）</span></div>`;
+          <b>${esc(e.name)}</b> ${fmtClock(e.start)} – ${live ? '仍在离线' : fmtClock(e.end)} <span class="deploy">（${dur}）</span></div>`;
       }).join('')
     : '<div class="empty">近 24h 无掉线 🎉</div>';
 
@@ -410,7 +410,7 @@ function actRow(k, v) {
 }
 
 function ruleTableBadge(t) {
-  if (!t) return '<span class="nas">不可达</span>';
+  if (!t) return '<span class="deploy">不可达</span>';
   return t.enabled ? `<span class="badge ok">启用 · ${(t.replies || []).length} 条</span>` : '<span class="badge err">已停用</span>';
 }
 
@@ -426,27 +426,27 @@ function renderActivationCard() {
   rows.push('<div class="act-head">hub · 对话枢纽</div>');
   rows.push(actRow('群关键词回答表', ruleTableBadge(rg)));
   rows.push(actRow('@触发回答表', ruleTableBadge(rm)));
-  rows.push(actRow('会议提醒群', hp ? `${(hp.meetingChatIds || []).length} 个` : '<span class="nas">不可达</span>'));
+  rows.push(actRow('会议提醒群', hp ? `${(hp.meetingChatIds || []).length} 个` : '<span class="deploy">不可达</span>'));
   rows.push(actRow('关键词监听', hp && hp.keywordListening && hp.keywordListening.chatId ? '✓ 1 群' : '—'));
   rows.push('<div class="act-head">duty · 值日域</div>');
-  rows.push(actRow('管辖群', dp ? `${(dp.groupChatIds || []).length} 个${dp.overrideActive ? '（在线改写生效中）' : '（env 默认）'}` : '<span class="nas">不可达</span>'));
-  rows.push(actRow('值日助手看板', dp && dp.hubEnforcement ? `「${esc(dp.hubEnforcement.groupBoardCommand || '值日助手')}」 · ${dp.hubEnforcement.closeBasicCommands ? '基础指令已关' : '基础指令开放'}` : '<span class="nas">不可达</span>'));
+  rows.push(actRow('管辖群', dp ? `${(dp.groupChatIds || []).length} 个${dp.overrideActive ? '（在线改写生效中）' : '（env 默认）'}` : '<span class="deploy">不可达</span>'));
+  rows.push(actRow('值日助手看板', dp && dp.hubEnforcement ? `「${esc(dp.hubEnforcement.groupBoardCommand || '值日助手')}」 · ${dp.hubEnforcement.closeBasicCommands ? '基础指令已关' : '基础指令开放'}` : '<span class="deploy">不可达</span>'));
   rows.push(actRow('名册 / 白名单', `${ACT.dutyRoster ? ACT.dutyRoster.total + ' 人' : '?' } / ${ACT.dutyWl ? (ACT.dutyWl.names || []).length + ' 人' : '?'}`));
   rows.push('<div class="act-head">approval · 财务审批</div>');
-  rows.push(actRow('审批流程', ap ? `${(ap.approvalProcesses || []).length} 个` : '<span class="nas">不可达</span>'));
-  rows.push(actRow('催发票私聊', ap && ap.invoiceUrge ? `${cronDescribe(ap.invoiceUrge.schedule)} · 宽限${ap.invoiceUrge.graceDays}天` : ap ? '未配置' : '<span class="nas">不可达</span>'));
-  rows.push(actRow('每日待审批提醒', ap ? cronDescribe(ap.reminder && ap.reminder.schedule) : '<span class="nas">不可达</span>'));
-  rows.push(actRow('财务催办周报', ap ? cronDescribe(ap.cron && ap.cron.schedule) : '<span class="nas">不可达</span>'));
+  rows.push(actRow('审批流程', ap ? `${(ap.approvalProcesses || []).length} 个` : '<span class="deploy">不可达</span>'));
+  rows.push(actRow('催发票私聊', ap && ap.invoiceUrge ? `${cronDescribe(ap.invoiceUrge.schedule)} · 宽限${ap.invoiceUrge.graceDays}天` : ap ? '未配置' : '<span class="deploy">不可达</span>'));
+  rows.push(actRow('每日待审批提醒', ap ? cronDescribe(ap.reminder && ap.reminder.schedule) : '<span class="deploy">不可达</span>'));
+  rows.push(actRow('财务催办周报', ap ? cronDescribe(ap.cron && ap.cron.schedule) : '<span class="deploy">不可达</span>'));
   rows.push('<div class="act-head">bambu · 打印</div>');
   const pp = ACT.printPolicy;
-  rows.push(actRow('打印机登记', pp ? `${pp.printers?.configured ?? 0} 台（可用 ${pp.printers?.available ?? '?'}）` : '<span class="nas">不可达</span>'));
-  rows.push(actRow('审批主通道 / 自动审批', pp ? `${pp.approval?.primaryChannel ? '开' : '关'} / ${pp.approval?.autoApprove ? '已配' : '未配'}` : '<span class="nas">不可达</span>'));
-  rows.push(actRow('分发重试', pp ? `上限 ${pp.dispatch?.maxRetries} 次 · 冷却 ${Math.round((pp.dispatch?.retryCooldownMs || 0) / 1000)}s` : '<span class="nas">不可达</span>'));
+  rows.push(actRow('打印机登记', pp ? `${pp.printers?.configured ?? 0} 台（可用 ${pp.printers?.available ?? '?'}）` : '<span class="deploy">不可达</span>'));
+  rows.push(actRow('审批主通道 / 自动审批', pp ? `${pp.approval?.primaryChannel ? '开' : '关'} / ${pp.approval?.autoApprove ? '已配' : '未配'}` : '<span class="deploy">不可达</span>'));
+  rows.push(actRow('分发重试', pp ? `上限 ${pp.dispatch?.maxRetries} 次 · 冷却 ${Math.round((pp.dispatch?.retryCooldownMs || 0) / 1000)}s` : '<span class="deploy">不可达</span>'));
   rows.push('<div class="act-head">ticket · 工单</div>');
   const tp = ACT.ticketPolicy;
-  rows.push(actRow('播报路由 / 组长', tp ? `${(tp.broadcast?.routes || []).length} 组 / ${(tp.groupLeaders || []).length} 组` : '<span class="nas">不可达</span>'));
-  rows.push(actRow('审批联动', tp ? (tp.approval?.linked ? '<span class="badge ok">已接</span>' : '未配置') : '<span class="nas">不可达</span>'));
-  rows.push(actRow('多人单窗口', tp ? `${tp.multiAccept?.windowHours ?? '?'} 小时` : '<span class="nas">不可达</span>'));
+  rows.push(actRow('播报路由 / 组长', tp ? `${(tp.broadcast?.routes || []).length} 组 / ${(tp.groupLeaders || []).length} 组` : '<span class="deploy">不可达</span>'));
+  rows.push(actRow('审批联动', tp ? (tp.approval?.linked ? '<span class="badge ok">已接</span>' : '未配置') : '<span class="deploy">不可达</span>'));
+  rows.push(actRow('多人单窗口', tp ? `${tp.multiAccept?.windowHours ?? '?'} 小时` : '<span class="deploy">不可达</span>'));
   el.innerHTML = rows.join('');
 }
 
@@ -527,15 +527,15 @@ function openActionLog(id) {
   pullLog();
 }
 
-function openNasLog(name) {
-  drawerCtx = { type: 'nas', name };
+function openDeployLog(name) {
+  drawerCtx = { type: 'deploy', name };
   openDrawer(`主机 pm2 日志 · ${name}`);
   pullLog();
 }
 
-async function nasRestart(name) {
+async function deployRestart(name) {
   if (!confirm(`确认重启主机上的 ${name}？（pm2 restart + save）`)) return;
-  const res = await fetch(`/api/nas/restart/${name}`, { method: 'POST', headers: { 'X-Requested-With': 'qianli-dashboard' } });
+  const res = await fetch(`/api/deploy/restart/${name}`, { method: 'POST', headers: { 'X-Requested-With': 'qianli-dashboard' } });
   const data = await res.json();
   toast(data.ok ? `${name} 已重启 ✓` : (data.error || '失败'));
   refresh();
@@ -546,7 +546,7 @@ async function pullLog() {
   try {
     const url = drawerCtx.type === 'local' ? `/api/local/${drawerCtx.id}/log`
       : drawerCtx.type === 'action' ? `/api/action/${drawerCtx.id}/log`
-      : `/api/nas/log/${drawerCtx.name}`;
+      : `/api/deploy/log/${drawerCtx.name}`;
     const res = await fetch(url);
     const data = await res.json();
     const pre = document.getElementById('drawerLog');
@@ -559,8 +559,8 @@ async function pullLog() {
 // ===== 定制窗口（集成在各项目卡片内，🧰 按钮展开；读写经 SSH 代理直达部署目标本机接口） =====
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-async function nasApi(port, method, p, body) {
-  const res = await fetch('/api/nas/api', {
+async function deployApi(port, method, p, body) {
+  const res = await fetch('/api/deploy/api', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'qianli-dashboard' },
     body: JSON.stringify({ port, method, path: p, body }),
   });
@@ -568,7 +568,7 @@ async function nasApi(port, method, p, body) {
 }
 
 async function winView(port, p, label) {
-  const data = await nasApi(port, 'GET', p);
+  const data = await deployApi(port, 'GET', p);
   openDrawer(`🧰 ${label}`);
   drawerCtx = null; // 窗口查看不走日志轮询
   document.getElementById('drawerLog').textContent = JSON.stringify(data, null, 2);
@@ -638,33 +638,33 @@ function renderWinPanel(p) {
       const fid = `act-${p.id}-${wi}`;
       const fields = (w.params || []).map((pa) => {
         const iid = `${fid}-${pa.key}`;
-        if (pa.type === 'checkbox') return `<label class="nas" style="white-space:nowrap;"><input type="checkbox" id="${iid}"> ${esc(pa.d || pa.key)}</label>`;
+        if (pa.type === 'checkbox') return `<label class="deploy" style="white-space:nowrap;"><input type="checkbox" id="${iid}"> ${esc(pa.d || pa.key)}</label>`;
         if (pa.type === 'select') return `<select id="${iid}">${(pa.options || []).map((o) => `<option>${esc(o)}</option>`).join('')}</select>`;
         if (pa.type === 'number') return `<input type="number" id="${iid}" placeholder="${esc(pa.d || pa.key)}" style="width:76px;">`;
         return `<input id="${iid}" placeholder="${esc(pa.d || pa.key)}" size="12">`;
       }).join(' ');
-      return `<div class="win-row">· ${w.d} <span class="badge method">${w.m}</span> <span class="nas">${esc(w.p)}</span></div>
+      return `<div class="win-row">· ${w.d} <span class="badge method">${w.m}</span> <span class="deploy">${esc(w.p)}</span></div>
         <div class="win-row">${fields}
           <button class="primary" onclick="winActionSubmit('${p.id}', ${wi}, this)">执行</button></div>`;
     }
     if (w.kind === 'note') {
       // 仅标注说明的窗口（如 base64 文件上传类），不渲染按钮
-      return `<div class="win-row">· ${w.d} <span class="badge method">${w.m}</span> <span class="nas">${esc(w.p)}</span></div>`;
+      return `<div class="win-row">· ${w.d} <span class="badge method">${w.m}</span> <span class="deploy">${esc(w.p)}</span></div>`;
     }
     return `<div class="win-row">· ${w.d} <span class="badge method">${w.m}</span>
       <button onclick="winView(${p.port}, '${w.p}', '${w.d}')">查看</button>
-      ${/policy/.test(w.p) ? '<span class="nas">（env 配置：改 .env 后 push 生效）</span>' : ''}</div>`;
+      ${/policy/.test(w.p) ? '<span class="deploy">（env 配置：改 .env 后 push 生效）</span>' : ''}</div>`;
   }).join('');
   // hub：规则编辑器容器（openRulesEditor 往这里渲染；修复此前容器缺失导致按钮无响应的问题）
   return rows + (p.id === 'hub' ? '<div id="rulesEditor"></div>' : '');
 }
 
 async function loadWhitelistNames(port, pid) {
-  const data = await nasApi(port, 'GET', '/api/duty/whitelist');
+  const data = await deployApi(port, 'GET', '/api/duty/whitelist');
   const el = document.getElementById(`wlNames-${pid}`);
   if (el) el.innerHTML = data.names && data.names.length
     ? data.names.map((n) => `<span class="badge">${esc(n)}</span>`).join(' ')
-    : '<span class="nas">（空——所有人都在值日队列）</span>';
+    : '<span class="deploy">（空——所有人都在值日队列）</span>';
 }
 
 async function whitelistSave(pid) {
@@ -674,7 +674,7 @@ async function whitelistSave(pid) {
   const body = {};
   if (add) body.add = [add];
   if (remove) body.remove = [remove];
-  const data = await nasApi(3006, 'POST', '/api/duty/whitelist', body);
+  const data = await deployApi(3006, 'POST', '/api/duty/whitelist', body);
   if (data.names) {
     toast(`白名单已更新：${data.names.length} 人 ✓`);
     document.getElementById(`wlAdd-${pid}`).value = '';
@@ -688,7 +688,7 @@ async function whitelistSave(pid) {
 async function rosterRefresh(port, btn) {
   if (btn) { btn.disabled = true; btn.textContent = '同步中…（约 5 秒）'; }
   try {
-    const r = await nasApi(port, 'POST', '/api/duty/roster/refresh');
+    const r = await deployApi(port, 'POST', '/api/duty/roster/refresh');
     if (r.success) {
       toast(`通讯录同步完成：${r.total} 人 ✓`);
       await winView(port, '/api/duty/roster', `名册全景（刚同步：${r.total} 人）`);
@@ -717,7 +717,7 @@ async function winActionSubmit(pid, winIdx, btn) {
   }
   if (btn) { btn.disabled = true; btn.textContent = '执行中…'; }
   try {
-    const data = await nasApi(proj.port, w.m || 'POST', w.p, body);
+    const data = await deployApi(proj.port, w.m || 'POST', w.p, body);
     if (data && (data.ok || data.success)) toast(`${w.d} ✓`);
     else toast((data && data.error) || '失败');
   } finally {
@@ -726,7 +726,7 @@ async function winActionSubmit(pid, winIdx, btn) {
 }
 
 async function loadDutyGroups(port) {
-  const data = await nasApi(port, 'GET', '/api/duty/policy');
+  const data = await deployApi(port, 'GET', '/api/duty/policy');
   const input = document.getElementById('dutyGroups');
   const now = document.getElementById('dutyGroupsNow');
   if (input) input.value = (data.groupChatIds || []).join(',');
@@ -735,7 +735,7 @@ async function loadDutyGroups(port) {
 
 async function saveDutyGroups(port) {
   const raw = (document.getElementById('dutyGroups').value || '').split(/[,，]/).map((s) => s.trim()).filter(Boolean);
-  const data = await nasApi(port, 'POST', '/api/duty/policy', { groupChatIds: raw });
+  const data = await deployApi(port, 'POST', '/api/duty/policy', { groupChatIds: raw });
   if (data.ok) { toast(`管辖策略已保存（${raw.length} 群，即时生效）✓`); loadDutyGroups(port); }
   else toast(data.error || '失败');
 }
@@ -779,10 +779,10 @@ async function openRulesEditor(table) {
   if (!el) return toast('编辑器容器未就绪，请收起后重新展开面板');
   const api = rulesApi(ruleTableSel);
   el.innerHTML = '加载中…';
-  const data = await nasApi(3000, 'GET', api.list);
+  const data = await deployApi(3000, 'GET', api.list);
   const rules = (data.replies || []).map((r) => {
     const kw = encodeURIComponent(JSON.stringify(r.keywords));
-    const answers = r.answers.map((a) => esc(a.text) + (a.weight > 1 ? ` <span class="nas">(w${a.weight})</span>` : '')).join(' ／ ');
+    const answers = r.answers.map((a) => esc(a.text) + (a.weight > 1 ? ` <span class="deploy">(w${a.weight})</span>` : '')).join(' ／ ');
     return `<div>· <b>${esc(r.keywords.join('/'))}</b> → ${answers}
       <button onclick="delRule('${ruleTableSel}', this.dataset.kw)" data-kw="${kw}">删</button></div>`;
   }).join('');
@@ -793,7 +793,7 @@ async function openRulesEditor(table) {
     <div>当前生效文件：<code>${esc(data.file)}</code> · ${data.enabled ? '<span class="badge ok">已启用</span>' : '<span class="badge err">已停用</span>'}
       <button onclick="toggleRules('${ruleTableSel}', ${!data.enabled})">${data.enabled ? '停用整表' : '启用整表'}</button>
       ${switchBtn}
-      <span class="nas">改动写主机 .local.json 即时生效；npm push 会用本地 xlsx 版覆盖</span></div>
+      <span class="deploy">改动写主机 .local.json 即时生效；npm push 会用本地 xlsx 版覆盖</span></div>
     <div class="win-list">${rules || '（空表）'}</div>
     <div class="win-row">
       <input id="ruleKw" placeholder="${api.kwHint}" size="30">
@@ -807,7 +807,7 @@ async function saveRule(table) {
   const answersText = document.getElementById('ruleAns').value || '';
   if (!keywords.length || !answersText.trim()) return toast('关键词与回答都不能为空');
   const api = rulesApi(table);
-  const data = await nasApi(3000, 'POST', api.save, api.saveBody({ keywords, answersText }));
+  const data = await deployApi(3000, 'POST', api.save, api.saveBody({ keywords, answersText }));
   if (data.ok) { toast('规则已保存 ✓（即时生效）'); openRulesEditor(table); }
   else toast(data.error || '失败');
 }
@@ -816,14 +816,14 @@ async function delRule(table, kwJson) {
   if (!confirm('确认删除这条规则？')) return;
   const keywords = JSON.parse(decodeURIComponent(kwJson));
   const api = rulesApi(table);
-  const data = await nasApi(3000, 'POST', api.del, api.delBody(keywords));
+  const data = await deployApi(3000, 'POST', api.del, api.delBody(keywords));
   if (data.ok) { toast('已删除 ✓'); openRulesEditor(table); }
   else toast(data.error || '失败');
 }
 
 async function toggleRules(table, enabled) {
   const api = rulesApi(table);
-  const data = await nasApi(3000, 'POST', api.toggle, api.toggleBody(enabled));
+  const data = await deployApi(3000, 'POST', api.toggle, api.toggleBody(enabled));
   if (data.ok) { toast(enabled ? '已启用 ✓' : '已停用 ✓'); openRulesEditor(table); }
   else toast(data.error || '失败');
 }

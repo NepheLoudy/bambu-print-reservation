@@ -5,7 +5,7 @@
 // ============================================================
 
 module.exports = {
-  // NAS 上的进程与端口全景（含不归本机管的说明）
+  // 部署目标上的进程与端口全景（含不归本机管的说明）
   projects: [
     {
       id: 'gateway',
@@ -15,7 +15,7 @@ module.exports = {
       repo: 'top',            // 跟顶层仓归档
       port: 3010,
       pm2Name: 'feishu-gateway',
-      nasDir: '/c/qianli/opt/feishu-gateway',
+      deployDir: '/c/qianli/opt/feishu-gateway',
       deploy: 'npm run push（SFTP 直传）',
       role: '全工作区唯一飞书长连接：统一接收所有事件并路由分发；业务机器人一律不自己连飞书。附带使用统计（/api/usage：谁在用什么功能，按天 30 天，落盘项目外目录）。',
       listening: [
@@ -42,7 +42,7 @@ module.exports = {
       repo: 'own',
       port: 3000,
       pm2Name: 'knowledge-tracker',
-      nasDir: '/c/qianli/opt/knowledge-tracker/server',
+      deployDir: '/c/qianli/opt/knowledge-tracker/server',
       deploy: 'npm run push（根目录）',
       role: '所有对话/指令的唯一入口：@对话、基础指令、关键词监听与自动回答、抽奖（一个工作表=一个指令=一个奖池）、DDL 播报与逾期确认（含负责人群整合播报：逾期+临期跨群汇总 @章子赫，2026-09-22）、会议提醒、项目表；专项指令转发各服务。',
       listening: [
@@ -93,7 +93,7 @@ module.exports = {
       repo: 'top',
       port: 3001,
       pm2Name: 'bambu-print-server',
-      nasDir: '/c/qianli/opt/bambu-print-server',
+      deployDir: '/c/qianli/opt/bambu-print-server',
       deploy: 'npm run push（纯 SFTP，无 git 步骤）',
       role: '打印预约域（2026-10-05 路线 A）：自建前后端（页面注册/提交/审批/用户管理，双通道=stl/step 需求定档 + 3mf 审批直通）、账号体系（member/reviewer/admin，首位注册=admin）、需求标签池+工艺映射规则库+学习链路（待审池/3mf 参数提取）、份数续打与多色 AMS 匹配；飞书仅剩群 webhook 播报与 /print-* 查看指令；打印机控制仅 HTTP（admin）。',
       listening: ['不消费消息事件（hub 转发 /api/chat/command，仅查看类指令）', '不消费飞书事件（路线 A 起已从网关 CONSUMERS 移除，2026-10-05）', 'GET /api/print/policy + GET /api/print/taxonomy + GET/POST /api/print/process-rules + GET/POST /api/print/rule-suggestions（定制/规则窗口）', '页面同源伺服 public/index.html（HTML no-cache）'],
@@ -120,7 +120,7 @@ module.exports = {
       repo: 'own',
       port: 3002,
       pm2Name: 'approval-bot',
-      nasDir: '/c/qianli/opt/approval-bot',
+      deployDir: '/c/qianli/opt/approval-bot',
       deploy: 'npm run push',
       role: '财务审批域：审批群 /approval-*、每周财务催办周报（催发票/报销单/转账）、每日待审批提醒、催发票私聊、发票采集与报销批次三件套。',
       listening: ['不消费消息事件（hub 转发 /api/chat/command）', 'p2p 回复轮询（催发票延期/无法提交识别 + 队员回票图片/PDF 采集）', 'GET /api/approval/policy（定制窗口：流程/审批人白名单/催办参数全景只读）', 'POST /api/ocr/transcribe（发票 OCR 转录）', 'POST /api/invoice/collect（hub 转发 p2p 交票采集）', 'POST /api/invoice/backfill（存量票回溯，管理端点）', '锁定批次→审批群交付卡（打印件/BOM/物料清单/投递底单 四附件+接取指引，人工触发即时发）', '审批群裸词「接取」（hub 转发带 senderName）→ 登记批次接取人'],
@@ -145,7 +145,7 @@ module.exports = {
       repo: 'own',
       port: 3003,
       pm2Name: 'ticket-bot',
-      nasDir: '/c/qianli/opt/ticket-bot',
+      deployDir: '/c/qianli/opt/ticket-bot',
       deploy: 'npm run push',
       role: '工单域：播报到组别群、@接单确认、搬运看板、结单提醒、未结单按负责人组别分桶 API；接单→审批任务自动通过；工单撤回/拒绝等终态自动撤回各群接单提醒卡（2026-09-27）。',
       listening: ['gateway 工单域例外直连：/ticket-* 指令、@机器人+「接单」', '审批事件（接单联动）', 'GET /api/tickets/policy（定制窗口：路由/审批节点/多人单窗口/组长全景只读）'],
@@ -169,7 +169,7 @@ module.exports = {
       repo: 'own',
       port: 3006,
       pm2Name: 'duty-bot',
-      nasDir: '/c/qianli/opt/duty-bot',
+      deployDir: '/c/qianli/opt/duty-bot',
       deploy: 'npm run push',
       role: '值日域：排班生成与轮转/缺勤补偿、私信提醒与收口、照片凭证写表、值日助手（私信说明/群看板）、/api/duty/brief 数据接口、管辖策略下发（/api/duty/policy）、名册自动读通讯录。',
       listening: ['不消费消息事件（hub 转发 /api/chat/command）', 'GET /api/duty/policy → hub 消费（值日域管辖范畴/生效范畴单一事实来源）', 'GET /api/duty/roster、POST /api/duty/roster/refresh、GET|POST /api/duty/whitelist（名册/白名单定制窗口）'],
@@ -213,7 +213,7 @@ module.exports = {
       repo: 'top',
       port: 3007,
       pm2Name: 'wecom-attendance',
-      nasDir: '/c/qianli/opt/wecom-attendance-bot',
+      deployDir: '/c/qianli/opt/wecom-attendance-bot',
       deploy: 'npm run push（SFTP 直传，同 gateway 模式）',
       role: '企业微信考勤域：负责人群每周播报考勤打卡数据（周报卡 + CSV 明细），不碰考勤机硬件；数据源默认 import 人肉周导（v9 起），企微打卡 API 链路保留可切回；播报主通道=飞书群机器人 webhook（v3），企微通道可选双发。',
       listening: [
@@ -257,11 +257,11 @@ module.exports = {
       repo: 'top',
       port: 3100,
       pm2Name: null,
-      nasDir: null,
+      deployDir: null,
       deploy: '仅本机运行（node server.js），不部署',
       role: '全项目可视化运维：总览仪表台（服务状态矩阵/1h 时间线/24h 可用率/掉线事件、活跃看板=队员活跃+功能激活，队员活跃为正经使用口径：抽奖/关键词回答等娱乐功能不计入，2026-09-22；团队负载看板=工单+项目双源评分聚合，hub /api/hub/workload，2026-09-24）、网络拓扑看板（TCP 探测+LAN 设备发现+踢出/封禁，经小米路由器）、R14 看门狗（每小时 SSH 逐端口健康巡检，连 2 轮异常才告警）、端口职能/权限/指令清单、本地与主机(部署目标)服务状态、运行日志、更新状态；本地测试进程启停；npm push 等快捷指令。',
       listening: ['仅 127.0.0.1，无外部访问'],
-      commands: ['HTTP API：/api/overview（含主机状态） /api/stats（总览仪表台：采样史/可用率/掉线事件） /api/activity（活跃看板：网关使用统计+各域 policy 激活聚合） /api/team-load（团队负载：hub 双源评分聚合，300s 缓存） /api/network 与 /api/network/lan（网络拓扑+LAN 设备发现） /api/network/lan/kick|ban|unban（设备踢出/封禁，经小米路由器） /api/router/status /api/egress-ip（出口 IP） /api/watchdog（R14 看门狗状态） /api/local/:id/start|stop|log /api/action/:id 与 /api/action/:id/log /api/nas/log/:name /api/nas/restart/:name /api/windows（定制窗口清单） /api/nas/api（SSH 代理直达部署目标本机接口）'],
+      commands: ['HTTP API：/api/overview（含主机状态） /api/stats（总览仪表台：采样史/可用率/掉线事件） /api/activity（活跃看板：网关使用统计+各域 policy 激活聚合） /api/team-load（团队负载：hub 双源评分聚合，300s 缓存） /api/network 与 /api/network/lan（网络拓扑+LAN 设备发现） /api/network/lan/kick|ban|unban（设备踢出/封禁，经小米路由器） /api/router/status /api/egress-ip（出口 IP） /api/watchdog（R14 看门狗状态） /api/local/:id/start|stop|log /api/action/:id 与 /api/action/:id/log /api/deploy/log/:name /api/deploy/restart/:name /api/windows（定制窗口清单） /api/deploy/api（SSH 代理直达部署目标本机接口）'],
       permissions: ['部署目标凭据直读 approval-bot/.env（不复制、不入库）'],
       localRun: null,
       quickActions: [],
@@ -275,7 +275,7 @@ module.exports = {
       repo: 'top',
       port: 3016,
       pm2Name: 'qianli-netlog',
-      nasDir: '/c/qianli/opt/netlog',
+      deployDir: '/c/qianli/opt/netlog',
       deploy: 'npm run push（SFTP 直传）',
       role: '实验室网络日志探针 + 断网复活引擎（2026-09-27 v2）：持续探测主路由 superqianli（31.1）与公网出口并落盘；断网事件积压、wan 恢复后飞书汇总补发；出口 IP 变化告警。v2 复活引擎：wan 断自动按校园网账号池（31108753 首选项）经 Dr.COM eportal(10.10.8.162:801) 重认证，慢速判定（自适应基线×3）限速账号打「本月不再使用」并自动换号；POST /api/netlog/revive 手动触发（X-API-Token）。不是飞书机器人：不收事件、不进网关 CONSUMERS。',
       listening: ['出站 TCP 探测（lan 31.1:80 / wan 223.5.5.5,119.29.29.29:443）', '出站 webhook（NETLOG_WEBHOOK_URL）', 'GET :3016/api/health、/api/netlog/summary（只读）'],

@@ -22,7 +22,7 @@
 
 # 运行时数据保护（删除前询问铁律）
 
-**NAS/本机运行时的用户数据是生命资产：任何清空、删除、覆盖之前必须先备份并向用户确认，禁止静默覆盖。**（「NAS」为历史称呼：2026-09-14 起部署目标=小电脑 DESKTOP-FE1MIGI，`NAS_*` 配置键语义=部署目标，见职能总表末的「部署目标」条）
+**NAS/本机运行时的用户数据是生命资产：任何清空、删除、覆盖之前必须先备份并向用户确认，禁止静默覆盖。**（「NAS」为历史称呼：2026-09-14 起部署目标=小电脑 DESKTOP-FE1MIGI；部署连接键=各仓 `.env` 的 `DEPLOY_*`（2026-10-07 由 `NAS_*` 改名），见职能总表末的「部署目标」条）
 
 - **界定**：权威编辑路径在小电脑（DESKTOP-FE1MIGI）侧或表格 UI、而本地只有副本/种子的文件与数据——duty-bot `config/members.json`、`config/whitelist.json`（运维台白名单/名册窗口经部署目标 SSH 直写，现=小电脑），hub `autoReplies*.local.json`（定制窗口直写部署目标），各仓静默积压/状态文件（`QUIET_BACKLOG_FILE`、`DUTY_STATE_FILE` 等，已挪项目外），以及多维表格业务数据；
 - **对脚本（已落地）**：duty-bot / hub 的 push.js 上传私有配置前 ①把现网版本备份到项目外数据目录（NAS 时期为 `/home/qianli/<proj>-data/backup/`，小电脑侧对应目录待核实补记）②本地条目数少于现网时跳过上传并大声告警（`PUSH_FORCE_PRIVATE=1` 才允许覆盖，跳过时自动把现网内容回填本地消除种子落差）；其余项目如新增同类"本地种子 → 部署目标覆盖"上传，必须照此模式加守卫；
@@ -49,7 +49,7 @@
 - **名册类**优先自动读飞书通讯录（open_id 直取组织架构），手工名册/绑定只作兜底（范例：duty-bot `syncFromContacts`）；
 - 新增定制项：先加窗口，再同步 `dashboard/registry.js` 登记与本文档；
 - 现状（2026-09-12 全量 debug 批后五仓齐全；2026-09-15 wecom 落地后**六仓业务机器人窗口齐全**；gateway 为纯路由层、无定制项，不设窗口）——duty-bot（`/api/duty/policy`、`/api/duty/roster`、`/api/duty/whitelist`）、hub（`/api/hub/policy` + 关键词回答表 CRUD `/api/autoreplies/rules*` + 抽奖配置 CRUD `/api/lottery/rules*`，写 `.local.json` 即时生效，push 会用本地 xlsx 版覆盖）、approval-bot（`/api/approval/policy` + OCR 字段规则 `/api/ocr/fields`，只读+热改）、ticket-bot（`/api/tickets/policy`，只读）、bambu（`/api/print/policy`，只读）、wecom-attendance-bot（`/api/attendance/policy` 只读 + `/api/attendance/members` 名单增删）；
-- **界面**：本地运维台「🧰 定制中心」（registry `windows` 清单 + `/api/nas/api` SSH 代理直达部署目标本机接口——端点名 `nas` 为历史命名，语义=部署目标，现=小电脑）——白名单增删、名册刷新、各域 policy 全景查看、关键词回答表可视化编辑（增删改/启停/切表）都在运维台点选完成。
+- **界面**：本地运维台「🧰 定制中心」（registry `windows` 清单 + `/api/deploy/api` SSH 代理直达部署目标本机接口，2026-10-07 由 `/api/nas/api` 改名）——白名单增删、名册刷新、各域 policy 全景查看、关键词回答表可视化编辑（增删改/启停/切表）都在运维台点选完成。
 
 # 开发日志（DEVLOG）——每次 push 记一版
 
@@ -101,7 +101,7 @@
 - 值日域需求（排班/轮岗/值日请假/值日照片/值日看板）→ duty-bot；「昨日值日播报」已落地为 duty-bot 自身看板卡的「昨日战报」段（12:00 与手动看板同卡，值日群播报；原 pm-robot 方案作废，hub 的 `DUTY_WEBHOOK_URL`/`DUTY_BROADCAST_SCHEDULE` 降级为预留未接线键）；**请假当日补位**（从较远排班抽调，duty-bot v15 起）同为 duty-bot 域；
 - 值日专用群（快递申领群）：hub 基础指令关闭，看板「值日助手」**仅 @ 或私聊触发**（未@不出看板）；关键词回答全群统一（未@也生效，不再经值日策略放行，2026-09-13）。**管辖范畴/生效范畴以 duty-bot `GET /api/duty/policy` 下发为准，群变更只改 duty-bot `.env` 的 `DUTY_GROUP_CHAT_IDS`**（hub 的 `DUTY_CHAT_ID` 仅失联兜底）；**快递助手（2026-09-17 起）同为 duty-bot 域**：「/快递」开 5 分钟登记窗口、每小时整点未取播报（过静默闸门）、「已取n/全部已取」确认写「机器人项目看板」base 的「快递」表——窗口内**非@**登记素材由 hub 观察转发（`maybeForwardExpressObserve`）收集，duty-bot 仍不消费消息事件；词形放行清单（groupCommands/p2pCommandPatterns）由 duty policy 下发、hub 消费；
 - 各机器人权能/指令/监听/权限全景与端口：看 `dashboard/registry.js`（单一事实来源，改权能须同步）与本地运维台；
-- **部署目标（2026-09-14 起从旧 NAS 10.253.33.233:8500 迁移）＝小电脑 DESKTOP-FE1MIGI（192.168.31.57，SSH 22，用户 mechax，Windows + PortableGit + pm2，ssh 默认 shell = git-bash）**。各文档与配置键中的「NAS」字样（`NAS_HOST/NAS_PORT/NAS_USER/NAS_PASSWORD`、`/api/nas/*` 端点、运维台「NAS 重启」按钮等）均为**历史命名，语义=部署目标**，勿再新造 NAS 称呼；旧 NAS 已停用（备件位，pm2 单元 `pm2-qianli` 已停）。
+- **部署目标（2026-09-14 起从旧 NAS 10.253.33.233:8500 迁移）＝小电脑 DESKTOP-FE1MIGI（192.168.31.57，SSH 22，用户 mechax，Windows + PortableGit + pm2，ssh 默认 shell = git-bash）**。部署连接键为 `DEPLOY_HOST/DEPLOY_PORT/DEPLOY_USER/DEPLOY_PASSWORD`（各仓 `.env`），运维台代理端点为 `/api/deploy/*`——**2026-10-07 曼波定，由历史 `NAS_*`、`/api/nas/*` 全面改名**，代码与活性文档中不再出现 NAS 命名；历史 DEVLOG/事故记录里的「NAS」字样为迁移前旧称，保持原貌、读时注意区分。旧 NAS（qianli-NAS，192.168.31.153:2222）=纯存储备件：2026-10-07 实测探查机器人零在跑（pm2 空、`pm2-qianli` disabled、docker 空），残留的两条 cron（campus-keepalive / snapshot-data）已注释停用（原样备份在其 `/home/qianli/backups/crontab.bak-20261007`），登录密码与主路由/裁判路由器同族（曼波持有）。
 - 部署一律 `npm run push`（见 `.agents/skills/qianli-deploy/SKILL.md`），部署失败排查放顶层会话。
 
 # 用户侧总指南（桌面 HTML）——同步义务

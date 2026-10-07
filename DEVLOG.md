@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v132**（2026-10-05，netlog v12 复活引擎假阳性根治批）。上一版 v131（2026-10-05，netlog v11 断电感知批）。上一版 v130（2026-10-05，netlog v10 被踢轮换批）。上一版 v129（2026-10-05，主路由 Wi-Fi6 关闭批）。上一版 v128（2026-10-05，4A 打印网关整治批）。上一版 v127（2026-10-05，netlog v9 真实流量探测批）。上一版 v126（2026-10-04，三仓联动批：netlog v8 + approval-bot v67 + hub v123 实况复盘）。上一版 v125（2026-09-29，Radmin 远控通道建成+skill 沉淀批）。上一版 v124（2026-09-28，抢修 bat 归档+duty-bot v43 指针联动）。上一版 v123（2026-09-28，netlog 通知 open_id 定稿）。上一版 v122（运维台白名单乱码根治）。上一版 v121（netlog v6 机器人本体私聊通知）。上一版 v120（netlog v5 刷屏根治）。上一版 v119（miwifi SHA256 适配）。上一版 v118（netlog 实测反馈批）。上一版 v117（断网复活落地批）。上一版 v116（网络探测归档批；09-27 22:17 部署批已覆盖全仓当前树，七仓健康验证全绿）。上一版 v115（工单撤回联动+netlog 开仓批）。上一版 v114（扩展范围审查批归档）。上一版 v113（第二轮全量对抗审查批归档）。上一版 v112（五仓部署批归档）。上一版 v111（负载宣运系数再调批归档）。上一版 v110（七仓全量审查批归档）。上一版 v109（安全审查修复批）。上一版 v108（台账同步归档）。上一版 v107（报销交付包跨仓批）。上一版 v106（`2b070a4`）。上一版 v105（approval v46 复查批归档，`2b070a4`）。上一版 v104（发票采集全链路批，`cef9b2f`）。上一版 v103（值日体系全面检修，`19695bd`）。上一版 v102（值日公平性批，`7aae41e`）。上一版 v101（负载算法升级批，`97bd02b`）。上一版 v100（团队负载看板三仓联动，`11179b8`）。
+当前最新：**v134**（2026-10-07，NAS_*→DEPLOY_* 连接键改名批，随本提交落地）。上一版 v133（2026-10-05，`6fefe11`，netlog v13 通知节流+gateway v35 bambu 收口批）。上一版 v132（2026-10-05，netlog v12 复活引擎假阳性根治批）。 上一版 v131（2026-10-05，netlog v11 断电感知批）。上一版 v130（2026-10-05，netlog v10 被踢轮换批）。上一版 v129（2026-10-05，主路由 Wi-Fi6 关闭批）。上一版 v128（2026-10-05，4A 打印网关整治批）。上一版 v127（2026-10-05，netlog v9 真实流量探测批）。上一版 v126（2026-10-04，三仓联动批：netlog v8 + approval-bot v67 + hub v123 实况复盘）。上一版 v125（2026-09-29，Radmin 远控通道建成+skill 沉淀批）。上一版 v124（2026-09-28，抢修 bat 归档+duty-bot v43 指针联动）。上一版 v123（2026-09-28，netlog 通知 open_id 定稿）。上一版 v122（运维台白名单乱码根治）。上一版 v121（netlog v6 机器人本体私聊通知）。上一版 v120（netlog v5 刷屏根治）。上一版 v119（miwifi SHA256 适配）。上一版 v118（netlog 实测反馈批）。上一版 v117（断网复活落地批）。上一版 v116（网络探测归档批；09-27 22:17 部署批已覆盖全仓当前树，七仓健康验证全绿）。上一版 v115（工单撤回联动+netlog 开仓批）。上一版 v114（扩展范围审查批归档）。上一版 v113（第二轮全量对抗审查批归档）。上一版 v112（五仓部署批归档）。上一版 v111（负载宣运系数再调批归档）。上一版 v110（七仓全量审查批归档）。上一版 v109（安全审查修复批）。上一版 v108（台账同步归档）。上一版 v107（报销交付包跨仓批）。上一版 v106（`2b070a4`）。上一版 v105（approval v46 复查批归档，`2b070a4`）。上一版 v104（发票采集全链路批，`cef9b2f`）。上一版 v103（值日体系全面检修，`19695bd`）。上一版 v102（值日公平性批，`7aae41e`）。上一版 v101（负载算法升级批，`97bd02b`）。上一版 v100（团队负载看板三仓联动，`11179b8`）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -1126,3 +1126,13 @@
 - registry：gateway 监听描述与 bambu 条目（role/listening）同步路线 A 现实（断飞书事件链、指令唯一出口）。
 - 归档 v132 批明确遗留的未提交项：`.agents/skills/qianli-lab-network/SKILL.md`（v132 已记档但 netlog push 只暂存 netlog/ 路径，漏归档）、dashboard/README.md 与 server.js 的「NAS→部署目标」称谓/看门狗静默窗注释对齐。
 - 仍未归档（待各自批次）：ticket-pm 三文件、duty-bot/approval-bot 子仓改动、顶层未跟踪 memory/（领域记忆目录，不进 git）。
+
+## v134 · 2026-10-07 · 随本提交落地 · chore
+
+**NAS_*→DEPLOY_* 连接键全面改名批（旧 NAS 残留清理，曼波定）+ 旧 NAS 实测探查收口**
+
+- 探查（曼波供密码，一发命中）：旧 NAS（qianli-NAS 192.168.31.153:2222）机器人零在跑——pm2 空、`pm2-qianli` disabled+inactive、docker 空、dump.pm2 为 9-13 关停日快照且 env 仅系统键；残留两条 cron 已注释停用——campus-keepalive.sh（每分钟，硬编码 10.253 时期学号密码+写死旧 IP，账号 20230104 与主路由同号有互顶风险）与 snapshot-data.sh（每日 3:30 备份本地 *-data，小电脑侧新版数据面快照已接管）；原样备份 `/home/qianli/backups/crontab.bak-20261007`，脚本与数据目录未动，探查拉起的 pm2 daemon 已 kill；
+- 改名（防误导自查；历史 DEVLOG/事故记录保持原貌）：连接键 NAS_*→DEPLOY_*（8 仓 .env+.env.example+push.js，含 pm-robot 运行时 .env 解析正则）；运维台 `/api/nas/*`→`/api/deploy/*`（readDeployConfig/deployStatus 响应键 deploy·deployOnline/前端 deployApi·deployRestart/registry deployDir）；ticket-bot verify-nas.js→verify-deploy.js；6 仓 AGENTS.md+README×5+两 skill+机器人总成使用指南.md+网关拓扑文档.md 活性引用宽松终查清零；
+- 8 仓同批上线：netlog v14 / wecom v12 / gateway v36 / bambu v44 / duty v44 / ticket v89 / hub v124 / approval v69（收口 v68 部署混入的改名半成品）；网关 ws:running 复验通过；运维台 /api/overview deploy 键实测在线；部署目标 7 目录 .env 复核全 4 DEPLOY/0 NAS；
+- 遗留并入：ticket-pm/LOGIC-MAP.md 功能描述补链（v87/v115/v120/v122）、ticket-bot DEVLOG 重复句修正、duty-bot README 快递备注列/cron 口径对齐（v43 批欠账）；
+- 已知保留：nas-e2e-test.js（2026-09-27 定性废弃存档，保持原貌）；approval-bot/.tmp-dryrun.js 未跟踪调试残留待定夺。

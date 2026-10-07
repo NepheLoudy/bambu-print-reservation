@@ -7,7 +7,7 @@ description: qianli 工作区飞书机器人项目的统一部署与开发链路
 
 七个项目（六个飞书 + 一个企业微信考勤播报）共用同一条链路口径：**项目根目录 `npm run push "提交说明"` 一条命令完成 提交→推送→部署→上传 .env→重启**。不要手写 SSH/SCP 部署命令，不要恢复任何独立 deploy 脚本。（实现形态有三种：approval-bot / pm-robot / ticket-bot 独立仓库 git push + 部署目标同步；gateway 只暂存自身路径推顶层远端、部署走 SFTP；bambu 纯 SFTP 无 git。）
 
-> 术语约定：本文与各文档出现的「NAS」多为 2026-09-14 迁移前的历史称呼，**现部署目标=小电脑 DESKTOP-FE1MIGI**；`NAS_*` 配置键沿用不改（语义=部署目标），新写的文档/代码不要再造 NAS 称呼。
+> 术语约定：部署目标=小电脑 DESKTOP-FE1MIGI；部署连接键=各仓 `.env` 的 `DEPLOY_HOST/DEPLOY_PORT/DEPLOY_USER/DEPLOY_PASSWORD`、运维台代理端点 `/api/deploy/*`（2026-10-07 曼波定，由历史 `NAS_*`、`/api/nas/*` 全面改名，防止与旧 NAS 混淆）；历史 DEVLOG/事故记录里的「NAS」为迁移前旧称，保持原貌。
 
 ## 项目清单
 
@@ -23,7 +23,7 @@ description: qianli 工作区飞书机器人项目的统一部署与开发链路
 
 本地目录布局：ticket-bot 与 project-management-robot 归拢在 `ticket-pm/` 下（`ticket-pm/<项目名>`，联动契约见该目录 AGENTS.md）；approval-bot、feishu-gateway、bambu-print-reservation 在本仓库根目录。部署命令不变，仍在各自项目目录内执行。
 
-部署目标：**小电脑 DESKTOP-FE1MIGI**（192.168.31.57，SSH 22，用户 mechax；Windows + PortableGit + node v22.10.0 + pm2，ssh 默认 shell = git-bash）。凭证在各项目 `.env` 的 `NAS_HOST/NAS_PORT/NAS_USER/NAS_PASSWORD`（变量名沿用，语义=部署目标，不在脚本里）。
+部署目标：**小电脑 DESKTOP-FE1MIGI**（192.168.31.57，SSH 22，用户 mechax；Windows + PortableGit + node v22.10.0 + pm2，ssh 默认 shell = git-bash）。凭证在各项目 `.env` 的 `DEPLOY_HOST/DEPLOY_PORT/DEPLOY_USER/DEPLOY_PASSWORD`（不在脚本里；2026-10-07 前的历史键名为 NAS_*）。
 
 ## 部署流程（唯一入口）
 
@@ -87,4 +87,4 @@ push.js 依次做：① git add -A + commit + push（本地推 GitHub 失败不�
 
 ## 新增一个机器人项目
 
-照 feishu-gateway/README.md 的接入清单做：独立端口 + `/api/feishu/event` + `FEISHU_USE_LONG_CONNECTION=false` → 网关 CONSUMERS 登记 → 复制任一项目的 push.js 改路径/远端 → `.env` 按 `.env.example` 备齐（含 NAS_*）→ 首次 `npm run push`。
+照 feishu-gateway/README.md 的接入清单做：独立端口 + `/api/feishu/event` + `FEISHU_USE_LONG_CONNECTION=false` → 网关 CONSUMERS 登记 → 复制任一项目的 push.js 改路径/远端 → `.env` 按 `.env.example` 备齐（含 DEPLOY_*）→ 首次 `npm run push`。
