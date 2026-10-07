@@ -124,7 +124,7 @@
 播报：`ATTENDANCE_BROADCAST_CRON`（默认 `30 9 * * 1`）/ `ATTENDANCE_TIMEZONE`；
 鉴权：`ATTENDANCE_API_TOKEN`；运行时数据：`ATTENDANCE_DATA_DIR`（部署目标上指向
 项目外 `/home/qianli/wecom-attendance-data`，状态/CSV/备份都在那，push 覆盖代码不影响）；
-部署：`NAS_HOST/NAS_PORT/NAS_USER/NAS_PASSWORD`（历史命名，语义=部署目标）。
+部署：`DEPLOY_HOST/DEPLOY_PORT/DEPLOY_USER/DEPLOY_PASSWORD`（2026-10-07 由 NAS_* 改名）。
 
 ## 测试（部署前闸门强制跑，SKIP_TESTS=1 可跳）
 

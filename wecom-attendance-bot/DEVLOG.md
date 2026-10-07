@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次 git 提交 + 一次部署）。本项目无独立远端（repo:top 模式），push.js 只暂存 `wecom-attendance-bot/` 路径提交进顶层 monorepo——版本即顶层仓库中触碰本路径的提交。此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v11**（2026-09-27，已上线）。上一版 v9（数据源默认值翻转+import 口径文档，`922ae36`）。上一版 v8（2026-09-20）。
+当前最新：**v12**（2026-10-07，NAS_*→DEPLOY_* 连接键改名批，随本提交落地）。上一版 v11（2026-09-27，已上线）。上一版 v9（数据源默认值翻转+import 口径文档，`922ae36`）。上一版 v8（2026-09-20）。）
 
 ### v1 · 2026-09-15 · 随本提交落地 · feat
 **项目诞生：企业微信考勤周报机器人——每周打卡数据聚合播报（markdown_v2 周报卡 + CSV 明细附件）**
@@ -106,3 +106,10 @@
 - 提交说明：fix: push.js ENOENT 判别/二次判定/损坏中止（同步 duty v40-v42）+ markdown 卡控制符转义
 - push.js planPrivateConfig 补 ENOENT 判别（ssh2 缺文件=数字码 2，其余读错误中止部署——duty v40 同款本仓漏同步）；countEntries 损坏返 null、两阶段损坏中止、apply 覆盖前重读二次判定；markdown 卡 esc 补换行折叠与控制字符剔除（防伪造 xlsx 姓名破表格行）。
 - 测试：七套全绿；report 套增 4 组转义断言。
+
+## v12 · 2026-10-07 · 随本提交落地 · chore
+
+**NAS_*→DEPLOY_* 连接键改名批（旧 NAS 残留清理，曼波定）**
+
+- push.js 读键/报错文案、.env.example、README/AGENTS.md 部署行、本地 .env 键改名（push 时覆盖部署目标同批生效）；
+- 不影响运行时行为。

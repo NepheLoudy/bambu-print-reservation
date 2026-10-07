@@ -17,7 +17,7 @@
 - 打卡数据口径：考勤机打卡已同步进企微「打卡」，本服务以企微打卡记录为单一数据源，
   不对接考勤机硬件；管理后台「打卡」应用的数据授权与可信 IP 是拉数前提（见 README）；
 - 部署/运维归 qianli 顶层链路（`npm run push`，repo:top 模式同 feishu-gateway，
-  部署目标=小电脑 DESKTOP-FE1MIGI）；`.env` 的 `NAS_*` 键为历史命名，语义=部署目标。
+  部署目标=小电脑 DESKTOP-FE1MIGI）；`.env` 的 `DEPLOY_*` 键，语义=部署目标。
 
 ## 铁律与红线（本项目落地即遵守）
 
