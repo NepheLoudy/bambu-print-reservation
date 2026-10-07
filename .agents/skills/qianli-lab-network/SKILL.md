@@ -114,11 +114,12 @@ description: qianli 实验室/家庭网络拓扑、设备接入与断网排查�
 **术语先行**：本节与《网关拓扑文档.md》中"机器人"=与裁判系统连接的**物理机器人**（机甲大师场外）；开发内网 31.x 上的六仓"机器人"=飞书软件机器人服务，两者无任何关联。
 
 - **机型勘误（2026-10-05 实证）**：裁判系统路由器=**中兴问天 BE6800 Pro+（WiFi 7）**，非小米系（09-20 的「小米系」记录有误）。管理页 `http://192.168.3.1/`，Vue SPA（element-ui/Vue2）。
-- **凭据现状（2026-10-05）**：WiFi「裁判系统」密码=`cquqianli2027`（曼波口述候选第 5 个命中，WPA3-Personal）；**管理后台密码未知**——已确认试错：cquqianli / cquqianli2027 / cquqianli2026 / 2027cquqianli / 2026cquqianli / cquuqianli2026 / 7XTHGpHZ9sTxKFFEMM(Radmin的) / admin 全错；曼波口述=「某归档对话里生成的一串强密码」，本地 db.sqlite/剪贴板历史/checkpoints 挖掘未果，**待曼波提供**。ZTE 防爆破：连续失败锁 60s，试密码间隔≥60s。
+- **凭据现状（2026-10-07 更新）**：WiFi「裁判系统」密码=`cquqianli2027`（WPA3-Personal）；**管理后台密码=与 WiFi 同款 `cquqianli2027`**（2026-10-07 曼波提供并实登成功；10-05 的「试错全错」记录作废——疑为当时撞 60s 锁定或输错，非密码本身错）。ZTE 防爆破：连续失败锁 60s，试密码间隔≥60s。
 - **⛔ 官方硬性要求 vs 当前路由器配置的两大冲突（RoboMasterEngine 联网操作手册 V1.0，包内 StreamingAssets/Config/ 有 PDF）**：
   1. **裁判系统局域网固定 192.168.1.0/24**，裁判端电脑的局域网网卡 IP 必须=`192.168.1.2`（图传/裁判主控按此硬编码找服务端）→ **路由器 LAN 必须从 3.x 改回 192.168.1.1/24**（1.x 只活在裁判路由器后面，与主网 31.x 无冲突，无 rogue 风险）；
   2. **裁判系统局域网只支持 2.4G**（机器人裁判/图传模块 2.4G-only）→ 当前「裁判系统」SSID 在 **5GHz 信道 40**，机器人根本连不上，必须挪 2.4G。
-  两条都要进管理后台改，都被管理密码卡住。
+  两条都要进管理后台改，都被管理密码卡住。（密码已破，见上）
+- **官方钦定路由器参数（联网操作手册 V1.0 §2 基础配置指引，2026-10-07 pypdf 抽文核实）**：路由器 IP=**192.168.1.1** / SSID 自定义 / **WiFi 密码=12345678 / 加密=WPA2** / DHCP 开启 / **互联网网线插 WAN 口**（手册为常插设计，非临时措施）；裁判端主机=静态 **192.168.1.2**；手册方案 1 要求**关闭本机防火墙**（我们以 Referee-Zone 防火墙规则替代，首启检测不过再降级全关）；双网卡方案（=小电脑形态）：外网网卡自动获取且**避开 192.168.1.0/24**（31.x ✓）、局域网网卡 1.2、**接口跃点 20 为官方建议**（10-05 配置吻合）、主机有线连路由器为佳但方案 2 允许用主机自身无线网卡；机器人裁判/图传模块按官方默认预期连 **WPA2/12345678** 的 2.4G 网。
 - **小电脑侧已就绪（2026-10-05）**：WLAN（Intel AX201）连「裁判系统」WiFi 可用；`192.168.1.2/24` 配置方法=静态/辅助 IP（New-NetIPAddress `-SkipAsSource $true`，出站仍走主地址不劫持路由）+ 接口跃点 20（`Set-NetIPInterface -InterfaceMetric 20`）+ 有线 31.57 保持生产通道不动；防火墙 `Referee-Zone-192.168.1.0-24` 已加（3.x 版规则 09-22 就有）。**坑**：接口 DHCP 与静态辅助 IP 在 renew 时互相清场（ipconfig /renew 清 Manual 地址、Set-NetIPInterface -Dhcp Enabled 清静态地址）——最终态=纯静态 192.168.1.2（关 WLAN DHCP），3.x 地址只是进后台的过渡桥。**坑2**：AX201 长期闲置会「powered down」（netsh 报 interface is powered down）——设备管理器/PnP 全正常，disable/enable 无效，**`pnputil /remove-device <InstanceId>` + `/scan-devices` 热重装即愈**，无需重启。
 - **RoboMasterEngine 12.0.0.137_Student（裁判端）结构**（两机桌面各一份，目录同名嵌套一层）：
   - `RoboMasterEngine.exe`（Unity 客户端/裁判端 UI，双击后自动拉起服务器）；首次启动需：勾协议→本地 IP 配置测试（=有 192.168.1.2 网卡）+外网测试→DJI 会员扫码登录→「开始使用」（此时才真正拉起服务器）；
@@ -129,6 +130,8 @@ description: qianli 实验室/家庭网络拓扑、设备接入与断网排查�
 - **Windows 计划任务启 GUI 程序经验**（本批淬炼）：①schtasks once 任务结束后**不杀**进程树（Redis /tr 直启 exe 活）；②bat 里 `start` 的子进程跟随 bat 的会话；③**bat 必须自带 `cd /d %~dp0`**（schtasks cwd=System32，官方 AdapterSvrS0.bat 就缺 cd，曾致 Adapter 永远起不来）；④SSH 会话启动的进程在断开时被 sshd 全树清理，nohup 无效；⑤GUI/消息泵类程序（AdapterSvr）在 session 0 会启动后自杀；⑥`.NET 程序的 Config 相对路径基于 exe 目录而非 cwd`（Redis 不挑 cwd 的原因）。
 - **ZTE BE6800 管理协议逆向存档**（改段自动化备查，卡在会话鉴权）：登录=`GET /?_type=loginsceneData&_tag=login_token_json`（拿 logintoken+_sessionToken）→`POST /?_type=loginData&_tag=login_entry`，Password=`sha256(明文+logintoken)` hex；body 表单 `Username=&Password=...&action=login&Frm_Logintoken=&captchaCode=&_sessionTOKEN=...`（浏览器经 axios 拦截器统一 urlencoded+尾部拼 `_sessionTOKEN`）；成功响应含 `login_need_refresh:true`；业务读=`GET /?_type=vueData&_tag=<tag>`，LAN 设置 tag=`vue_bripaddr_lua`；**卡点**：登录响应 lockingTime:0 无 login_need_refresh（服务端未认会话），GET 一律 SessionTimeout——Cookie SID/`_sessionTOKEN` 组合均试过未破，改段走浏览器手点最稳。
 - **历史存档**：曾入网时 wan=DHCP `192.168.31.84`（MAC `EC:C1:AB:E4:B6:56`，经交换机）；2026-09-29 曼波拔线（「消息在路由器内部迷路」）。**归属勘误（2026-09-20）**：主网上 `192.168.31.80`（MAC `cc:c4:b2:46:16:2f`）是**另一台未知设备**非本路由器。**血的教训**：新路由器默认 LAN 网段常撞主网（rogue DHCP 全网断网）——先脱机改段再入网（约定序列 2.x 打印、3.x 裁判；裁判段即将按官方要求迁 1.x，迁完本条序列同步更新）。
+
+- **2026-10-07 链路复核批（打假+双栖恢复）**：①**主网 31.x 侧 ping/tracert 到 192.168.3.1 有响应是校园网同址假象**——路径 31.1→10.253.32.1→陌生设备（TTL 252、其 80 端口关），私网地址判活必须进同网段内侧（真 3.1 TTL=64）；真 3.1 后台存活实测 HTTP 200（title=中兴智能路由器）；②路由器 DHCP 异常：发 3.x/24 租约但**网关指 192.168.5.1（死地址，来源不明非我方改动，10-05 记录无此条）**→裁判 WiFi 客户端无外网，手机被系统判「无互联网」把流量甩蜂窝——曼波「手机打不开 3.1」「连上怎么有网」两问的根源（后者=蜂窝兜底假象）；手机访问后台正确姿势=**关蜂窝数据再开 http://192.168.3.1/**；③路由器 WAN 实测无外网（经 3.1 转发 223.5.5.5:443 超时）→Engine 首启外网测试+DJI 扫码需**临时插 WAN**，装完拔线即得隔离态（曼波拍板：裁判内网只通小电脑+机器人）；④**小电脑双栖形态落地**（曼波要求：superqianli 外网正常+裁判内网互通）：有线 31.57=外网生产通道（DoH 200 验证）+ WLAN 挂裁判 WiFi（RM-Referee profile，DHCP 3.131）——WLAN 连上后死网关默认路由（metric 40）会抢断有线外网，修法=`route delete 0.0.0.0 mask 0.0.0.0 192.168.5.1` + WLAN 接口跃点 20→500（防续租复发，有线 281 恒胜；改段后 WLAN 纯静态无网关则根治）；⑤改段同场待修：DHCP 网关选项改回路由器 LAN IP。
 
 ## 十二、校园网认证系统与断网重连插件（2026-09-27 探测归档，待回内网接续）
 
@@ -169,3 +172,14 @@ description: qianli 实验室/家庭网络拓扑、设备接入与断网排查�
 4. schtasks `/tr` 带空格路径会截断——中转 bat 路径必须无空格；
 5. GUI 填表**禁用 SendKeys 逐字符**（丢字符+焦点漂移）——**Set-Clipboard + `^v` 粘贴**一次到位；`-WindowStyle Hidden` 防任务 console 抢焦点；每步截图（CopyFromScreen→b64 读回）闭环验证，不盲打；
 6. RDP 自动登录链：`cmdkey /generic:TERMSRV/<ip>` + `mstsc /v:<ip>`（凭据先存则免交互）。
+
+## 十四、主路由 RD08 半死事件与 netlog 检测细化（2026-10-07）
+
+- **「新设备连上没网」根因定案**：RD08 固件 1.1.96 射频状态机不稳——ax 切换/长运行后进入「射频配置开着但信标不发/DHCP 僵死」半死态（10-05 ax=0 哑 2.4G、10-07 ax=1 哑 5G+DHCP 不发地址，两次实锤）；老会话设备正常、新接入设备中招=「有的人有网有的人没网」。**恢复=物理断电重启**（ax toggle 配方 10-07 未能修好半死）；重启后 ax=1 配置保持、5G 自动换信道（ch40→ch48）属正常。
+- **miwifi API 坑**：`set_wifi_ax` 只吃 form urlencoded（JSON 报 code 1502「输入不能够为空」）；无线真实状态以 `wifi_detail_all` 的 `ax` 字段为准（UI 开关类名会显示脏状态，WIFI6switch 显示 on 实际 ax=0）；TWT 开关点击疑似触发射频抽风（未最终验证，择时再试）。
+- **Wi-Fi6 现状**：ax=1 保持，11n IoT（摄像头/Bambu 模块）实测正常——10-05 关 ax 的兼容顾虑未复现；「连上没网」与 TWT/省电路径无关（主因=固件半死）。
+- **防复发定时重启**：每周二 04:03——小电脑 schtask `qianli-router-weekly-reboot`，脚本 `C:/qianli/data/scripts/router-weekly-reboot.js`（`--test` 干跑验证登录+用**无效 stok POST** 探测端点存在性绝不误触发；窗口保险=仅周二 03:50-04:20 执行）；reboot 端点=`/api/misystem/reboot`；bat 中转（/tr 带空格截断坑）+ 远端 git-bash 也要 `export MSYS_NO_PATHCONV=1`。
+- **netlog 检测细化（v15/v16）**：wan DoH 双源 AND（阿里+腾讯——**受限会话对阿里白名单真实放行**，单源测不出半残）；wan 三态（ok/restricted/down，restricted=认证半残指纹，翻转即私聊）；routerWatch 低频观测主路由（管理面失联/射频配置异常/ax 翻转/DHCP DISCOVER 主动探测/设备数骤降旁证）；summary 带 probeMatrix 逐目标矩阵。**边界**：信标停发本身有线侧物理不可见——定时重启+人工兜底。
+- **eportal `online_list` 按查询者视角返回**：跨网段查会话归属只看到自己的会话——「主路由断认证」的判断必须站在主路由 NAT 侧复核（10-07 曾误判，netlog 被冤枉装死）。
+- **无感知认证幽灵会话**：笔记本 MAC 绑定账号 20251852，连 CQU 自动开会话且 logout 3 秒自动续（杀不死；不同账号不互踢主路由）。
+- **凭据集中**：三路由+主机+服务凭据一表 → 工作区根 `凭据台账.local.md`（`**/*.local.md` gitignore）。

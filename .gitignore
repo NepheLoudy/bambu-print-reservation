@@ -22,3 +22,4 @@ dashboard-run.log
 
 # 校园网账号策略池等本地私有凭据（*.local.json 命名惯例，同 hub autoReplies.local.json）
 **/*.local.json
+**/*.local.md
