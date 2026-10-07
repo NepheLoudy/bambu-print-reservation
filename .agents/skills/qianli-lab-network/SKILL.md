@@ -31,7 +31,8 @@ description: qianli 实验室/家庭网络拓扑、设备接入与断网排查�
 | --- | --- | --- | --- | --- |
 | 小电脑 DESKTOP-FE1MIGI | 192.168.31.57 | SSH **22**（OpenSSH，默认 shell 应为 git-bash）；**RDP 3389**（mstsc，2026-09-22 开启，防火墙限 31.0/24）；服务 HTTP 3000-3006/3010 | mechax / 见 approval-bot/.env `DEPLOY_PASSWORD`（SSH 与 RDP 同账号） | 生产机；pm2 计划任务 `qianli-bots-autostart` 自启；部署目录 `C:\qianli\opt\<项目>`；**IP 已本机静态固化**（2026-09-22，DHCP 同值转静态：.57/24 + 网关/DNS 均 31.1，切换零中断，无需路由器侧绑定） |
 | 旧 NAS qianli-NAS | 192.168.31.153 | SSH **2222**；网页 3923 | qianli / 旧 .env 时期密码 | Ubuntu+桌面；**机器人已清零、`pm2-qianli` 已 disabled**，纯存储备件（2026-09-20 挪入交换机后 DHCP 由 .151 重分配为 .153） |
-| 主路由 | 192.168.31.1 | 网页管理 | 路由器凭据 | 用户本人是校园网网管 |
+| 主路由 | 192.168.31.1 | 网页管理 | 路由器凭据 | Xiaomi BE6500 Pro（RD08），固件 1.1.96；**Web 无 WPS**（只有米家「畅快连」，HP 等非米家设备不适用），设备配网走厂商 App/USB 通道 |
+| HP LaserJet MFP M232dwc（NPIE7E05D） | 192.168.31.107（DHCP，**静态绑定待办**） | EWS 网页 `http://<ip>`（HTTP 直连；配置页会跳 HTTPS 自签名证书，curl 用 `-k`）；管理密码未设 | 无 | 2.4G-only；打印=笔记本无线队列 `NPIE7E05D` → Standard TCP/IP 端口（RAW 9100）+ 内置 IPP 驱动（2026-10-08 验收出纸）；扫描=WSD/HP SMART 免驱动。**三坑**：①勿装 HP 老 Full Webpack 52.4.4998（×Win11 25H2 报「-2081883393 卸载设备失败」，类配置 0x0d 实锤，内置 IPP 驱动即可）；②IPP-over-USB 触发固件 49.0111 崩（=面板 Er61，raw 9100 不吃裸 ASCII），USB 打印勿用；③WSD 端口离网假死不自愈（打印事件 14007=端口不通噪音），换 TCP/IP 端口即愈；配网=手机 HP SMART 连 `HP=Setup<ea>` 开放热点（有超时，消失则打印机断电重启重广播） |
 | 飞书云 | open.feishu.cn:443 | 应用 cli_aac7e6f6cdf8dcc0 | 各仓 .env APP_ID/SECRET | 安全设置里的 **IP 白名单**是写失败排查重点（§四） |
 
 凭据铁律：只存各仓 `.env`（不进 git）；临时脚本不得硬编码（排障脚本从 `.env` 现读）。
