@@ -205,6 +205,40 @@ function makeWatcher(state, events, extra = {}) {
     check('⑨flags 广播位', buf.readUInt16BE(10) === 0x8000);
   }
 
+  // ⑩（v17）固定探针 MAC：陌生 MAC 检查路径伪影勘误——探针必须走固定身份
+  {
+    const d = require(path.join(__dirname, '..', 'src', 'dhcpProbe.js'));
+    const { buf } = d.buildDiscover({ mac: d.DEFAULT_PROBE_MAC });
+    check('⑩固定 MAC 写入 chaddr', d.DEFAULT_PROBE_MAC.every((b, i) => buf[28 + i] === b));
+    check('⑩默认探针 MAC 为本地管理位且 6 字节', d.DEFAULT_PROBE_MAC.length === 6 && d.DEFAULT_PROBE_MAC[0] % 2 === 0);
+    check('⑩默认超时 ≥5000ms（覆盖陌生检查最坏 ~3.9s）', d.PROBE_TIMEOUT_MS >= 5000);
+    check('⑩buildDiscover 缺省 mac 仍随机（历史行为）', (() => {
+      const a = d.buildDiscover(), b = d.buildDiscover();
+      return [0, 3, 5].some((i) => a.buf[28 + i] !== b.buf[28 + i]);
+    })());
+    check('⑩parseProbeMac 合法/非法/缺省', d.parseProbeMac('aa:bb:cc:dd:ee:ff')[0] === 0xaa
+      && d.parseProbeMac('aa-bb-cc-dd-ee-ff').length === 6
+      && d.parseProbeMac('zz:bb:cc:dd:ee:ff') === null
+      && d.parseProbeMac('') === null);
+    // probeDhcp 组装链：socketFactory 注入捕获实际发出的报文，验证 chaddr=固定探针 MAC
+    let sent = null;
+    const fakeSocket = {
+      handlers: {},
+      on(ev, fn) { this.handlers[ev] = fn; },
+      bind(addr, cb) { cb(); },
+      setBroadcast() {},
+      send(buf2) { sent = buf2; },
+      close() {},
+    };
+    const r = await d.probeDhcp({
+      mac: d.DEFAULT_PROBE_MAC,
+      timeoutMs: 300,
+      socketFactory: (cb) => cb(fakeSocket),
+    });
+    check('⑩probeDhcp 发出的 DISCOVER chaddr=固定探针 MAC', sent !== null && d.DEFAULT_PROBE_MAC.every((b, i) => sent[28 + i] === b));
+    check('⑩probeDhcp 无应答路径返回 timeout（非 skipped）', r.ok === false && r.reason === 'timeout' && !r.skipped);
+  }
+
   console.log(`\n结果: ${pass} pass / ${fail} fail`);
   process.exit(fail > 0 ? 1 : 0);
 })().catch((err) => {

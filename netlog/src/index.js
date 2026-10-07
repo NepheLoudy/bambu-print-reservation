@@ -672,12 +672,20 @@ engineRef = engine; // v16：probeWan/probeTraffic 闭包的 restricted 等事�
 let routerWatch = { tick: async () => ({ skipped: 'disabled' }), summary: () => ({ enabled: false }) };
 try {
   const { createRouterWatch } = require('./routerWatch');
-  const { probeDhcp } = require('./dhcpProbe');
+  const { probeDhcp, DEFAULT_PROBE_MAC, PROBE_TIMEOUT_MS, parseProbeMac } = require('./dhcpProbe');
+  // v17：固定探针 MAC——陌生 MAC 首查会踩路由器 3~4s 检查路径（3000ms 超时下
+  // 掷骰子，dhcp_down 振荡全是伪影）；固定 MAC 首查进快表后恒毫秒级，连续
+  // 超时才是服务真挂。可用 NETLOG_DHCP_PROBE_MAC 覆盖（非法值回退默认）。
+  const probeMac = parseProbeMac(process.env.NETLOG_DHCP_PROBE_MAC) || DEFAULT_PROBE_MAC;
   routerWatch = createRouterWatch({
     host: CONFIG.routerWatchHost,
     password: process.env.NETLOG_ROUTER_PASSWORD || '',
     emit: async (event, detail) => { if (emitRef) await emitRef(event, detail); },
-    dhcpProbe: () => probeDhcp({ broadcastAddr: process.env.NETLOG_DHCP_BROADCAST || `${(CONFIG.routerWatchHost.split('.').slice(0, 3).join('.'))}.255` }),
+    dhcpProbe: () => probeDhcp({
+      broadcastAddr: process.env.NETLOG_DHCP_BROADCAST || `${(CONFIG.routerWatchHost.split('.').slice(0, 3).join('.'))}.255`,
+      timeoutMs: PROBE_TIMEOUT_MS,
+      mac: probeMac,
+    }),
   });
 } catch (err) {
   console.error(`[netlog] routerWatch 初始化失败（观测停用）: ${err.message}`);

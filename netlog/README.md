@@ -57,6 +57,8 @@ curl -X POST localhost:3016/api/netlog/revive -H "X-API-Token: ..."  # 管理端
 
 **检测细化（v16）**：① wan 数据面**三态**判定——全过=ok / 部分过=`wan_restricted`（即时私聊，认证/放行半残指纹）/ 全不过=down；② routerWatch 挂 **DHCP DISCOVER 主动探测**（连续 2 次无 OFFER 报 `router_dhcp_down`——「新设备连上没网」病灶的直接检测，对租约零副作用，68 端口被占自动静默降级）；③ **在线设备数骤降旁证**（devicelist 基线中位数 50% 阈值，`router_clients_massdrop/recover`）；④ `/api/netlog/summary` 新增 **probeMatrix**（wanTcp/wanDoh 逐目标/traffic 逐源 status）——报警一眼看清哪层坏。
 
+**DHCP 探针勘误与固定身份（v17，2026-10-07 午后，曼波质疑成案）**：RD08 对**陌生 MAC** 的首次 DISCOVER 有 3.0~3.9s 检查路径（查过进快表，同 MAC 之后毫秒级；已知 MAC 恒 4-6ms）——v16 探针每次随机 MAC + 3000ms 超时 = 每次走陌生路径在 3 秒线上掷骰子，`router_dhcp_down/recover` 振荡全是**探针伪影**，DHCP 服务当时并未挂。v17 修正：探针改**固定 MAC**（`DEFAULT_PROBE_MAC`，02 本地管理位；`NETLOG_DHCP_PROBE_MAC` 可覆盖）+ 超时 5000ms——首查进快表后恒毫秒级，此后连续超时才是服务真挂（**真半死判据=已知 MAC 也慢/无应答**）。「新设备连上没网」的机制性残余=新设备首答 3~4 秒，超时紧的客户端会放弃；要消除就关主路由「新设备接入确认/防蹭网」类开关（安全权衡用户定）。
+
 ## 部署
 
 ```bash
@@ -69,9 +71,9 @@ pm2 名 `qianli-netlog`，`pm2 save` 后并入小电脑 `qianli-bots-autostart`�
 
 ```bash
 node scripts/stub-test-netlog.js       # 60 断言：防抖/恢复历时/积压补发/冲刷竞态回归/egress 变化/事件分级/复活自愈冲刷+DownSince清零/JSONL 结构/通知节流/wan 三态判定
-node scripts/stub-test-routerwatch.js  # 26 断言：路由器无线观测（失联/恢复/射频异常/ax 翻转/DHCP 探测/设备数骤降的翻转触发与去重/停用/DISCOVER 报文结构）
+node scripts/stub-test-routerwatch.js  # 33 断言：路由器无线观测（失联/恢复/射频异常/ax 翻转/DHCP 探测/设备数骤降的翻转触发与去重/停用/DISCOVER 报文结构/v17 固定探针 MAC 与超时）
 node scripts/stub-test-wanguard.js     # 38 断言：复活引擎（首选项优先/换号/慢速判定/exhausted 冷却/手动触发/基线）
-# npm test = 三套合计 124 断言（push 闸门）
+# npm test = 三套合计 131 断言（push 闸门）
 ```
 
 ## 已知限制

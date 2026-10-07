@@ -152,7 +152,9 @@ function createRouterWatch(deps) {
           dhcpFailStreak += 1;
           if (dhcpFailStreak >= dhcpFailThreshold && !dhcpWasDown) {
             dhcpWasDown = true;
-            events.push(emit('router_dhcp_down', `路由器 DHCP 无应答（连续 ${dhcpFailStreak} 次 DISCOVER）——新设备将拿不到地址（「连上没网」病灶），救场=重启路由器`));
+            // v17：探针用固定 MAC（首查过路由器陌生检查进快表后毫秒级应答），
+            // 连续超时=服务真挂，不再是「陌生 MAC 撞 3~4s 检查路径」的伪影
+            events.push(emit('router_dhcp_down', `路由器 DHCP 无应答（固定探针 MAC 连续 ${dhcpFailStreak} 次 DISCOVER 超时）——服务真挂，新设备将拿不到地址（「连上没网」病灶），救场=重启路由器`));
           }
         }
       }
