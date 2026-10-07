@@ -50,9 +50,12 @@ const CONFIG = {
   wanTargets: (process.env.NETLOG_WAN_TARGETS || '223.5.5.5:443,119.29.29.29:443')
     .split(',').map((s) => s.trim()).filter(Boolean)
     .map((s) => { const [host, port] = s.split(':'); return { host, port: Number(port || 443) }; }),
-  // HTTPS 层验证目标（v12）：TCP 握手会被认证网关代答（认证死掉照样握手成功=假阴性，
-  // 2026-10-05 05:28 事故），DoH 端点走真 TLS+HTTP 数据面，200 且返回合法 DoH JSON 才算出网
-  httpsTargets: (process.env.NETLOG_HTTPS_TARGETS || 'https://223.5.5.5/resolve?name=qq.com&type=1')
+  // HTTPS 层验证目标（v12 引入；v14 多供应商 AND）：TCP 握手会被认证网关代答（认证死掉
+  // 照样握手成功=假阴性，2026-10-05 05:28 事故），DoH 端点走真 TLS+HTTP 数据面，200 且返回
+  // 合法 DoH JSON 才算出网。v14 关键：目标必须跨供应商——受限会话（认证死但未重连）对阿里系
+  // 白名单是真实放行（2026-10-07 实锤：无认证态下 223.5.5.5 的 DoH 照样 200+合法 JSON），
+  // 单阿里源测不出「只能上阿里」的半残态；默认阿里+腾讯双源，全部通过才算出网（AND）
+  httpsTargets: (process.env.NETLOG_HTTPS_TARGETS || 'https://223.5.5.5/resolve?name=qq.com&type=1,https://120.53.53.53/dns-query?name=qq.com&type=1')
     .split(',').map((s) => s.trim()).filter(Boolean),
   // 流量探测（v9，曼波「握手通但网页刷不开」实况）：TCP 握手测不出软踢/限速——
   // generate_204 源走完整 HTTP 往返，status=204 即「用户意义上的网络可用」。
@@ -85,6 +88,10 @@ const CONFIG = {
   accountPool: process.env.NETLOG_ACCOUNT_POOL || path.join(os.homedir(), 'qianli-data', 'netlog', 'campus-accounts.local.json'),
   apiToken: process.env.NETLOG_API_TOKEN || '', // 手动复活端点鉴权（管理端点必须鉴权；未配置=端点锁定）
   reviveEnabled: process.env.NETLOG_REVIVE_ENABLED !== 'false', // 默认开；false 退化回纯日志探针
+  // ---- 路由器无线状态观测（v14）：主路由半死（射频信标不发/DHCP 僵死）有线侧感知不到，
+  // 低频登录 miwifi 拉射频状态补上这块盲区；密码未配置=观测停用 ----
+  routerWatchHost: process.env.NETLOG_ROUTER_HOST || '192.168.31.1',
+  routerWatchIntervalMs: Number(process.env.NETLOG_ROUTER_WATCH_INTERVAL_MS || 10 * 60 * 1000),
 };
 
 // ============================================================
@@ -375,6 +382,15 @@ function createEngine(deps) {
 // ============================================================
 // 真实依赖组装 + HTTP 端点
 // ============================================================
+/** v14：wan 数据面多供应商 AND 判定（可测纯逻辑）——任一 DoH 目标失败即 false；空目标表=保守 false */
+async function wanPlanePass(httpsTargets, probeFn) {
+  if (!Array.isArray(httpsTargets) || httpsTargets.length === 0) return false;
+  for (const url of httpsTargets) {
+    if (!(await probeFn(url))) return false;
+  }
+  return true;
+}
+
 function probeTcp(host, port, timeoutMs) {
   return new Promise((resolve) => {
     const net = require('net');
@@ -559,15 +575,14 @@ const engine = createEngine({
   probeWan: async () => {
     // v12：TCP 预检（真断网时快速失败）→ HTTPS 数据面验证（戳穿认证网关代答的握手假阴性：
     // 认证死掉后 TCP 223.5.5.5:443 照样握手成功，但 TLS 上的合法 DoH 响应伪造不了）
+    // v14：DoH 多供应商 AND——受限会话对阿里白名单是真实放行（2026-10-07 实锤），
+    // 「任一通过即出网」会漏掉只能上阿里的半残态；全部通过才算出网
     let tcpOk = false;
     for (const t of CONFIG.wanTargets) {
       if (await probeTcp(t.host, t.port, CONFIG.timeoutMs)) { tcpOk = true; break; }
     }
     if (!tcpOk) return false;
-    for (const url of CONFIG.httpsTargets) {
-      if (await probeHttps(url)) return true;
-    }
-    return false;
+    return wanPlanePass(CONFIG.httpsTargets, probeHttps);
   },
   // 流量探测（v9）：generate_204 源 HTTP 全链路，status=204 即通过；超时取 TCP 的 2 倍
   //（HTTP 完整往返比握手慢，但目标极轻，正常 <200ms）
@@ -605,6 +620,23 @@ const engine = createEngine({
   },
 });
 emitRef = (event, detail) => engine.emit(event, detail); // 回填：guard 事件进引擎的记录+通知链路
+
+// ============================================================
+// 路由器无线状态观测（v14）：主路由半死（射频信标不发/DHCP 僵死）时有线侧
+// 一切正常，探针全绿——只有登进管理面才看得见。低频观测，异常翻转走事件链路。
+// NETLOG_ROUTER_PASSWORD 未配置 = 停用（零凭据时静默退化，不影响探针主业）
+// ============================================================
+let routerWatch = { tick: async () => ({ skipped: 'disabled' }), summary: () => ({ enabled: false }) };
+try {
+  const { createRouterWatch } = require('./routerWatch');
+  routerWatch = createRouterWatch({
+    host: CONFIG.routerWatchHost,
+    password: process.env.NETLOG_ROUTER_PASSWORD || '',
+    emit: async (event, detail) => { if (emitRef) await emitRef(event, detail); },
+  });
+} catch (err) {
+  console.error(`[netlog] routerWatch 初始化失败（观测停用）: ${err.message}`);
+}
 
 function startServer() {
   const server = http.createServer((req, res) => {
@@ -655,6 +687,7 @@ function startServer() {
     if (url.pathname === '/api/netlog/summary') {
       const s = engine.summary();
       s.guard = guard ? guard.summary() : null;
+      s.routerWatch = routerWatch.summary();
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify(s, null, 2));
       return;
@@ -682,8 +715,16 @@ function main() {
   engine.flushBacklog().catch((err) => console.warn(`[netlog] 启动补发积压未完成（保留待下轮）: ${err.message}`));
   engine.tick().catch((err) => console.error(`[netlog] 首轮探测异常: ${err.message}`));
   setInterval(() => engine.tick().catch((err) => console.error(`[netlog] 探测轮异常: ${err.message}`)), CONFIG.intervalMs);
+  // 路由器无线状态观测（v14）：独立低频循环；首拍立即对齐一次基线
+  if (routerWatch.summary().enabled) {
+    routerWatch.tick().catch((err) => console.error(`[netlog] routerWatch 首拍异常: ${err.message}`));
+    setInterval(() => routerWatch.tick().catch((err) => console.error(`[netlog] routerWatch tick 异常: ${err.message}`)), CONFIG.routerWatchIntervalMs);
+    console.log(`[netlog] routerWatch 已启用：每 ${Math.round(CONFIG.routerWatchIntervalMs / 60000)} 分钟观测 ${CONFIG.routerWatchHost} 无线状态`);
+  } else {
+    console.log('[netlog] routerWatch 停用（未配置 NETLOG_ROUTER_PASSWORD）');
+  }
 }
 
 if (require.main === module) main();
 
-module.exports = { createEngine, CONFIG, fmtShanghai: (ts) => new Date(ts + 8 * 3600 * 1000).toISOString(), offlineGapInfo, dohResponseOk, probeHttps };
+module.exports = { createEngine, CONFIG, fmtShanghai: (ts) => new Date(ts + 8 * 3600 * 1000).toISOString(), offlineGapInfo, dohResponseOk, probeHttps, wanPlanePass };

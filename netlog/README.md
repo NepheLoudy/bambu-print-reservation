@@ -51,6 +51,10 @@ curl -X POST localhost:3016/api/netlog/revive -H "X-API-Token: ..."  # 管理端
 
 探测参数默认即可；通知出口用 `NETLOG_FEISHU_APP_ID/SECRET`（共用应用凭据）+ `NETLOG_NOTIFY_OPEN_IDS`（私聊目标，逗号分隔多个）；`DEPLOY_*` 为部署凭证。
 
+**wan 数据面验证（v15）**：`NETLOG_HTTPS_TARGETS` 默认阿里+腾讯双 DoH 源 **AND**（全部通过才算出网）——受限会话对阿里白名单真实放行（2026-10-07 实锤），单源测不出「只能上阿里」的半残态。
+
+**路由器无线状态观测（v15 routerWatch）**：`NETLOG_ROUTER_PASSWORD` 配置后启用（未配置=停用），每 `NETLOG_ROUTER_WATCH_INTERVAL_MS`（默认 10 分钟）登录 miwifi 拉射频状态——管理面失联/射频配置异常/ax 翻转 → 事件+飞书通知。只观测不动手：无线侧救场=每周二 04:03 定时重启（小电脑 schtask `qianli-router-weekly-reboot`）+人工。
+
 ## 部署
 
 ```bash
@@ -62,16 +66,18 @@ pm2 名 `qianli-netlog`，`pm2 save` 后并入小电脑 `qianli-bots-autostart`�
 ## 测试
 
 ```bash
-node scripts/stub-test-netlog.js    # 35 断言：防抖/恢复历时/积压补发/冲刷竞态回归/egress 变化/事件分级/复活自愈冲刷+DownSince清零/JSONL 结构
-node scripts/stub-test-wanguard.js  # 29 断言：复活引擎（首选项优先/换号/慢速判定/exhausted 冷却/手动触发/基线）
-# npm test = 两套合计 64 断言（push 闸门）
+node scripts/stub-test-netlog.js       # 56 断言：防抖/恢复历时/积压补发/冲刷竞态回归/egress 变化/事件分级/复活自愈冲刷+DownSince清零/JSONL 结构/通知节流/wan 多供应商 AND
+node scripts/stub-test-routerwatch.js  # 13 断言：路由器无线观测（失联/恢复/射频异常/ax 翻转的翻转触发与去重/停用）
+node scripts/stub-test-wanguard.js     # 38 断言：复活引擎（首选项优先/换号/慢速判定/exhausted 冷却/手动触发/基线）
+# npm test = 三套合计 107 断言（push 闸门）
 ```
 
 ## 已知限制
 
 - 断网根因若为**生产机自身断电/系统挂**，探针同死——物理上无解，靠 pm2 resurrect + 路由器侧排查兜底；
 - lan 断而 wan 未断的组合（路由器半死）理论上可能：探测独立并行，各自如实记录；
-- egress 回显源全挂时该轮跳过（不误报 IP 变化）。
+- egress 回显源全挂时该轮跳过（不误报 IP 变化）；
+- **路由器无线侧半死（射频信标不发/DHCP 僵死，2026-10-07 事故形态）有线侧探针全绿**——routerWatch（v15）补上观测盲区但只报警不救场；救场=每周二 04:03 定时重启（小电脑 schtask）+人工。
 
 ## 复活引擎（v2，2026-09-27）：断网自动换账号重认证
 

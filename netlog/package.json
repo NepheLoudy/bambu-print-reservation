@@ -7,7 +7,7 @@
     "start": "node src/index.js",
     "push": "node push.js",
     "deploy": "node push.js",
-    "test": "node scripts/stub-test-netlog.js && node scripts/stub-test-wanguard.js"
+    "test": "node scripts/stub-test-netlog.js && node scripts/stub-test-routerwatch.js && node scripts/stub-test-wanguard.js"
   },
   "author": "",
   "license": "MIT",

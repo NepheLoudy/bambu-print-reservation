@@ -303,6 +303,16 @@ function makeDeps({ threshold = 2 } = {}) {
   check('wan 恢复翻转旁路：冷却未到也立即补发', d15.backlogFile.length === 0 && summaries() === sumBefore15 + 3,
     `backlog=${d15.backlogFile.length} sum=${summaries()}`);
 
+  // ⑯（v14）wan 数据面多供应商 AND 判定（2026-10-07「连上没网」事故：受限会话对阿里白名单
+  // 真实放行，单源测不出半残态——双源必须全过）
+  {
+    const { wanPlanePass } = require(path.join(ROOT2, 'src', 'index.js'));
+    const ok = async () => true, bad = async () => false;
+    check('⑯a 双源全过 → true', (await wanPlanePass(['a', 'b'], ok)) === true);
+    check('⑯b 任一失败 → false', (await wanPlanePass(['a', 'b'], async (u) => u === 'a')) === false);
+    check('⑯c 空目标表 → false（保守）', (await wanPlanePass([], ok)) === false);
+  }
+
   console.log(`\n结果: ${pass} 通过, ${fail} 失败`);
   process.exit(fail > 0 ? 1 : 0);
 })().catch((err) => {
