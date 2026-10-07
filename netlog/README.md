@@ -49,7 +49,7 @@ curl -X POST localhost:3016/api/netlog/revive -H "X-API-Token: ..."  # 管理端
 
 ## 配置（.env，见 .env.example）
 
-探测参数默认即可；通知出口用 `NETLOG_FEISHU_APP_ID/SECRET`（共用应用凭据）+ `NETLOG_NOTIFY_OPEN_IDS`（私聊目标，逗号分隔多个）；`NAS_*` 为部署凭证（历史命名，语义=部署目标）。
+探测参数默认即可；通知出口用 `NETLOG_FEISHU_APP_ID/SECRET`（共用应用凭据）+ `NETLOG_NOTIFY_OPEN_IDS`（私聊目标，逗号分隔多个）；`DEPLOY_*` 为部署凭证。
 
 ## 部署
 

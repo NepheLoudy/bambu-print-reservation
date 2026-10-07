@@ -10,7 +10,7 @@
  *   [3/4] npm install（零依赖，秒过）+ 上传 .env
  *   [4/4] pm2 delete+start（清环境快照）+ pm2 save（并入 qianli-bots-autostart resurrect 清单）
  *
- * NAS_* 变量为历史命名，语义=部署目标。
+ * 连接键为 DEPLOY_*（2026-10-07 由 NAS_* 改名，语义=部署目标）。
  */
 const { spawnSync } = require('child_process');
 const { Client } = require('ssh2');
@@ -46,14 +46,14 @@ const REMOTE_DIR = '/c/qianli/opt/netlog';
 const REMOTE_DIR_WIN = 'C:/qianli/opt/netlog';
 const PM2_NAME = 'qianli-netlog';
 
-const nasConfig = {
-  host: process.env.NAS_HOST,
-  port: Number(process.env.NAS_PORT || 22),
-  username: process.env.NAS_USER,
-  password: process.env.NAS_PASSWORD,
+const deployConfig = {
+  host: process.env.DEPLOY_HOST,
+  port: Number(process.env.DEPLOY_PORT || 22),
+  username: process.env.DEPLOY_USER,
+  password: process.env.DEPLOY_PASSWORD,
 };
-if (!nasConfig.host || !nasConfig.password) {
-  console.error('缺少部署配置：请在 .env 中配置 NAS_HOST/NAS_PORT/NAS_USER/NAS_PASSWORD');
+if (!deployConfig.host || !deployConfig.password) {
+  console.error('缺少部署配置：请在 .env 中配置 DEPLOY_HOST/DEPLOY_PORT/DEPLOY_USER/DEPLOY_PASSWORD');
   process.exit(1);
 }
 
@@ -303,5 +303,5 @@ function showStatus() {
   });
 }
 
-console.log('正在连接部署目标（NAS_* 变量，语义=部署目标）...');
-conn.connect(nasConfig);
+console.log('正在连接部署目标...');
+conn.connect(deployConfig);
