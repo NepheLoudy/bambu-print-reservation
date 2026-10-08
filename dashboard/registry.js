@@ -44,7 +44,7 @@ module.exports = {
       pm2Name: 'knowledge-tracker',
       deployDir: '/c/qianli/opt/knowledge-tracker/server',
       deploy: 'npm run push（根目录）',
-      role: '所有对话/指令的唯一入口：@对话、基础指令、关键词监听与自动回答、抽奖（一个工作表=一个指令=一个奖池）、DDL 播报与逾期确认（含负责人群整合播报：逾期+临期跨群汇总 @章子赫，2026-09-22）、会议提醒、项目表；专项指令转发各服务。',
+      role: '所有对话/指令的唯一入口：@对话、基础指令、论坛帖子记录（千里论坛群 #话题 帖子，2026-10-08 v125 起仅记帖子不再全量）与自动回答、抽奖（一个工作表=一个指令=一个奖池）、DDL 播报与逾期确认（含负责人群整合播报：逾期+临期跨群汇总 @章子赫，2026-09-22）、会议提醒、项目表；专项指令转发各服务。',
       listening: [
         '全部消息事件（gateway 转发）；群聊需 @机器人，私聊直接对话',
         'p2p：DDL 逾期确认回复（12 小时时效，超时次日播报重问）→ 值日分支（指令/图片，duty-bot 未接管时落回常规流；图片/文件双线：duty 照片凭证 + 发票采集观察转发 approval-bot，2026-09-25 v112 起）→ 基础指令（白名单）→ 对话',
@@ -69,7 +69,7 @@ module.exports = {
         { m: 'POST', p: '/api/lottery/rules', d: '新增/更新奖池', kind: 'rule-edit' },
         { m: 'POST', p: '/api/lottery/rules/delete', d: '删除奖池', kind: 'rule-delete' },
         { m: 'POST', p: '/api/lottery/enabled', d: '启停抽奖', kind: 'toggle' },
-        { m: 'GET', p: '/api/keywords/config', d: '关键词监听配置（千里论坛发言记录）' },
+        { m: 'GET', p: '/api/keywords/config', d: '论坛话题清单（千里论坛群 #话题 帖子记录，v125 仅记帖子）' },
       ],
       permissions: [
         '审批群（APPROVAL_CHAT_ID）：整体切换为仅 /approval-*',
