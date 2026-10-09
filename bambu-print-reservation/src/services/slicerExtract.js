@@ -60,10 +60,29 @@ function coerce(raw, def) {
   return null;
 }
 
+/** 预计打印时长（分钟）：gcode 头部注释两种流派——Orca/Bambu 系秒数、Prusa 系 h/m/s；
+ *  project_settings.config 的 time_cost（秒，Bambu 工程导出，真机首次使用时核对）。
+ *  解析失败返回 null（调用方按「无预估」降级，不影响提交） */
+function parseEstimatedMinutes(headText, raw) {
+  const m1 = /;\s*total estimated time \(s\)\s*[:=]\s*(\d+)/i.exec(headText);
+  if (m1) return Math.round(Number(m1[1]) / 60);
+  const m2 = /;\s*estimated printing time[^=\n]*=\s*([\d\shdms]+)/i.exec(headText);
+  if (m2) {
+    const h = /(\d+)\s*h/i.exec(m2[1]);
+    const min = /(\d+)\s*m/i.exec(m2[1]);
+    const s = /(\d+)\s*s/i.exec(m2[1]);
+    const mins = (h ? Number(h[1]) * 60 : 0) + (min ? Number(min[1]) : 0) + (s ? Math.round(Number(s[1]) / 60) : 0);
+    return mins > 0 ? mins : null;
+  }
+  const tc = Number(raw.time_cost);
+  return Number.isFinite(tc) && tc > 0 ? Math.round(tc / 60) : null;
+}
+
 /** 从解包后的文件内容提取键值对（JSON 优先，gcode 头部注释兜底） */
 function extractRawParams(files) {
   const raw = {};
   let source = 'none';
+  let headText = '';
 
   // ① project_settings.config（JSON）
   const ps = files.find((f) => /metadata\/project_settings\.config$/i.test(f.entryName));
@@ -79,24 +98,25 @@ function extractRawParams(files) {
   if (source === 'none') {
     const gcode = files.find((f) => /metadata\/plate_\d+.*\.gcode$/i.test(f.entryName));
     if (gcode) {
-      const head = gcode.getData().subarray(0, 96 * 1024).toString('utf8');
-      for (const m of head.matchAll(/^;\s*([a-z_][a-z0-9_]*)\s*=\s*(\S+)\s*$/gim)) {
+      headText = gcode.getData().subarray(0, 96 * 1024).toString('utf8');
+      for (const m of headText.matchAll(/^;\s*([a-z_][a-z0-9_]*)\s*=\s*(\S+)\s*$/gim)) {
         if (!(m[1] in raw)) raw[m[1]] = m[2];
       }
       source = 'gcode';
     }
   }
-  return { raw, source };
+  return { raw, source, headText };
 }
 
 /**
- * 提取 3mf（Buffer）→ 可映射参数 + 与 baseline 的 diff（候选规则 set 草稿）
- * @returns {{ source, params: Object, raw: Object, diff: Object }}
+ * 提取 3mf（Buffer）→ 可映射参数 + 与 baseline 的 diff（候选规则 set 草稿）+ 预计时长
+ * @returns {{ source, params: Object, raw: Object, diff: Object, estMinutes: number|null }}
  */
 function extractFrom3mf(buffer) {
   const zip = new AdmZip(buffer);
   const files = zip.getEntries();
-  const { raw, source } = extractRawParams(files);
+  const { raw, source, headText } = extractRawParams(files);
+  const estMinutes = parseEstimatedMinutes(headText, raw);
 
   const params = {};
   for (const [bambuKey, def] of Object.entries(BAMBU_PARAM_MAP)) {
@@ -115,7 +135,7 @@ function extractFrom3mf(buffer) {
     if (JSON.stringify(processRules.BASELINE[k]) !== JSON.stringify(v)) diff[k] = v;
   }
 
-  return { source, params, raw, diff };
+  return { source, params, raw, diff, estMinutes };
 }
 
-module.exports = { extractFrom3mf, BAMBU_PARAM_MAP };
+module.exports = { extractFrom3mf, BAMBU_PARAM_MAP, parseEstimatedMinutes };

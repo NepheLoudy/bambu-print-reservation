@@ -1,8 +1,8 @@
 # bambu-print-reservation · 拓竹 3D 打印自动分发系统
 
-飞书多维表格审批 + 拓竹打印机（MQTT/SFTP）全自动分发：切片产出 3mf → 表单提交 → 专人审批 → **秒级事件监听** → 按 AMS 耗材自动选机 → 上传并开始打印 → 全程群播报。
+页面预约 + 拓竹打印机（MQTT/SFTP/FTPS）全自动分发：切片产出 3mf → 页面提交（源文件+需求标签）→ 页面审批 → 按 AMS 耗材自动选机 → 上传并开始打印 → 全程群播报。
 
-> **架构转向（2026-10-05 路线 A）**：断开飞书审批链，转为**自建前后端**——浏览器页面（本服务同源伺服 `public/index.html`）提交预约（源文件上传 + 需求标签勾选）、页面审批（X-API-Token 口令），预约真相源为本服务本地存储（`RESERVATIONS_STORE_FILE`）；多维表格镜像/审批实例事件/自动审批/对账自愈整链退役（`approvalService.js`/`eventSubscription.js` 保留文件不再接线，`/api/feishu/event` 端点删除）。飞书仅剩**群 webhook 播报**（通知通道，非数据依赖；`BOT_WEBHOOK_URL` 清空即静默）与 `/api/chat/command` 查询指令入口。需求标签池 + 工艺映射规则库（下两节）为自动切片铺路。
+> **架构转向（2026-10-05 路线 A）**：断开飞书审批链，转为**自建前后端**——浏览器页面（本服务同源伺服 `public/index.html`）提交预约（源文件上传 + 需求标签勾选）、页面审批（X-API-Token 口令），预约真相源为本服务本地存储（`RESERVATIONS_STORE_FILE`）；多维表格镜像/审批实例事件/自动审批/对账自愈整链退役（`approvalService.js`/`eventSubscription.js` 已随 v46 遗留清理删除，`/api/feishu/event` 端点删除）。飞书仅剩**群 webhook 播报**（通知通道，非数据依赖；`BOT_WEBHOOK_URL` 清空即静默）与 `/api/chat/command` 查询指令入口。需求标签池 + 工艺映射规则库（下两节）为自动切片铺路。
 
 ## 工作流
 
@@ -12,7 +12,7 @@
    ↓ 审批人在页面审批（X-API-Token）→ 通过即入队（本地任务 fileSource=local）
    ↓ 打印机空闲触发匹配
    ↓ AMS 装料匹配：材料类型(精确→家族) + 颜色(redmean 近似)
-   ↓ 本地文件读取 → SFTP/FTP 上传打印机 /sdcard/ → MQTT project_file 下发
+   ↓ 本地文件读取 → SFTP/FTPS 上传打印机 /sdcard/ → MQTT project_file 下发
    ↓ gcodeState 变迁监听：开始/完成/失败 → 群 webhook 播报
 ```
 
@@ -23,7 +23,7 @@
 | 机型 | 接入方式 | 自动分发 |
 | --- | --- | --- |
 | X1C / H2D | MQTT 8883 + SFTP 22（bblp + Access Code），AMS 完整 | ✅ |
-| P1 / A1 | MQTT 8883 + FTP 21 | ✅（AMS 有则匹配） |
+| P1 / A1 | MQTT 8883 + FTPS 990（FTP 21 回退；2026-10-07 实测新固件 21 明文口已关） | ✅（AMS 有则匹配） |
 | 闪铸等非 Bambu | 仅 .env 登记 | ❌ 人工通道（页面/运维台指定后提示手动上传） |
 
 ## 指令（群内 @对话型机器人 或经网关转发）
@@ -54,16 +54,14 @@
 
 ## 多维表格与审批表单字段
 
-主通道下材料/颜色/指定打印机是**官方审批表单字段**，按标题关键词自适应解析（`APPROVAL_CODE` 留空时依赖「表单含附件」识别打印审批，建议配置 code 收窄）；`scripts/add-dispatch-fields.js` 仅对旧版表格直提交流程有意义。
+材料/颜色/指定打印机原为**官方审批表单字段**按标题关键词自适应解析——该链路已随路线 A 退役（现走页面表单提交，`taxonomy.selectionFromFormFields` 保留为表单字段形态转换工具）；`scripts/add-dispatch-fields.js` 仅对旧版表格直提交流程有意义。
 状态流转：`待审批 → 已通过/已驳回 → 排队中 → 打印中 → 已完成`（分发失败回滚「排队中」重试；任意时刻可 `已取消`）。
 
 > **文档权限**：需在飞书中把应用「爆米花机」添加为该多维表格的**可编辑协作者**，否则写状态会报 91403。
 
 ## 事件链路（qianli 架构）
 
-事件由 feishu-gateway（共用应用唯一长连接）转发：**审批实例事件 approval_instance → `POST /api/feishu/event`（主通道，秒级）**；approval_task 事件驱动自动审批（`APPROVAL_AUTO_APPROVER_ID`）；表格事件（legacy 结构）仅后备模式（APPROVAL_PRIMARY=false 时启用+对账）；指令 → `POST /api/chat/command`。本服务 `FEISHU_USE_LONG_CONNECTION=false`。分发失败按 `DISPATCH_MAX_RETRIES` 次上限重试，每次间隔 `DISPATCH_RETRY_COOLDOWN_MS`，超限退出队列转人工。
-
-前置配置（一次性）：① 开发者后台事件订阅添加「审批实例状态变更 approval_instance」；② 应用开通审批读取权限；③ 拿到审批定义 code 后调 subscribeApproval 订阅（见 .env.example）。
+本服务不消费任何飞书事件——长连接只属于 feishu-gateway，审批实例/审批任务/表格事件转发链与 `POST /api/feishu/event` 端点已随路线 A 退役（遗留文件 v46 删除）；唯一指令入口 = hub 转发 `POST /api/chat/command`（查看类指令），群播报走 webhook。分发失败按 `DISPATCH_MAX_RETRIES` 次上限重试，每次间隔 `DISPATCH_RETRY_COOLDOWN_MS`，超限退出队列转人工。
 
 ## 定制窗口
 
@@ -80,8 +78,11 @@ npm run push
 ## 可靠性与自愈（2026-09-13）
 
 - **分发中断自愈**：进程在下载/上传链中途重启，恢复时中断任务重回队列完整重发（不静默丢单；若打印机已被上次尝试开打，重发会覆盖——比丢单可感知）；
-- **printing 幽灵巡检**：每 10 分钟检查打印中任务——超过预估时长（6h×2）且打印机实况已空闲的任务补「已完成」收尾（finish 事件落在停机/离线窗口时的兜底）；
-- **人工恢复通道**：自动重试耗尽的任务保留在 givenUp 列表（已随 v29 落盘持久化，重启不丢），页面/运维台 `POST /api/dispatch/manual`（reviewer+）可直接恢复（审批源单 instance_code 不在镜像表也能找到）；
+- **printing 幽灵巡检**：每 10 分钟检查打印中任务——超过巡检阈值且打印机实况已空闲的任务补「已完成」收尾。阈值动态化（2026-10-08）：有打印机上报预估时长（start 时捕获 mc_remaining_time）按「预估×2 且 ≥1h」，无预估退回固定 12h；
+- **重启间隙完成补收尾（2026-10-08）**：finish 事件落在停机/重启窗口时，重启后首个 state 报文实况为 FINISH/IDLE 且引擎在册任务 → 立即补发 finish/idle 收尾（原实现要等 12h 巡检）；
+- **状态文件损坏隔离（2026-10-08）**：分发状态/预约存储/账号存储损坏时坏文件改名 `.corrupt-<ts>` 留档再按空启动——不再静默覆盖，可人工抢救；
+- **人工恢复通道**：自动重试耗尽的任务保留在 givenUp 列表（已随 v29 落盘持久化，重启不丢），页面黄条（reviewer+）一键「指定打印机恢复」（下拉选机，`POST /api/dispatch/manual`）；
+- **复刻（2026-10-08）**：已完成单一键带参重提（`POST /api/reservations/:id/reprint`）——服务端复制源文件免重传，需求链路单按当前规则库重新定档，新单走完整审批流；
 - 已知边界：审批取消落在分发链窗口内时打印仍会启动（取消与分钟级分发链的竞态，记录在案暂不修）。
 
 ## 状态持久化（2026-09-13 起）
@@ -95,7 +96,7 @@ npm run push
 - **四条铁律**：①每标签必须能回答映射到什么切片参数（`mapsHint` 强制非空）；②维度正交（方向×类型×性质拆分，组内单选/组间多选）；③默认不勾=常规件一键提交；④词汇表（`taxonomy.js`，`TAXONOMY_VERSION`）与映射规则库（`processRules`，待建，`rulesVersion`）分离，版本号独立；
 - **受力参照系**：方向标签按**此件工作时的朝向**（Z=工作时竖直向上，可多选）——Z 向受力≈打印层缝方向（最弱），是规则引擎调朝向的依据；材料类型**可不填**（2026-10-05 曼波定）：勾选标签由规则引擎反推材料约束（materialExclude/materialPrefer 随单下发，分发匹配时对 AMS 实装料槽求值）；配合需求精简为间隙/过盈/精密（去过渡配合）；连接方式含「打印件自配合（插接/卡扣）」；份数仅在表单顶部（标签池不重复设）；
 - **冲突双级**：`block`（表单端拦截，如耐温≥80°C×PLA、电气绝缘×CF 系——碳纤导电、长期静载×PLA 蠕变）/ `warn`（警告放行，如高速×外观件）；材料类冲突需提供材料字符串时才判定；
-- **落地物**：`src/services/taxonomy.js`（标签池 v2：8 组 24 字段 + 7 条冲突规则）、`validateSelection(selection, {material})`（校验）、`selectionFromFormFields([{title,value}])`（审批表单字段 → 标准化勾选，供 parseForm 后续接线）、`GET /api/print/taxonomy`（只读窗口：标签全景+映射提示+冲突规则，运维台展示与打标指南取数）；
+- **落地物**：`src/services/taxonomy.js`（标签池 v2：8 组 21 字段 + 7 条冲突规则；2026-10-08 增「收缩量要求」标尺 shrink_scale——负数=负收缩（打印件偏小）、正数=涨量（偏大）、越近 0=尺寸偏差要求越小）、`validateSelection(selection, {material})`（校验）、`selectionFromFormFields([{title,value}])`（审批表单字段 → 标准化勾选，供 parseForm 后续接线）、`GET /api/print/taxonomy`（只读窗口：标签全景+映射提示+冲突规则，运维台展示与打标指南取数）；
 - 测试：`node test/taxonomy-test.js`（19 项，已并入 npm test 与 push 闸门）。
 
 ## 工艺映射规则库（processRules，2026-10-05 起）
@@ -103,11 +104,11 @@ npm run push
 体系的第二层：标签勾选 → **切片参数集**。`src/services/processRules.js`：
 
 - **参数白名单**（22 个，CLI 可消费的核心参数全集；2026-10-05 细化批新增顶/底面实心层数、支撑悬垂阈值角、支撑密度、裙边宽度、喷嘴温度Δ）：`directionStrategy/layerHeight/wallLoops/infillDensity/infillPattern/supportType/speedProfile/seamPosition/xyHoleComp/xyContourComp/ironing/brim/temperatureDelta/materialExclude/materialPrefer`；规则 `set` 引用白名单外参数、`when` 引用池外字段、缺 `reason` 一律拒收（可审计铁律）；
-- **应用语义**：`BASELINE`（出厂默认）为底，规则按 `priority` 升序叠加，同名参数 priority 大者赢；标签级冲突不做二次裁判——`applyRules` 入口统一走 `taxonomy.validateSelection`，errors 非空即 `blocked`（含材料类冲突，需传 `material` 才判定）；
+- **应用语义**：`BASELINE`（出厂默认）为底，规则按 `priority` 升序叠加，同名参数 priority 大者赢；标签级冲突不做二次裁判——`applyRules` 入口统一走 `taxonomy.validateSelection`，errors 非空即 `blocked`（含材料类冲突，需传 `material` 才判定）；出厂种子 27 条（2026-10-08 新增收缩量三条：≤-2 外轮廓负补偿 -0.15 / ≥+2 正补偿 +0.15 / ±1 近零区高精度档降速）；
 - **材料裁定**：`materialExclude/materialPrefer` 存 regex 源（如 `'^PLA'`），对材料字符串求值得 `materialVerdict`（选机匹配层消费；表单端 block 是第一道闸，此处是引擎端兜底）；
 - **版本**：`rulesVersion` = 规则集内容 hash 短码，与 `taxonomyVersion`、baseline 版本、Bambu Studio 版本共同构成切片产物缓存 key 四件套；
 - **窗口**：`GET /api/print/process-rules`（基线/白名单/规则集全景）；`POST /api/print/process-rules`（X-API-Token 鉴权，`{op:'upsert'|'remove'|'reset', rule?, id?}`，内存热改 + 原子写回规则文件）；
-- **存储**：出厂种子规则内置代码（23 条，翻译自 taxonomy 各标签 mapsHint）；外部规则文件 `PROCESS_RULES_FILE`（默认项目根 `.process-rules.json`，生产配项目外数据目录，防 push 清目录丢失——同 `DISPATCH_STATE_FILE` 模式）；文件加载失败回退种子；
+- **存储**：出厂种子规则内置代码（27 条，翻译自 taxonomy 各标签 mapsHint）；外部规则文件 `PROCESS_RULES_FILE`（默认项目根 `.process-rules.json`，生产配项目外数据目录，防 push 清目录丢失——同 `DISPATCH_STATE_FILE` 模式）；文件加载失败回退种子；
 - 测试：`node test/process-rules-test.js`（17 项，已并入 npm test 与 push 闸门）。
 
 ## 学习链路（2026-10-05 第三批：「机器学人」落地）
@@ -142,8 +143,11 @@ npm run push
 | `GET /api/reservations`、`GET /api/reservations/:id` | 登录 | 本地存储查询（含参数快照/规则依据/状态轨迹） |
 | `POST /api/reservations/:id/approve`、`/reject`、`/review` | reviewer+ | 审批动作（仅待审批单可批/驳；通过即入队并回写排队中） |
 | `POST /api/reservations/:id/cancel`、`DELETE /api/reservations/:id` | 本人或 reviewer+ | 取消（排队/分发中/打印中均由 dequeue 兜住） |
+| `POST /api/reservations/:id/reprint` | 登录 | 复刻：已完成单一键带参重提（服务端复制源文件，需求链路重新定档） |
 | `PUT /api/reservations/:id` | admin | 状态变更走本地状态机 |
-| `POST /api/printers/:id/print/pause/resume/stop` | admin | 打印机控制（会话 admin 或管理 token） |
+| `GET /api/print/colors` | 无 | 颜色字典窗口（可匹配色名全集+颜色距离阈值，提交页 datalist 数据源） |
+| `GET /api/printers/:id/debug` | admin | 真机联调核对面：raw state 报文全量 + 连接/新鲜度元信息 |
+| `POST /api/printers/:id/print/pause/resume/stop` | admin | 打印机控制（会话 admin 或管理 token；页面打印机卡已有按钮） |
 | `POST /api/dispatch/manual` | reviewer+ | 人工指定分发/恢复 givenUp |
 | `GET /api/print/taxonomy`、`GET/POST /api/print/process-rules` | 读无 / 写 token | 标签池与规则库窗口（提交页勾选 UI 的数据源） |
 
@@ -153,12 +157,15 @@ npm run push
 
 ```
 node test/dispatcher-test.js          # 分发引擎匹配逻辑单测（18 项）
-node test/approval-test.js            # 审批事件解析/自动审批逻辑单测（9 项）
-node test/dispatcher-persist-test.js  # 分发引擎状态持久化往返测试（落盘/重启恢复/截尾/损坏兜底）
+node test/dispatcher-persist-test.js  # 分发引擎状态持久化往返测试（落盘/重启恢复/截尾/损坏隔离兜底）
 node test/dispatcher-manual-race-test.js  # 分发互斥闸门测试（人工指定 vs 自动匹配竞态修复回归，16 项）
-node test/taxonomy-test.js            # 需求标签池单测（结构铁律/校验/冲突/表单提取，19 项）
-node test/process-rules-test.js       # 工艺映射规则库单测（种子自洽/叠加优先级/材料裁定/热改，17 项）
-node test/local-reservation-test.js   # 本地预约系统单测（存储/状态机/规则快照/审批入队集成，12 项）
-node test/auth-test.js                # 账号体系单测（注册/登录限速/会话/角色/中间件双通道，13 项）
+node test/taxonomy-test.js            # 需求标签池单测（结构铁律/校验/冲突/表单提取/收缩标尺，20 项）
+node test/process-rules-test.js       # 工艺映射规则库单测（种子自洽/叠加优先级/材料裁定/收缩规则/热改，23 项）
+node test/local-reservation-test.js   # 本地预约系统单测（存储/状态机/颜色警告/estMinutes/复刻/审批入队集成，26 项）
+node test/auth-test.js                # 账号体系单测（注册/登录限速/会话/角色/中间件双通道，15 项）
+node test/learning-loop-test.js       # 学习链路单测（待审池聚合/采纳转正/撞 id 修复回归/3mf 提取，11 项）
+node test/ops-test.js                 # 运营单测（损坏隔离/审批拦截/estMinutes 提取/ETA/变迁判定/巡检阈值/备份/usage，12 项）
 node test/printer-upload-channel-test.js  # 上传通道分流单测（FTPS 990 优先/FTP 21 回退/SFTP 机型分流/连接参数，8 项）
 ```
+
+> 十套 158 项全绿（2026-10-08：原审批事件解析测试随审批链退役删除，新增断言覆盖收缩标尺/复刻/ETA/损坏隔离/首报文收尾）。

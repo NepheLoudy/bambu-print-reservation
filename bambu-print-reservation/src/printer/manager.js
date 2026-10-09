@@ -8,6 +8,27 @@ function isAutoDispatchable(printer) {
   return model.includes('X1') || model.includes('H2D') || model.includes('P1') || model.includes('A1');
 }
 
+/**
+ * gcodeState 变迁 → jobEvent 判定（纯函数，单测覆盖）。
+ * prevState 为空（服务重启/重连后的首个报文）时：完成事件可能落在停机窗口——
+ * 打印机实况 FINISH 且引擎仍登记着 activeTask → 补发 finish；实况 IDLE 且有
+ * activeTask → 补发 idle（幽灵收尾，走既有失败重排通道）。无任务时首报文不发事件。
+ */
+function resolveJobEvent(prevState, to, hasActiveTask) {
+  if (!prevState) {
+    if (to === 'FINISH' && hasActiveTask) return 'finish';
+    if (to === 'IDLE' && hasActiveTask) return 'idle';
+    return null;
+  }
+  if (prevState === to) return null;
+  if (to === 'PRINTING' && !['RESUME'].includes(prevState)) return 'start';
+  // 注意 FINISH → finish 分支在前，idle 分支不再判 FINISH（否则永不可达）
+  if (to === 'FINISH') return 'finish';
+  if (to === 'FAILED') return 'failed';
+  if (to === 'IDLE' && prevState === 'PRINTING') return 'idle';
+  return null;
+}
+
 class PrinterManager {
   constructor() {
     this.clients = {};
@@ -123,20 +144,13 @@ class PrinterManager {
       ams: client.getAmsTrays(),
     });
 
-    // 关键变迁 → jobEvent（dispatcher 用它触发匹配、播报用它与完成/失败）
-    if (prevState && prevState !== status.gcodeState) {
-      const to = status.gcodeState;
-      let event = null;
-      if (to === 'PRINTING' && !['RESUME'].includes(prevState)) event = 'start';
-      // 注意 FINISH → finish 分支在前，idle 分支不再判 FINISH（否则永不可达）
-      else if (to === 'FINISH') event = 'finish';
-      else if (to === 'FAILED') event = 'failed';
-      else if (to === 'IDLE' && prevState === 'PRINTING') event = 'idle';
-
-      if (event) {
-        console.log(`[打印机管理] ${prev.name} 任务变迁: ${prevState} → ${to} (${event})`);
-        this.notifyListeners('jobEvent', { printer: this.printerStates[printerId], event, prevState, gcodeState: to });
-      }
+    // 关键变迁 → jobEvent（dispatcher 用它触发匹配、播报用它与完成/失败）；
+    // activeTask 取自引擎写入的 printerState（上方 prev 快照，先于 updateState）——
+    // 首报文补收尾事件依赖它判「有无任务在册」
+    const event = resolveJobEvent(prevState, status.gcodeState, Boolean(prev.activeTask));
+    if (event) {
+      console.log(`[打印机管理] ${prev.name} 任务变迁: ${prevState || '(首报文)'} → ${status.gcodeState} (${event})`);
+      this.notifyListeners('jobEvent', { printer: this.printerStates[printerId], event, prevState, gcodeState: status.gcodeState });
     }
   }
 
@@ -183,6 +197,17 @@ class PrinterManager {
   }
 
   /**
+   * API 输出形态：附加实时失联标注（stateStale）——status 停留在最后一次报文的
+   * 「空闲」而报文早已过期（幽灵空闲）时，页面能看到「失联」警示而非误信空闲
+   */
+  getApiStates() {
+    return Object.values(this.printerStates).map((p) => ({
+      ...p,
+      stateStale: this.clients[p.id] ? this.clients[p.id].isStateStale() : true,
+    }));
+  }
+
+  /**
    * 可承接自动分发的打印机：Bambu 系、空闲/已完成、且 state 报文未失联。
    * 幽灵空闲防护：bambu-link 从不 emit 'disconnect'，打印机断电后 connected 仍为
    * true、状态停在最后一次的「空闲」——超时无报文（client.isStateStale，默认 3 分钟）
@@ -194,6 +219,31 @@ class PrinterManager {
       const client = this.clients[p.id];
       return Boolean(client) && !client.isStateStale();
     });
+  }
+
+  /**
+   * 真机联调核对面（v46）：返回打印机 raw state 报文全量 + 连接/新鲜度元信息。
+   * AMS 报文形状、gcodeState 序列等「待真机核对」假设出错时，用它一眼区分
+   * 「报文假设错了」还是「解析逻辑错了」（admin/token 经 GET /api/printers/:id/debug 消费）
+   */
+  getPrinterDebug(printerId) {
+    const state = this.printerStates[printerId];
+    if (!state) return null;
+    const client = this.clients[printerId];
+    return {
+      id: state.id,
+      name: state.name,
+      model: state.model,
+      host: state.host,
+      autoDispatch: state.autoDispatch,
+      connected: Boolean(client && client.connected),
+      lastStateAt: client ? client.lastStateAt : null,
+      stateStale: client ? client.isStateStale() : true,
+      status: state.status,
+      gcodeState: state.gcodeState,
+      activeTask: state.activeTask ? { recordId: state.activeTask.recordId, applicationNo: state.activeTask.applicationNo } : null,
+      rawState: client ? client.getState() : null,
+    };
   }
 
   async uploadFileToPrinter(printerId, buffer, fileName) {
@@ -323,3 +373,4 @@ const printerManager = new PrinterManager();
 // }, 60000);
 
 module.exports = printerManager;
+module.exports.resolveJobEvent = resolveJobEvent;

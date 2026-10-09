@@ -117,8 +117,8 @@
 ## 3. 当前系统逻辑链路总图（现状：仅拓竹 LAN 直连）
 
 ```
-【上游 · 飞书】 审批实例事件 approval_instance / 审批任务事件 approval_task（feishu-gateway 长连接收到后转发）
-      │  POST /api/feishu/event（index.js:278，verificationToken 校验后 setImmediate 异步处理）
+【上游 · 预约审批】 页面提交 → 本地存储（reservationStore）→ 审批端点 approve → enqueue 入队（reservation.js:105）
+      │  （2026-10-05 路线 A 断飞书审批链：审批事件转发与 POST /api/feishu/event 退役，遗留文件随 v46 删除）
       ▼
 【分发引擎 dispatcher】（src/services/dispatcher.js）
       enqueue（幂等：known/queue 双查，dispatcher.js:236-254）→ 触发匹配 trigger/match
@@ -126,9 +126,9 @@
             （dispatcher.js:334-389）；打印机空闲（jobEvent idle）同样触发（bindPrinterEvents :117-128）
       ▼ 匹配成功
 【执行分发 dispatch】（dispatcher.js:418-525）
-      ① 下载 3mf：审批附件 downloadApprovalAttachment（fileSource='approval'，不写预约镜像表）
+      ① 取 3mf：本地源读上传件（isLocalTask，现行主流）；历史审批源走 downloadApprovalAttachment（不写预约镜像表）、镜像源 downloadFile（loadTaskFile dispatcher.js:81-89）
       ② 上传：printerManager.uploadFileToPrinter → /sdcard/print_{recordId}.3mf
-             model 含 X1/H2D → SFTP:22；否则(P1/A1) → FTP:21（client.js:278-284）
+             X1C/H2D → SFTP:22；P1/A1 → FTPS:990 优先、FTP:21 回退（client.js:285-306，2026-10-07 实测新固件 21 明文口已关）
       ③ 下发：startProjectOnPrinter → MQTT project_file 帧（高段位 sequence_id，client.js:216-235）
       ④ 登记 printing[printerId]=task、updateState activeTask（dispatcher.js:467-468）
       ⑤ 群播报「开始打印」卡片
@@ -184,7 +184,7 @@
 
 ### 4.5 分发引擎（dispatcher，单例 `dispatcher.js:728`）
 
-- 启动 `start`（`dispatcher.js:87-115`）：主通道开启（`approval.enabled` 默认 true）时**关闭预约镜像表对账**（防重复入队），仅靠事件秒级驱动；主通道关闭时退回分钟级对账兜底（`reconcile` `dispatcher.js:206-231`，幂等补漏 + 重启后恢复打印中映射）。
+- 启动 `start`（`dispatcher.js:87-115`）：主通道开启（`approval.enabled` 默认 true）时**关闭预约镜像表对账**（防重复入队），仅靠事件秒级驱动；主通道关闭时退回分钟级对账兜底（`reconcile` `dispatcher.js:206-231`，幂等补漏 + 重启后恢复打印中映射）。路线 A 后事件链已退役，现行入队来自本地审批端点（approve → enqueue），该开关现仅控制旧镜像对账兜底是否运行。
 - 队列与幂等：`queue + known Set + printing Map`；入队三查（known/queue）防事件与对账重复（`dispatcher.js:236-254`）。
 - 匹配串行化：`matching` 锁 + 完成后按需 `setImmediate` 重跑（`trigger` `dispatcher.js:274-296`）；队首匹配不到不阻塞后续任务（`findAnyMatch`），全队列缺料才发缺料提醒（节流 `materialRemindMinutes`，`dispatcher.js:399-413`）。
 - 分发执行链（`dispatch` `dispatcher.js:418-525`）：见总图；失败处理为「回滚表状态 → 重试计数 → 冷却 `nextMatchAt` → 重新入队 → 冷却后定时再触发」，达 `maxRetries` 退出队列并发人工介入卡片（`dispatcher.js:487-525`）。
@@ -193,8 +193,8 @@
 
 ### 4.6 事件入口（index.js）
 
-- `POST /api/feishu/event`（`index.js:278-355`）：verificationToken 校验（v33 起 fail-closed——校验 token 未配置时直接拒绝消息帧，`index.js:288-293`）；`approval_instance` → `processApprovalEvent`（审批结果直接驱动入队/取消，秒级，主通道，`index.js:300-308`）；`approval_task` → 自动审批入口（`index.js:311-319`，配合 `APPROVAL_AUTO_APPROVER_ID`）；`bitable.record.create/update` → 镜像表事件后备模式（`index.js:321-342`）；`im.message.receive_v1` → 聊天消息（`index.js:344-352`）。长连接不属于本项目（`.env` `FEISHU_USE_LONG_CONNECTION=false`，事件由 feishu-gateway 转发）。
-- `POST /api/chat/command`（`index.js:357-371`）：`{command,args}` → `{reply}`，回复由网关代发；`/print-status` 对非自动机型标注「仅登记，分发需人工」。
+- `POST /api/feishu/event`：**已随 2026-10-05 路线 A 退役，v46 删除端点与 `eventSubscription`/`approvalService`**——审批实例/审批任务/表格事件/聊天消息事件消费整链下线，本服务不再消费任何飞书事件（原 `index.js:278-355` 链路描述作废）。
+- `POST /api/chat/command`（`index.js:636`）：`{command,args}` → `{reply}`，回复由网关代发；`/print-status` 对非自动机型标注「仅登记，分发需人工」。
 - HTTP 控制端点（`index.js:228-276`）：`POST /api/printers/:id/{print,pause,resume,stop}`（print 需 body `filePath`），透传 manager → client → MQTT 帧。**项目内无聊天指令对应**，供外部/人工调用。
 
 ### 4.7 群播报与镜像表
@@ -204,7 +204,7 @@
 
 ### 4.8 闪铸等非自动机型的现状路径
 
-登记展示（`manager.js:38-41`）→ `/print-status` 标注仅登记 → 人工指令 `/print-dispatch` 落到非自动机型时只写表并返回 `manualOnly: true`，提示用厂商工具上传（`dispatcher.js:686-704`）。**本系统对闪铸没有任何网络协议代码**（`.env.example` 中 `闪铸AD5M`/`ADVENTURER5` 仅为登记示例）。
+登记展示（`manager.js:38-41`）→ `/print-status` 标注仅登记 → 人工分发 `POST /api/dispatch/manual`（页面黄条/运维台，reviewer+）指定非自动机型时只把单子标回排队中并返回 `manualOnly: true`，提示用厂商工具上传（`dispatcher.js:995-1010`；`/print-dispatch` 聊天指令已于 2026-10-05 移除，聊天通道仅查看类指令）。**本系统对闪铸没有任何网络协议代码**（`.env.example` 中 `闪铸AD5M`/`ADVENTURER5` 仅为登记示例）。
 
 ---
 

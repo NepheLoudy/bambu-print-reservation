@@ -14,8 +14,8 @@ const printerManager = require('./printer/manager');
 // 指令唯一出口：hub 经 POST /api/chat/command 转发（对话铁律——本仓不消费消息事件）
 const { executeCommand } = require('./services/chatService');
 
-// 2026-10-05 路线 A（断飞书审批链）：feishu/eventSubscription（审批实例/任务/表格
-// 事件消费 + 审批对账）与 /api/feishu/event 端点整体退役；预约真相源改为本地存储
+// 2026-10-05 路线 A（断飞书审批链）：审批实例/任务/表格事件消费 + 审批对账整体退役
+// （approvalService/eventSubscription 已随 v46 遗留清理批删除）；预约真相源改为本地存储
 // （reservationStore），审批动作为本服务 HTTP 端点，飞书仅剩群 webhook 播报。
 
 const app = express();
@@ -195,6 +195,15 @@ app.get('/api/print/taxonomy', (req, res) => {
   res.json(require('./services/taxonomy').getTaxonomy());
 });
 
+// 颜色字典窗口（2026-10-08 只读）：提交页颜色栏 datalist 数据源 + 未识别色名提示依据
+// （字典外颜色在选机时按「任意颜色」放行——此处把可匹配色集显式暴露给前端校验）
+app.get('/api/print/colors', (req, res) => {
+  res.json({
+    colorNames: Object.keys(config.colorReference),
+    threshold: config.dispatch.colorDistanceThreshold,
+  });
+});
+
 // ---------- 工艺映射规则库窗口（体系第二层：标签 → 切片参数） ----------
 // 读窗口：基线参数/白名单/规则集全景（含版本，进切片产物缓存 key）
 app.get('/api/print/process-rules', (req, res) => {
@@ -330,16 +339,31 @@ app.post('/api/reservations', requireUser(), upload.single('file'), async (req, 
     // 不用下载文件开 Bambu Studio 就能看参数。提取失败不阻塞提交（摘要置空）；
     // 大于 50MB 跳过提取（adm-zip 需整文件进内存，大文件会拖垮提交请求）
     let embeddedParams = null;
+    let estMinutes = null;
     if (isSliced) {
       if (req.file.size > 50 * 1024 * 1024) {
         console.log(`[提交] 3mf 过大（${Math.round(req.file.size / 1048576)}MB），跳过参数提取`);
       } else {
         try {
           const extracted = require('./services/slicerExtract').extractFrom3mf(fs.readFileSync(req.file.path));
-          embeddedParams = { source: extracted.source, params: extracted.params };
+          embeddedParams = { source: extracted.source, params: extracted.params, estMinutes: extracted.estMinutes };
+          estMinutes = extracted.estMinutes; // 预计时长随单入档（队列 ETA 用）
         } catch (err) {
           console.warn(`[提交] 3mf 参数提取失败（不影响提交）: ${err.message}`);
         }
+      }
+    }
+
+    // 指定打印机校验（2026-10-08）：自由文本填错名字此前会静默走自动匹配或永远排队——
+    // 显式指定的值必须命中登记清单，拼错当场打回
+    if (String(body.assignedPrinter || '').trim()) {
+      const wanted = String(body.assignedPrinter).trim();
+      const valid = config.printers.some((p) => p.name === wanted);
+      if (!valid) {
+        try { fs.unlinkSync(req.file.path); } catch { /* 已不存在 */ }
+        return res.status(400).json({
+          error: `指定打印机「${wanted}」未登记，请从下拉选择（已登记：${config.printers.map((p) => p.name).join('、') || '无——先在 .env PRINTER_HOSTS 登记'}）`,
+        });
       }
     }
 
@@ -360,6 +384,7 @@ app.post('/api/reservations', requireUser(), upload.single('file'), async (req, 
       processParams: applied ? applied.params : null,
       appliedRules: applied ? applied.applied : [],
       embeddedParams, // 3mf 内嵌参数摘要（审批透明化；需求链路单为 null）
+      estMinutes,     // 3mf 内嵌预估时长（队列 ETA；需求链路单为 null）
     });
 
     reservationService.notifyReviewers(reservation).catch(() => {}); // fire-and-forget
@@ -457,6 +482,20 @@ app.post('/api/reservations/:id/review', requireUser('reviewer', 'admin'), async
   }
 });
 
+// 复刻（2026-10-08）：已完成单一键带参重提（打坏了重打/帮同学打同款）——
+// 服务端复制源文件免重传；需求链路单按当前规则库重新定档；新单走完整审批流
+app.post('/api/reservations/:id/reprint', requireUser(), async (req, res) => {
+  try {
+    const reservation = await reservationService.reprintReservation(req.params.id, req.user, req.body || {});
+    reservationService.notifyReviewers(reservation).catch(() => {}); // fire-and-forget
+    require('./services/usageReport').reportUsage(req.user.username, 'print-reprint').catch(() => {});
+    res.json(reservation);
+  } catch (err) {
+    console.error('复刻预约失败:', err);
+    res.status(400).json({ error: err.message, details: err.details, warnings: err.details?.warnings || [] });
+  }
+});
+
 // 取消：本人取消自己的单，或 reviewer/admin 代管（用户自助取消）
 app.post('/api/reservations/:id/cancel', requireUser(), async (req, res) => {
   try {
@@ -498,10 +537,10 @@ app.get('/api/reservations/status/completed', requireUser(), async (req, res) =>
   }
 });
 
-// 打印机实时状态（含内网 IP/温度/AMS，登录可见——不放匿名面）
+// 打印机实时状态（含内网 IP/温度/AMS，登录可见——不放匿名面；stateStale=报文过期失联标注）
 app.get('/api/printers', requireUser(), (req, res) => {
   try {
-    const printers = printerManager.getAllPrinterStates();
+    const printers = printerManager.getApiStates();
     res.json(printers);
   } catch (err) {
     console.error('获取打印机状态失败:', err);
@@ -514,9 +553,17 @@ app.get('/api/printers/available', requireUser(), (req, res) => {
     const printers = printerManager.getAvailablePrinters();
     res.json(printers);
   } catch (err) {
-    console.error('获取可用打印机失败:', err);
+    console.error('获取可用打印机失败:', err.message);
     res.status(500).json({ error: err.message });
   }
+});
+
+// 真机联调核对面（admin）：raw state 报文全量 + 连接/新鲜度元信息——AMS 报文形状、
+// gcodeState 序列等「待真机核对」假设出错时，用它区分「报文假设错了」还是「解析错了」
+app.get('/api/printers/:id/debug', requireUser('admin'), (req, res) => {
+  const debug = printerManager.getPrinterDebug(parseInt(req.params.id));
+  if (!debug) return res.status(404).json({ error: '打印机不存在' });
+  res.json(debug);
 });
 
 app.get('/api/printers/:id', requireUser(), (req, res) => {

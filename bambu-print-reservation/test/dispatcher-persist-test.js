@@ -101,7 +101,8 @@ check('损坏状态文件按空队列启动', () => {
 });
 
 // ---------- 4. 文件缺失 → 静默跳过 ----------
-fs.unlinkSync(STATE_FILE);
+// 损坏文件已被隔离改名（2026-10-08），此处幂等清理不假设文件在
+try { fs.unlinkSync(STATE_FILE); } catch { /* 已被隔离改名 */ }
 const d5 = freshDispatcher();
 d5.restoreState();
 check('状态文件缺失时静默跳过', () => assert.equal(d5.queue.length, 0));

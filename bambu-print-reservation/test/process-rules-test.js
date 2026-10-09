@@ -176,6 +176,37 @@ check('参数细化:白名单校验范围(topShell/支撑阈值)', () => {
   assert.equal(bad2.ok, false);
 });
 
+// ---------- 收缩量要求标尺（2026-10-08 曼波需求） ----------
+
+check('收缩标尺≤-2 → 外轮廓负补偿（负收缩=打印件偏小）', () => {
+  const r = applyRules({ shrink_scale: -2 });
+  assert.equal(r.params.xyContourComp, -0.15);
+  assert.ok(r.applied.some((a) => a.id === 'shrink-negative'));
+  // 边界：-3 同命中，-1 不命中
+  assert.ok(applyRules({ shrink_scale: -3 }).applied.some((a) => a.id === 'shrink-negative'));
+  assert.ok(!applyRules({ shrink_scale: -1 }).applied.some((a) => a.id === 'shrink-negative'));
+});
+
+check('收缩标尺≥+2 → 外轮廓正补偿（涨量抵消收缩）', () => {
+  const r = applyRules({ shrink_scale: 3 });
+  assert.equal(r.params.xyContourComp, 0.15);
+  assert.ok(r.applied.some((a) => a.id === 'shrink-expand'));
+});
+
+check('收缩标尺±1 近零区 → 高精度档（外壁降速）', () => {
+  const r = applyRules({ shrink_scale: -1 });
+  assert.equal(r.params.speedProfile, 'precise');
+  assert.ok(r.applied.some((a) => a.id === 'shrink-precision'));
+  assert.ok(applyRules({ shrink_scale: 1 }).applied.some((a) => a.id === 'shrink-precision'));
+  // 每个非零值恰好命中一条收缩规则（互斥完备）
+  for (const v of [-3, -2, -1, 1, 2, 3]) {
+    const hits = applyRules({ shrink_scale: v }).applied.filter((a) => a.id.startsWith('shrink-'));
+    assert.equal(hits.length, 1, `shrink_scale=${v} 应恰好命中 1 条收缩规则，实际 ${hits.length}`);
+  }
+  // 0 不收集（前端），不命中任何收缩规则
+  assert.equal(applyRules({}).applied.filter((a) => a.id.startsWith('shrink-')).length, 0);
+});
+
 // ---------- 清理 tmp 规则文件 ----------
 try { require('fs').unlinkSync(process.env.PROCESS_RULES_FILE); } catch { /* 不存在即可 */ }
 

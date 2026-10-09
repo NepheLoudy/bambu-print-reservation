@@ -327,6 +327,63 @@ check('多色+材料留空(反推场景)可选机(2026-10-07 死区修复)', () 
   assert.equal(blocked, null, '反推排除应让全 PLA 槽机器不可选');
 });
 
+// ---------- 2026-10-08 优化批：颜色警告 / estMinutes / 复刻 ----------
+
+check('颜色警告:字典外色名进 processWarnings(不拦截),标准色名与 hex 不警告', () => {
+  const warn = store.create({ applicant: 'x', fileName: 'a.3mf', filePath: 'x', color: '天蓝色', selection: {}, processParams: null, appliedRules: [] });
+  assert.ok(warn.processWarnings.some((w) => w.includes('天蓝色')), '字典外色名应警告（匹配按任意颜色放行需知情）');
+  const clean = store.create({ applicant: 'x', fileName: 'a.3mf', filePath: 'x', color: '黑色+#112233', selection: {}, processParams: null, appliedRules: [] });
+  assert.equal(clean.processWarnings.length, 0, '标准色名+hex 不警告');
+  const empty = store.create({ applicant: 'x', fileName: 'a.3mf', filePath: 'x', color: '', selection: {}, processParams: null, appliedRules: [] });
+  assert.equal(empty.processWarnings.length, 0, '颜色留空不警告');
+});
+
+check('estMinutes 随单入档并透传 buildLocalTask 与队列快照(ETA 数据源)', async () => {
+  const r = submit({ estMinutes: 95 });
+  assert.equal(r.estMinutes, 95);
+  assert.equal(dispatcher.buildLocalTask(store.get(r.id)).estMinutes, 95);
+  const r2 = submit();
+  assert.equal(r2.estMinutes, null, '缺省为 null');
+  assert.equal(dispatcher.buildLocalTask(store.get(r2.id)).estMinutes, null);
+  // 快照透出 estMinutes（前端 ETA 条消费）：审批入队后从队列快照取
+  await reservationService.approveReservation(r.id, 'A', '');
+  const snap = dispatcher.getQueueSnapshot().find((q) => q.recordId === r.id);
+  assert.ok(snap && snap.estMinutes === 95, '队列快照应带 estMinutes');
+});
+
+check('复刻:已完成单复制文件重提新单(新单号/新审批流/overrides 覆盖)', async () => {
+  const srcFile = path.join(os.tmpdir(), `bambu-reprint-src-${process.pid}.3mf`);
+  fs.writeFileSync(srcFile, 'fake-3mf-content');
+  const rec = submit({ fileName: 'origin.3mf', filePath: srcFile, color: '黑色' });
+  for (const s of ['已通过', '排队中', '打印中', '已完成']) store.updateStatus(rec.id, s, 't');
+  const copy = await reservationService.reprintReservation(rec.id, { id: 'u-x', displayName: '复刻人' }, { quantity: 2 });
+  assert.notEqual(copy.id, rec.id, '复刻应生成新单号');
+  assert.equal(copy.applicant, '复刻人', '发起人=当前登录者');
+  assert.equal(copy.status, '待审批', '复刻单走完整审批流');
+  assert.equal(copy.quantity, 2, 'overrides 覆盖生效');
+  assert.notEqual(copy.filePath, srcFile, '复刻单持有独立文件副本');
+  assert.ok(fs.existsSync(copy.filePath), '文件副本应存在');
+  assert.equal(copy.processParams, null, '3mf 直通复刻不定档');
+  assert.equal(copy.embeddedParams, null);
+  try { fs.unlinkSync(copy.filePath); } catch { /* 收尾 */ }
+  // 源文件已清理 → 拒绝并带重新上传指引
+  fs.unlinkSync(srcFile);
+  await assert.rejects(
+    () => reservationService.reprintReservation(rec.id, { id: 'u-x', displayName: '复刻人' }, {}),
+    /源文件已不存在|重新上传/
+  );
+});
+
+check('复刻:需求链路单按当前规则库重新定档', async () => {
+  const srcFile = path.join(os.tmpdir(), `bambu-reprint-stl-${process.pid}.stl`);
+  fs.writeFileSync(srcFile, 'fake-stl');
+  const rec = submit({ fileName: 'model.stl', filePath: srcFile }, { load_magnitude: 'heavy' });
+  for (const s of ['已通过', '排队中', '打印中', '已完成']) store.updateStatus(rec.id, s, 't');
+  const copy = await reservationService.reprintReservation(rec.id, { id: 'u-x', displayName: '复刻人' }, {});
+  assert.ok(copy.processParams && copy.processParams.infillDensity === 60, '需求链路复刻应重新定档（重载档填充 60%）');
+  try { fs.unlinkSync(copy.filePath); } catch { /* 收尾 */ }
+});
+
 // ---------- 收尾：异步用例全部落定后清理与总结 ----------
 Promise.all(pending).then(() => {
   for (const f of [process.env.RESERVATIONS_STORE_FILE, process.env.DISPATCH_STATE_FILE, process.env.QUIET_BACKLOG_FILE]) {

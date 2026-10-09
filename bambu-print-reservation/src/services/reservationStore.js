@@ -32,22 +32,45 @@ const TRANSITIONS = {
   [config.status.CANCELLED]: [],
 };
 
+// 历史轨迹截尾（防无限增长；200 条足够回溯单据全生命周期）
+const HISTORY_CAP = 200;
+
+// mtime 缓存（2026-10-08）：预约低频写但读频繁（列表轮询/指令/审批每次都全文件 parse），
+// 以文件 mtime 作新鲜度凭证——外部手改文件（运维/测试）mtime 变化自动失效重读，
+// 本模块写入后直接刷新缓存，语义与每次重读完全一致
+let cache = null; // { mtimeMs, records }
+
+/** 存储文件损坏隔离（2026-10-08）：坏文件改名留档后按空启动——原逻辑直接按空返回，
+ * 下一次 create 会把仅存的记录全部覆盖（当日数据无备份可救）。隔离后坏文件可人工抢救 */
+function quarantineCorruptFile(err) {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const quarantined = `${STORE_FILE}.corrupt-${stamp}`;
+  try { fs.renameSync(STORE_FILE, quarantined); } catch { /* 改不动就留在原地 */ }
+  console.error(`[预约存储] 存储文件损坏已隔离到 ${quarantined}（${err.message}）——按空启动，请人工检查抢救`);
+}
+
+function load() {
+  try {
+    if (!fs.existsSync(STORE_FILE)) { cache = null; return []; }
+    const mtimeMs = fs.statSync(STORE_FILE).mtimeMs;
+    if (cache && cache.mtimeMs === mtimeMs) return cache.records;
+    const data = JSON.parse(fs.readFileSync(STORE_FILE, 'utf-8'));
+    const records = Array.isArray(data.records) ? data.records : [];
+    cache = { mtimeMs, records };
+    return records;
+  } catch (err) {
+    quarantineCorruptFile(err);
+    cache = null;
+    return [];
+  }
+}
+
 function save(records) {
   const tmp = STORE_FILE + '.tmp';
   fs.mkdirSync(path.dirname(STORE_FILE), { recursive: true });
   fs.writeFileSync(tmp, JSON.stringify({ savedAt: new Date().toISOString(), records }, null, 2));
   fs.renameSync(tmp, STORE_FILE);
-}
-
-function load() {
-  try {
-    if (!fs.existsSync(STORE_FILE)) return [];
-    const data = JSON.parse(fs.readFileSync(STORE_FILE, 'utf-8'));
-    return Array.isArray(data.records) ? data.records : [];
-  } catch (err) {
-    console.warn('[预约存储] 存储文件加载失败（按空启动）:', err.message);
-    return [];
-  }
+  try { cache = { mtimeMs: fs.statSync(STORE_FILE).mtimeMs, records }; } catch { cache = null; }
 }
 
 /** 当日单号：R + YYYYMMDD + '-' + 3 位当日序号（以既有记录为准，重启不重号） */
@@ -57,6 +80,18 @@ function nextId(records) {
   const prefix = `R${ymd}-`;
   const todayCount = records.filter((r) => String(r.id).startsWith(prefix)).length;
   return `${prefix}${String(todayCount + 1).padStart(3, '0')}`;
+}
+
+/** 颜色名识别（2026-10-08）：字典色名或 6 位 hex 视为可匹配；其余进警告——
+ *  未识别颜色在选机时按「任意颜色」放行（dispatcher findTray 无参考色即放行），需让用户知情 */
+function unrecognizedColors(colorStr) {
+  const raw = String(colorStr || '').trim();
+  if (!raw) return [];
+  const dict = Object.keys(config.colorReference || {});
+  return raw
+    .split(/[+＋/、,，]/)
+    .map((s) => s.trim())
+    .filter((c) => c && !dict.includes(c) && !/^#?[0-9a-f]{6}$/i.test(c));
 }
 
 const reservationStore = {
@@ -73,9 +108,12 @@ const reservationStore = {
     const selection = input.selection || {};
     const gate = taxonomy.validateSelection(selection, { material: input.materialType });
     errors.push(...gate.errors);
+    // 颜色警告（不拦截）：字典外色名/杂色写法匹配时按任意颜色放行，提示用户知情
+    const colorWarnings = unrecognizedColors(input.color)
+      .map((c) => `颜色「${c}」不在常用色表（也非 hex 色值），自动匹配将按任意颜色处理——建议用标准色名（如 黑色/红色）或 #RRGGBB`);
     if (errors.length > 0) {
       const err = new Error(errors.join('；'));
-      err.details = { errors, warnings: gate.warnings };
+      err.details = { errors, warnings: [...gate.warnings, ...colorWarnings] };
       throw err;
     }
 
@@ -96,11 +134,12 @@ const reservationStore = {
       assignedPrinter: String(input.assignedPrinter || '').trim(),
       isUrgent: Boolean(input.isUrgent),
       quantity: Number(input.quantity) > 0 ? Number(input.quantity) : 1,
+      estMinutes: Number(input.estMinutes) > 0 ? Number(input.estMinutes) : null, // 3mf 内嵌预估时长（队列 ETA）
       selection,
       processParams: input.processParams || null,   // applyRules 快照（需求链路单；3mf 直通为 null）
       appliedRules: input.appliedRules || [],
       embeddedParams: input.embeddedParams || null, // 3mf 内嵌参数摘要（审批透明化）
-      processWarnings: gate.warnings,
+      processWarnings: [...gate.warnings, ...colorWarnings],
       review: null,
       printer: null,
       history: [{ at: now, from: null, to: config.status.PENDING_REVIEW, note: '提交预约' }],
@@ -133,6 +172,7 @@ const reservationStore = {
     }
     const at = new Date().toISOString();
     record.history.push({ at, from: record.status, to, note });
+    if (record.history.length > HISTORY_CAP) record.history = record.history.slice(-HISTORY_CAP);
     record.status = to;
     record.updatedAt = at;
     save(records);

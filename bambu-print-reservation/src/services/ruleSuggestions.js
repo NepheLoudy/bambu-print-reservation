@@ -101,7 +101,10 @@ const ruleSuggestions = {
     }
 
     const suggestion = {
-      id: `sug-${key}`,
+      // id 独立生成（2026-10-08 修复）：沿用 sug-<key> 会与已采纳的同 key 建议
+      // 撞 id——adopt 的 list.find 永远先命中旧条目报「不可重复处理」，新建议成死单。
+      // key 仅作聚合键，不再承担 id 语义
+      id: `sug-${Date.now().toString(36)}-${crypto.randomBytes(3).toString('hex')}`,
       key,
       when,            // 需求标签组合（taxonomy 字段断言）
       set,             // 参数覆盖集（白名单内）

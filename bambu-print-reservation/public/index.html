@@ -53,8 +53,44 @@
   th { color: var(--muted); font-weight: 500; font-size: 12px; }
   .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; color: #fff; }
   .s-待审批 { background: var(--warn); } .s-已通过 { background: var(--accent); }
-  .s-排队中 { background: #5b6ee1; } .s-打印中 { background: var(--warn); }
+  .s-排队中 { background: #5b6ee1; } .s-打印中 { background: #d95f2b; animation: pulse 2s ease-in-out infinite; }
   .s-已完成 { background: var(--ok); } .s-已驳回, .s-已取消 { background: #98a4b0; }
+  @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(217, 95, 43, .45); } 50% { box-shadow: 0 0 0 5px rgba(217, 95, 43, 0); } }
+  tbody tr { transition: background .12s; }
+  tbody tr:hover { background: #f3f7fb; }
+  button { transition: filter .12s, transform .05s; }
+  button:not(:disabled):hover { filter: brightness(1.06); }
+  button:not(:disabled):active { transform: translateY(1px); }
+  .histToggle, .paramToggle { color: var(--accent); cursor: pointer; font-size: 12px; user-select: none; }
+  .histToggle:hover, .paramToggle:hover { text-decoration: underline; }
+  /* taxonomy 组折叠：组标题可点，折叠时藏除标题外全部内容 */
+  .group > .gtitle::after { content: '▾'; float: right; color: var(--muted); font-size: 11px; transition: transform .15s; }
+  .group.collapsed > .gtitle::after { content: '▸'; }
+  .group.collapsed > :not(.gtitle) { display: none; }
+  .group > .gtitle { user-select: none; }
+  /* 已选工况摘要 chips */
+  .selSummary { margin-top: 10px; display: none; align-items: center; flex-wrap: wrap; gap: 6px; }
+  .selSummary .sumChip { display: inline-block; background: #e8f2fa; border: 1px solid #c8e0f2; color: #14608f; border-radius: 12px; padding: 2px 10px; font-size: 12px; }
+  .selSummary .sumClear { color: var(--bad); cursor: pointer; font-size: 12px; user-select: none; }
+  .selSummary .sumClear:hover { text-decoration: underline; }
+  /* 打印机失联标注 */
+  .staleTag { display: inline-block; background: #98a4b0; color: #fff; border-radius: 9px; font-size: 11px; padding: 1px 7px; margin-left: 5px; }
+  .queueLine { font-size: 12px; color: var(--muted); margin-bottom: 6px; line-height: 1.7; }
+  .queueLine b { color: var(--ink); }
+  /* 移动端：表格卡片化 + 触控目标放大 */
+  @media (max-width: 720px) {
+    body { padding: 10px; }
+    .opt { padding: 9px 13px; font-size: 14px; }
+    button.mini { padding: 7px 12px; font-size: 13px; }
+    .card { padding: 12px; }
+    table, tbody, tr, td { display: block; width: 100%; }
+    thead { display: none; }
+    tbody tr { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin-bottom: 10px; background: var(--card); }
+    td { border-bottom: none; padding: 3px 0; }
+    td::before { content: attr(data-label); display: inline-block; min-width: 62px; color: var(--muted); font-size: 11px; }
+    td:last-child::before { content: none; }
+    .pcard { min-width: 100%; }
+  }
   .pbar { height: 6px; background: #eef2f6; border-radius: 3px; overflow: hidden; margin-top: 4px; }
   .pbar > div { height: 100%; background: var(--accent); }
   .printer-grid { display: flex; gap: 10px; flex-wrap: wrap; }
@@ -119,10 +155,12 @@
     <div class="card">
       <h2>📝 提交预约</h2>
       <div class="row">
-        <div><label>材料类型（可空——留空则按需求标签自动反推可用材料）</label><input type="text" id="materialType" placeholder="如 PLA / PETG / PLA-CF，不知道就留空" oninput="preflight(); schedulePreview()"></div>
-        <div><label>颜色（多色件用 + 列全，如 白色+黑色，需勾选「多色打印」）</label><input type="text" id="color" placeholder="如 黑色 或 白色+黑色"></div>
+        <div><label>材料类型（可空——留空则按需求标签自动反推可用材料）</label><input type="text" id="materialType" list="materialList" placeholder="如 PLA / PETG / PLA-CF，不知道就留空" oninput="preflight(); schedulePreview()"><datalist id="materialList">
+          <option>PLA</option><option>PLA-CF</option><option>PLA-Aero</option><option>PETG</option><option>PETG-CF</option><option>ABS</option><option>ASA</option><option>PA</option><option>PA-CF</option><option>PC</option><option>TPU</option><option>PVA</option>
+        </datalist></div>
+        <div><label>颜色（多色件用 + 列全，如 白色+黑色，需勾选「多色打印」）</label><input type="text" id="color" list="colorList" placeholder="点选或输入，如 黑色 或 白色+黑色" oninput="colorHintCheck()"><datalist id="colorList"></datalist><div class="hint" id="colorHint"></div></div>
         <div><label>份数</label><input type="number" id="quantity" value="1" min="1" max="99"></div>
-        <div><label>指定打印机（可空，默认自动匹配）</label><input type="text" id="assignedPrinter" placeholder="如 X1C-01"></div>
+        <div><label>指定打印机（可空，默认自动匹配）</label><input type="text" id="assignedPrinter" list="printerNameList" placeholder="如 X1C-01，留空自动"><datalist id="printerNameList"></datalist></div>
       </div>
       <div class="row">
         <div><label>模型 / 切片文件 *（.stl/.step 走需求链路：勾选工况自动定档；.3mf 走审批直通：切片参数已内嵌）</label><input type="file" id="file" accept=".stl,.step,.stp,.3mf,.obj"></div>
@@ -132,6 +170,7 @@
       <div class="hint" id="conflictHint"></div>
       <div class="convention" id="convention"></div>
       <div class="preview" id="paramPreview" style="display:none"></div>
+      <div class="selSummary" id="selSummary"></div>
       <div class="actions">
         <button class="primary" id="submitBtn" onclick="submitReservation()">提交预约</button>
         <span class="hint" id="submitHint"></span>
@@ -162,6 +201,7 @@
           <input type="checkbox" id="onlyPending" onchange="loadList()" style="width:auto">只看待审批</label>
       </h2>
       <div id="givenUpBar"></div>
+      <div id="queueBar"></div>
       <div id="list"></div>
     </div>
   </div>
@@ -172,7 +212,14 @@
 let TAXONOMY = null;
 let ME = null;
 let authMode = 'login';
+let COLORS = [];         // 颜色字典（/api/print/colors，datalist + 未识别提示）
+let PRINTER_NAMES = [];  // 已登记打印机名（/api/printers，指定打印机 datalist 与 givenUp 恢复下拉）
 const $ = (id) => document.getElementById(id);
+
+/** HTML 转义：displayName/文件名/理由等用户可控字段一律过这里再进 innerHTML（防存储型 XSS） */
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
 
 function toast(msg) { const t = $('toast'); t.textContent = msg; t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 4000); }
 const isReviewer = () => ME && ['reviewer', 'admin'].includes(ME.role);
@@ -236,7 +283,7 @@ function renderIdentity() {
   }
   $('authCard').style.display = 'none';
   $('appBody').style.display = 'block';
-  box.innerHTML = `你好，<b>${ME.displayName}</b><span class="role r-${ME.role}">${ME.role}</span>
+  box.innerHTML = `你好，<b>${esc(ME.displayName)}</b><span class="role r-${ME.role}">${ME.role}</span>
     <button onclick="changePassword()">改密码</button>
     <button onclick="logout()">退出</button>`;
   $('adminCard').style.display = isAdmin() ? 'block' : 'none';
@@ -331,10 +378,10 @@ async function loadSuggestions() {
   if (!list.length) { box.innerHTML = '<div class="empty">待审池为空——修正建议与专家导入会出现在这里</div>'; return; }
   box.innerHTML = list.sort((a, b) => b.count - a.count).map(s => `<div class="sugbox">
     <b>${s.source === 'extraction' ? '🎓 专家导入' : '🔧 修正'}</b>${s.count > 1 ? `<span class="cnt">×${s.count}</span>` : ''}
-    <span class="detail">｜${(s.sourceRefs || []).map(x => '#' + x).join(' ') || '—'}｜${s.suggestedBy || ''}｜${(s.createdAt || '').slice(5, 16)}</span>
-    <br><span class="detail">当：</span>${JSON.stringify(s.when)}
-    <br><span class="detail">设：</span><b>${JSON.stringify(s.set)}</b>
-    <br><span class="detail">${s.reason}</span>
+    <span class="detail">｜${esc((s.sourceRefs || []).map(x => '#' + x).join(' ')) || '—'}｜${esc(s.suggestedBy || '')}｜${esc((s.createdAt || '').slice(5, 16))}</span>
+    <br><span class="detail">当：</span>${esc(JSON.stringify(s.when))}
+    <br><span class="detail">设：</span><b>${esc(JSON.stringify(s.set))}</b>
+    <br><span class="detail">${esc(s.reason)}</span>
     <div class="revbox">
       <button class="ok" onclick="decide('${s.id}','adopt')">采纳生效</button>
       <button class="bad" onclick="decide('${s.id}','reject')">拒绝</button>
@@ -385,11 +432,11 @@ async function loadUsers() {
   if (!res.ok) return;
   const users = await res.json();
   $('userList').innerHTML = `<table><tr><th>用户名</th><th>姓名</th><th>角色</th><th>操作</th></tr>` +
-    users.map(u => `<tr><td>${u.username}</td><td>${u.displayName}</td>
+    users.map(u => `<tr><td>${esc(u.username)}</td><td>${esc(u.displayName)}</td>
       <td><select class="roleSel" onchange="setRole('${u.id}', this.value)">
         ${['member','reviewer','admin'].map(r => `<option ${u.role === r ? 'selected' : ''}>${r}</option>`).join('')}
       </select></td>
-      <td class="detail">${(u.lastLoginAt || '').replace('T', ' ').slice(0, 16) || '从未登录'}</td></tr>`).join('') + '</table>';
+      <td class="detail">${esc((u.lastLoginAt || '').replace('T', ' ').slice(0, 16)) || '从未登录'}</td></tr>`).join('') + '</table>';
 }
 
 async function setRole(id, role) {
@@ -420,6 +467,7 @@ function restoreSelMemory() {
       r.value = typeof v === 'number' ? v : 0;
       document.getElementById('scaleVal_' + r.dataset.field).textContent = r.value;
     });
+    renderSelSummary(); // 恢复的勾选同步到已选摘要
   } catch { /* 忽略 */ }
 }
 
@@ -431,14 +479,15 @@ async function loadTaxonomy() {
   for (const g of TAXONOMY.groups) {
     const div = document.createElement('div');
     div.className = 'group';
+    div.id = 'group_' + g.id;
     const opts = g.fields.map(f => {
       if (f.type === 'scale') {
-        // 标尺滑块（-3~+3，0=常规不偏重）
+        // 标尺滑块（-3~+3，0=常规不偏重）；两端文案取字段自带 minLabel/maxLabel
         return `<div><div class="gtitle" title="${(f.tooltip || '').replace(/"/g, '&quot;')}">${f.title}</div>
           <div class="scaleRow" data-scale="${f.id}">
-            <span class="scaleHint">${f.min} 柔顺</span>
+            <span class="scaleHint">${f.minLabel || f.min}</span>
             <input type="range" min="${f.min}" max="${f.max}" step="1" value="0" data-field="${f.id}">
-            <span class="scaleHint">刚性 ${f.max}</span>
+            <span class="scaleHint">${f.maxLabel || f.max}</span>
             <span class="scaleVal" id="scaleVal_${f.id}">0</span>
           </div></div>`;
       }
@@ -448,7 +497,7 @@ async function loadTaxonomy() {
       const desc = f.id === 'load_type' ? '<div class="typedesc" id="loadTypeDesc"></div>' : '';
       return `<div><div class="gtitle" title="${(f.tooltip || '').replace(/"/g, '&quot;')}">${f.title}</div><div class="opts">${optHtml}</div>${desc}</div>`;
     }).join('');
-    div.innerHTML = `<div class="gtitle" title="${(g.tooltip || '').replace(/"/g, '&quot;')}">${g.title}</div><div class="gdesc">${g.tooltip || ''}</div>${opts}`;
+    div.innerHTML = `<div class="gtitle" title="${(g.tooltip || '').replace(/"/g, '&quot;')}" onclick="toggleGroup('${g.id}')">${g.title}</div><div class="gdesc">${g.tooltip || ''}</div>${opts}`;
     box.appendChild(div);
   }
   // 事件委托:勾选 chip 视觉态 .on 跟随 checkbox 实际状态(此前缺这步,点选永远无反馈)
@@ -456,16 +505,21 @@ async function loadTaxonomy() {
     const label = e.target.closest('.opt');
     if (label) label.classList.toggle('on', e.target.checked);
     updateLoadTypeDesc();
-    collectSelection(); preflight(); schedulePreview(); saveSelMemory();
+    collectSelection(); preflight(); schedulePreview(); saveSelMemory(); renderSelSummary();
   });
   // 标尺滑块实时联动
   box.addEventListener('input', (e) => {
     if (e.target.type === 'range') {
       document.getElementById('scaleVal_' + e.target.dataset.field).textContent = e.target.value;
       updateLoadTypeDesc();
-      collectSelection(); preflight(); schedulePreview(); saveSelMemory();
+      collectSelection(); preflight(); schedulePreview(); saveSelMemory(); renderSelSummary();
     }
   });
+}
+
+/** 组折叠（2026-10-08 展示优化）：默认全开（不破坏「默认不勾」动线），组标题点击收起/展开 */
+function toggleGroup(groupId) {
+  document.getElementById('group_' + groupId).classList.toggle('collapsed');
 }
 
 /** 受力类型 ↔ 方向对应指引（多选多对应） */
@@ -476,6 +530,49 @@ function updateLoadTypeDesc() {
   el.textContent = dirs.length
     ? `↳ 已选方向：${dirs.join('、')}——受力类型按各方向工况对应勾选（如 Z 受压 + X 受弯 → 同时勾受压、弯曲）`
     : '';
+}
+
+// ---------- 已选工况摘要（2026-10-08 展示优化） ----------
+
+/** fieldId → 中文名、选项 id → 中文 label（从已加载的 TAXONOMY 反查） */
+function selectionLabels() {
+  const map = {};
+  for (const g of (TAXONOMY?.groups || [])) {
+    for (const f of g.fields) {
+      map[f.id] = { title: f.title, type: f.type, labels: {} };
+      for (const o of (f.options || [])) map[f.id].labels[o.id] = o.label;
+    }
+  }
+  return map;
+}
+
+/** 已选 N 项 chips 摘要 + 一键清空——勾多了之后一眼看全自己选了什么 */
+function renderSelSummary() {
+  const box = $('selSummary');
+  const sel = collectSelection();
+  const items = [];
+  const dict = selectionLabels();
+  for (const [fieldId, v] of Object.entries(sel)) {
+    const f = dict[fieldId];
+    if (!f) continue;
+    let text;
+    if (f.type === 'bool') text = ''; // 布尔字段标题即语义，不追加「true」
+    else if (f.type === 'multi' && Array.isArray(v)) text = v.map(x => f.labels[x] || x).join('/');
+    else if (f.type === 'scale') text = (v > 0 ? '+' : '') + v;
+    else text = f.labels[v] || v;
+    items.push(`<span class="sumChip">${esc(f.title)}${text ? '：' + esc(text) : ''}</span>`);
+  }
+  if (!items.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  box.style.display = 'flex';
+  box.innerHTML = `<span class="detail">已选 ${items.length} 项：</span>${items.join('')}<span class="sumClear" onclick="clearSelection()">✕ 清空全部</span>`;
+}
+
+/** 一键清空全部勾选（恢复「默认不勾」常规件状态） */
+function clearSelection() {
+  document.querySelectorAll('.opt input').forEach(inp => { inp.checked = false; inp.closest('.opt').classList.remove('on'); });
+  document.querySelectorAll('input[type=range][data-field]').forEach(r => { r.value = 0; const sv = document.getElementById('scaleVal_' + r.dataset.field); if (sv) sv.textContent = '0'; });
+  const ltd = document.getElementById('loadTypeDesc'); if (ltd) ltd.textContent = '';
+  preflight(); schedulePreview(); saveSelMemory(); renderSelSummary();
 }
 
 /** 双通道模式感知（2026-10-05 曼波定）：3mf=审批直通（隐藏勾选区），stl/step=需求链路 */
@@ -507,6 +604,30 @@ function collectSelection() {
   return sel;
 }
 
+/** 颜色栏知情提示（2026-10-08）：字典外且非 hex 的色名，选机时按「任意颜色」放行——
+ *  当场提示避免「明明选了色却匹配到别的颜色的机器」的静默降级 */
+function colorHintCheck() {
+  const hint = $('colorHint');
+  if (isSlicedFile()) { hint.textContent = ''; return; }
+  const raw = $('color').value.trim();
+  if (!raw) { hint.textContent = ''; return; }
+  const bad = raw.split(/[+＋/、,，]/).map(s => s.trim())
+    .filter(c => c && !COLORS.includes(c) && !/^#?[0-9a-f]{6}$/i.test(c));
+  hint.className = 'hint ' + (bad.length ? 'warn' : '');
+  hint.textContent = bad.length ? `⚠️ 「${bad.join('」「')}」不在常用色表（也非 hex），匹配时将按任意颜色处理——建议用标准色名或 #RRGGBB` : '';
+}
+
+async function loadColors() {
+  try {
+    const res = await fetch('/api/print/colors');
+    if (!res.ok) return;
+    const data = await res.json();
+    COLORS = data.colorNames || [];
+    $('colorList').innerHTML = COLORS.map(c => `<option value="${esc(c)}">`).join('');
+    colorHintCheck();
+  } catch { /* 字典拉不到则不做前置提示，后端警告兜底 */ }
+}
+
 function preflight() {
   const hint = $('conflictHint');
   if (isSlicedFile()) { hint.textContent = ''; $('submitBtn').disabled = false; return []; } // 3mf 直通:无标签冲突
@@ -536,7 +657,7 @@ function preflight() {
   return hits;
 }
 
-async function submitReservation() {
+function submitReservation() {
   const file = $('file').files[0];
   if (!file) return toast('请选择模型/切片文件');
   if (preflight().length) return toast('存在硬冲突，请先调整勾选');
@@ -550,21 +671,31 @@ async function submitReservation() {
   // 3mf 直通不提交勾选（切片参数内嵌）；需求链路提交标签
   fd.append('selection', JSON.stringify(isSlicedFile() ? {} : collectSelection()));
 
-  const btn = $('submitBtn'); btn.disabled = true; $('submitHint').textContent = '提交中…';
-  try {
-    const res = await fetch('/api/reservations', { method: 'POST', body: fd });
-    const data = await res.json();
-    if (res.status === 401) { ME = null; renderIdentity(); throw new Error('登录已过期，请重新登录'); }
-    if (!res.ok) throw new Error((data.details || []).concat([data.error]).filter(Boolean).join('；'));
-    toast(`✅ 已提交 ${data.id}，等待审批`);
-    $('file').value = ''; $('submitHint').textContent = '';
-    updateSlicedMode();
-    saveSelMemory();
-    loadList();
-  } catch (err) {
-    toast('❌ ' + err.message);
-    $('submitHint').textContent = '';
-  } finally { btn.disabled = false; preflight(); }
+  const btn = $('submitBtn'); btn.disabled = true; $('submitHint').textContent = '上传中 0%';
+  // XHR 而非 fetch：大文件（≤200MB）需要 upload.onprogress 进度条
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/reservations');
+  xhr.upload.onprogress = (e) => {
+    if (e.lengthComputable) $('submitHint').textContent = `上传中 ${Math.round((e.loaded / e.total) * 100)}%`;
+  };
+  xhr.onload = () => {
+    btn.disabled = false;
+    try {
+      const data = JSON.parse(xhr.responseText || '{}');
+      if (xhr.status === 401) { ME = null; renderIdentity(); $('submitHint').textContent = ''; return toast('登录已过期，请重新登录'); }
+      if (xhr.status < 200 || xhr.status >= 300) {
+        $('submitHint').textContent = '';
+        return toast('❌ ' + (data.details || []).concat([data.error]).filter(Boolean).join('；'));
+      }
+      toast(`✅ 已提交 ${data.id}，等待审批`);
+      $('file').value = ''; $('submitHint').textContent = '';
+      updateSlicedMode();
+      saveSelMemory();
+      loadList();
+    } catch { $('submitHint').textContent = ''; toast('❌ 服务响应异常'); }
+  };
+  xhr.onerror = () => { btn.disabled = false; $('submitHint').textContent = ''; toast('❌ 网络错误，提交失败'); };
+  xhr.send(fd);
 }
 
 async function loadList() {
@@ -576,16 +707,30 @@ async function loadList() {
   const shown = $('onlyPending')?.checked ? records.filter(r => r.status === '待审批') : records;
   const box = $('list');
   if (!Array.isArray(shown) || shown.length === 0) { box.innerHTML = `<div class="empty">${$('onlyPending')?.checked ? '暂无待审批单' : '暂无预约记录'}</div>`; return; }
+  const printers = window.__printers || [];
   const rows = shown.slice().reverse().map(r => {
     const mine = ME && r.submittedBy === ME.id;
-    const params = r.processParams ? Object.entries(r.processParams)
-      .filter(([k, v]) => !['materialExclude', 'materialPrefer'].includes(k) && v !== '' && v !== null && !(Array.isArray(v) && !v.length))
-      .map(([k, v]) => `${k}=${Array.isArray(v) ? v.join('|') : v}`).join(' · ') : '';
+    // 参数快照折叠（2026-10-08 展示优化）：默认展示前 8 项，其余「+N 项」展开
+    const paramEntries = r.processParams ? Object.entries(r.processParams)
+      .filter(([k, v]) => !['materialExclude', 'materialPrefer'].includes(k) && v !== '' && v !== null && !(Array.isArray(v) && !v.length)) : [];
+    const pLimit = expandedParams.has(r.id) ? paramEntries.length : Math.min(8, paramEntries.length);
+    const params = paramEntries.slice(0, pLimit)
+      .map(([k, v]) => `${esc(PARAM_LABELS[k] || k)}=${esc(Array.isArray(v) ? v.join('|') : v)}`).join(' · ')
+      + (paramEntries.length > pLimit ? ` <span class="paramToggle" onclick="toggleParam('${r.id}')">＋${paramEntries.length - pLimit} 项</span>` : '')
+      + (expandedParams.has(r.id) && paramEntries.length > 8 ? ` <span class="paramToggle" onclick="toggleParam('${r.id}')">收起</span>` : '');
     const srcTag = r.processParams ? '' : (r.embeddedParams
-      ? `<b>3mf 直通</b>（内嵌: ${Object.entries(r.embeddedParams.params || {}).slice(0, 6).map(([k, v]) => (PARAM_LABELS[k] || k) + '=' + v).join(' · ')}${Object.keys(r.embeddedParams.params || {}).length > 6 ? ' …' : ''}）<br>`
+      ? `<b>3mf 直通</b>（内嵌: ${Object.entries(r.embeddedParams.params || {}).slice(0, 6).map(([k, v]) => esc((PARAM_LABELS[k] || k) + '=' + v)).join(' · ')}${Object.keys(r.embeddedParams.params || {}).length > 6 ? ' …' : ''}${r.estMinutes ? '｜预计 ' + fmtMins(r.estMinutes) : ''}）<br>`
       : '<b>3mf 直通</b>（切片参数内嵌）<br>');
-    const rules = (r.appliedRules || []).map(x => x.reason).join('；');
-    const hist = (r.history || []).map(h => `${(h.at || '').replace('T', ' ').slice(5, 16)} ${h.to}${h.note ? '（' + h.note + '）' : ''}`).reverse().join('<br>');
+    const rules = (r.appliedRules || []).map(x => esc(x.reason)).join('；');
+    // 状态轨迹折叠（2026-10-08 展示优化）：默认最近 2 条，展开全部（跨 15s 刷新保留）
+    const histAll = (r.history || []);
+    const histShown = expandedHist.has(r.id) ? histAll : histAll.slice(-2);
+    const hist = histShown.map(h => `${esc((h.at || '').replace('T', ' ').slice(5, 16))} ${esc(h.to)}${h.note ? '（' + esc(h.note) + '）' : ''}`).reverse().join('<br>')
+      + (histAll.length > 2 ? `<br><span class="histToggle" onclick="toggleHist('${r.id}')">${expandedHist.has(r.id) ? '▲ 收起轨迹' : `▼ 展开全部 ${histAll.length} 条轨迹`}</span>` : '');
+    // 打印中行内实时进度（从打印机状态 join——不用等下一轮整卡刷新）
+    const livePrinter = ['打印中', '暂停'].includes(r.status) ? printers.find(p => p.name === r.printer) : null;
+    const liveProg = livePrinter && livePrinter.progress
+      ? `<div class="pbar"><div style="width:${Math.min(100, livePrinter.progress)}%"></div></div><span class="detail">${livePrinter.progress}%${livePrinter.remainingMinutes ? '，剩余 ' + livePrinter.remainingMinutes + ' 分钟' : ''}</span>` : '';
     const pending = r.status === '待审批';
     const unsliced = pending && !/\.3mf$/i.test(r.fileName || '');
     const reviewBtns = pending && isReviewer() ? `<div class="revbox">
@@ -595,19 +740,28 @@ async function loadList() {
         </div>${unsliced ? '<div class="detail" style="color:var(--warn)">⚠️ 未切片模型——切片为 3mf 后重新提交才能分发</div>' : ''}` : '';
     const cancelBtn = !['已完成', '已取消', '已驳回'].includes(r.status) && (mine || isReviewer())
       ? `<button class="mini" onclick="cancelReservation('${r.id}')">取消</button>` : '';
+    // 复刻：源文件仍在保留期的终态单一键带参重提（服务端复制文件免重传）
+    const reprintBtn = r.status === '已完成'
+      ? `<button class="mini" onclick="reprint('${r.id}')">复刻</button>` : '';
     return `<tr>
-      <td><b>${r.id}</b><br><span class="detail">${(r.createdAt || '').replace('T', ' ').slice(0, 16)}</span></td>
-      <td><span class="badge s-${r.status}">${r.status}</span>${r.printer ? '<br><span class="detail">' + r.printer + '</span>' : ''}</td>
-      <td>${r.applicant || '?'}${mine ? '<br><span class="detail">(我)</span>' : ''}<br><span class="detail">${r.fileName || ''}</span></td>
-      <td>${r.materialType || '?'}${r.color ? '×' + r.color : ''}${r.isUrgent ? ' ⚡' : ''}${r.quantity > 1 ? ' ×' + r.quantity + '件' : ''}</td>
-      <td class="detail">${srcTag}${params ? '<b>参数</b> ' + params + '<br>' : ''}${rules ? '<b>依据</b> ' + rules + '<br>' : ''}${hist}</td>
-      <td>${reviewBtns}${cancelBtn}</td>
+      <td data-label="单号"><b>${esc(r.id)}</b><br><span class="detail">${esc((r.createdAt || '').replace('T', ' ').slice(0, 16))}</span></td>
+      <td data-label="状态"><span class="badge s-${esc(r.status)}">${esc(r.status)}</span>${r.printer ? '<br><span class="detail">' + esc(r.printer) + '</span>' : ''}${liveProg}</td>
+      <td data-label="发起人">${esc(r.applicant || '?')}${mine ? '<br><span class="detail">(我)</span>' : ''}<br><span class="detail">${esc(r.fileName || '')}</span></td>
+      <td data-label="需求">${esc(r.materialType || '?')}${r.color ? '×' + esc(r.color) : ''}${r.isUrgent ? ' ⚡' : ''}${r.quantity > 1 ? ' ×' + r.quantity + '件' : ''}</td>
+      <td data-label="参数与轨迹" class="detail">${srcTag}${params ? '<b>参数</b> ' + params + '<br>' : ''}${rules ? '<b>依据</b> ' + rules + '<br>' : ''}${hist}</td>
+      <td data-label="操作">${reviewBtns}${cancelBtn}${reprintBtn}</td>
     </tr>`;
   }).join('');
   box.innerHTML = `<table>
-    <tr><th>单号</th><th>状态</th><th>发起人/文件</th><th>需求</th><th>参数与轨迹</th><th>操作</th></tr>
-    ${rows}</table>`;
+    <thead><tr><th>单号</th><th>状态</th><th>发起人/文件</th><th>需求</th><th>参数与轨迹</th><th>操作</th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
 }
+
+// 折叠状态（跨 15s 自动刷新保留；会话内有效）
+const expandedHist = new Set();
+const expandedParams = new Set();
+function toggleHist(id) { expandedHist.has(id) ? expandedHist.delete(id) : expandedHist.add(id); loadList(); }
+function toggleParam(id) { expandedParams.has(id) ? expandedParams.delete(id) : expandedParams.add(id); loadList(); }
 
 async function review(id, action) {
   if (!isReviewer()) return toast('仅审批人可操作');
@@ -631,27 +785,87 @@ async function cancelReservation(id) {
   loadList();
 }
 
-/** 重试耗尽黄条（reviewer+）：展示待人工恢复单,一键按提示指定打印机恢复 */
+/** 分钟 → 「Xh Ym」（ETA 展示） */
+function fmtMins(mins) {
+  const m = Number(mins);
+  if (!Number.isFinite(m) || m <= 0) return '';
+  return m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? (m % 60) + 'm' : ''}` : `${m}m`;
+}
+
+/** 复刻：已完成单一键带参重提（服务端复制源文件，免重传；新单走完整审批流） */
+async function reprint(id) {
+  if (!confirm(`复刻 ${id}？将以你的名义生成新预约单（带原勾选与参数，重新审批）`)) return;
+  const res = await fetch(`/api/reservations/${id}/reprint`, { method: 'POST' });
+  const data = await res.json();
+  if (!res.ok) return toast('❌ ' + data.error);
+  toast(`✅ 已复刻为新单 ${data.id}，等待审批`);
+  loadList();
+}
+
+/** 队列 ETA 条（2026-10-08）：队列按 3mf 内嵌预估求和，在打按打印机实时剩余求和；
+ *  附队列前几单明细（单号/文件/加急/剩余件数），不只给一个总时长 */
+function renderQueueBar(queue, printing) {
+  const bar = $('queueBar');
+  queue = queue || [];
+  printing = printing || [];
+  const known = queue.filter(t => Number(t.estMinutes) > 0);
+  const sum = known.reduce((s, t) => s + Number(t.estMinutes), 0);
+  const unknown = queue.length - known.length;
+  const printSum = printing.reduce((s, p) => s + (Number(p.remainingMinutes) || 0), 0);
+  const parts = [];
+  if (queue.length) parts.push(`队列预估总时长 <b>${sum > 0 ? '~' + fmtMins(sum) : '未知'}</b>${unknown > 0 ? `（${unknown} 单无预估）` : ''}`);
+  if (printing.length) parts.push(`在打 ${printing.length} 台实时剩余合计 <b>${printSum > 0 ? '~' + fmtMins(printSum) : '未知'}</b>`);
+  const etaHtml = parts.length ? `<div class="detail">⏱️ ${parts.join('｜')}</div>` : '';
+  const lines = queue.slice(0, 4).map(t =>
+    `<b>#${esc(t.applicationNo || t.recordId || '')}</b> ${esc(t.fileName || '')}${t.isUrgent ? ' ⚡' : ''}${Number(t.remaining) > 0 ? `（还剩 ${t.remaining} 件）` : ''}`);
+  const lineHtml = lines.length
+    ? `<div class="queueLine">📋 ${lines.join('　·　')}${queue.length > 4 ? `　…共 ${queue.length} 单` : ''}</div>`
+    : '';
+  bar.innerHTML = etaHtml + lineHtml;
+}
+
+/** 队列条（全员可见）+ 重试耗尽黄条（reviewer+）：
+ *  队列/ETA 对所有人渲染（loadList 每 15s 调）；黄条仅审批人，一键指定打印机恢复（下拉选机） */
 async function loadGivenUp() {
-  if (!isReviewer()) { $('givenUpBar').innerHTML = ''; return; }
+  if (!$('queueBar') && !isReviewer()) return;
   const res = await fetch('/api/dispatch/queue');
   if (!res.ok) { $('givenUpBar').innerHTML = ''; return; }
   const data = await res.json();
+  renderQueueBar(data.queue, data.printing); // 队列明细+ETA 条（全员）
+  if (!isReviewer()) { $('givenUpBar').innerHTML = ''; return; }
   const given = data.givenUp || [];
   if (!given.length) { $('givenUpBar').innerHTML = ''; return; }
   $('givenUpBar').innerHTML = `<div class="warnbar">⚠️ <b>${given.length}</b> 单自动重试耗尽待人工恢复：` +
-    given.map(g => `#${g.recordId} ${g.fileName || ''}（${g.error ? '原因：' + g.error + '；' : ''}<button class="mini" onclick="recoverGivenUp('${g.recordId}')">指定打印机恢复</button>`).join('　') + `</div>`;
+    given.map(g => `#${esc(g.recordId)} ${esc(g.fileName || '')}（${g.error ? '原因：' + esc(g.error) + '；' : ''}<button class="mini" onclick="recoverGivenUp('${g.recordId}')">指定打印机恢复</button>`).join('　') + `</div>`;
 }
 
+/** 指定打印机恢复：prompt 换下拉（2026-10-08）——拼错名字会被后端 400 打回，下拉直接消除拼错面 */
 async function recoverGivenUp(recordId) {
-  const printerName = prompt('指定打印机名称（如 X1C-01）：');
-  if (!printerName) return;
+  if (!PRINTER_NAMES.length) {
+    try { const res = await fetch('/api/printers'); if (res.ok) PRINTER_NAMES = (await res.json()).map(p => p.name); } catch { /* 忽略 */ }
+  }
+  if (!PRINTER_NAMES.length) return toast('暂无已登记打印机');
+  const dlg = document.createElement('dialog');
+  dlg.innerHTML = `<h3 style="font-size:14px;margin-bottom:8px">恢复 #${esc(recordId)}</h3>
+    <div class="detail" style="margin-bottom:6px">选择要分发到的打印机（可含需人工上传的非自动机型）：</div>
+    <select id="recoverPrinterSel" style="width:100%;padding:8px">${PRINTER_NAMES.map(n => `<option>${esc(n)}</option>`).join('')}</select>
+    <div class="actions" style="margin-top:10px">
+      <button class="ok" onclick="doRecover('${recordId}', this.closest('dialog'))">恢复分发</button>
+      <button class="mini" onclick="this.closest('dialog').close()">取消</button>
+    </div>`;
+  document.body.appendChild(dlg);
+  dlg.showModal();
+}
+
+async function doRecover(recordId, dlg) {
+  const printerName = dlg.querySelector('#recoverPrinterSel').value;
   const res = await fetch('/api/dispatch/manual', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ recordId, printerName }),
   });
   const data = await res.json();
   if (!res.ok) return toast('❌ ' + data.error);
+  dlg.close();
   toast(data.manualOnly ? `📝 ${data.message}` : `✅ ${data.message}`);
   loadList();
 }
@@ -661,30 +875,57 @@ async function loadPrinters() {
   const res = await fetch('/api/printers');
   if (res.status === 401) return;
   const printers = await res.json();
+  window.__printers = printers; // 列表行内实时进度 join 用
+  PRINTER_NAMES = printers.map(p => p.name); // 指定打印机 datalist + givenUp 恢复下拉共用
+  $('printerNameList').innerHTML = PRINTER_NAMES.map(n => `<option value="${esc(n)}">`).join('');
   const box = $('printerList');
   if (!Array.isArray(printers) || !printers.length) { box.innerHTML = '<div class="empty">暂无登记的打印机（.env PRINTER_HOSTS）</div>'; return; }
-  const ST = { '空闲': 'var(--ok)', '打印中': 'var(--warn)', '暂停': '#d9b32b', '已完成': 'var(--ok)', '故障': 'var(--bad)', '未连接': '#98a4b0', '准备中': 'var(--warn)', '切片中': 'var(--warn)' };
+  const ST = { '空闲': 'var(--ok)', '打印中': '#d95f2b', '暂停': '#d9b32b', '已完成': 'var(--ok)', '故障': 'var(--bad)', '未连接': '#98a4b0', '准备中': 'var(--warn)', '切片中': 'var(--warn)' };
   box.innerHTML = `<div class="printer-grid">` + printers.map(p => {
-    const color = ST[p.status] || '#5b6ee1';
-    const ams = (p.ams || []).filter(t => t.type).map(t => `${t.type}${t.colorHex ? '<span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:' + t.colorHex + ';vertical-align:middle"></span>' : ''}`).join('、') || '—';
-    const job = p.activeTask ? `<div class="detail">任务 <b>${p.activeTask.applicationNo || ''}</b> ${p.activeTask.fileName || ''}</div>` : p.currentJob ? `<div class="detail">文件 ${p.currentJob}</div>` : '';
+    // 失联标注（2026-10-08 展示优化）：报文过期（幽灵空闲）时明确警示，不再误信最后的空闲态
+    const staleIdle = p.stateStale && ['空闲', '已完成'].includes(p.status);
+    const statusHtml = esc(p.status) + (p.stateStale ? '<span class="staleTag">失联</span>' : '');
+    const color = staleIdle ? '#98a4b0' : (ST[p.status] || '#5b6ee1');
+    const ams = (p.ams || []).filter(t => t.type).map(t => `${esc(t.type)}${t.colorHex ? '<span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:' + esc(t.colorHex) + ';vertical-align:middle"></span>' : ''}`).join('、') || '—';
+    const job = p.activeTask ? `<div class="detail">任务 <b>${esc(p.activeTask.applicationNo || '')}</b> ${esc(p.activeTask.fileName || '')}</div>` : p.currentJob ? `<div class="detail">文件 ${esc(p.currentJob)}</div>` : '';
     const prog = (p.status === '打印中' || p.status === '暂停') && p.progress
       ? `<div class="pbar"><div style="width:${Math.min(100, p.progress)}%"></div></div><div class="detail">${p.progress}%${p.remainingMinutes ? '，剩余 ' + p.remainingMinutes + ' 分钟' : ''}</div>` : '';
-    return `<div class="pcard">
-      <b>${p.name}</b> <span class="detail">${p.model}</span><span class="st badge" style="background:${color}">${p.status}</span>
+    // 打印机控制（admin）：暂停/恢复/停止上页面（原仅 HTTP API），二次确认防误触
+    const ctl = isAdmin() && ['打印中', '暂停'].includes(p.status)
+      ? `<div style="margin-top:6px">
+          ${p.status === '打印中' ? `<button class="mini" onclick="printerCtl(${p.id},'pause','暂停 ${esc(p.name)} 的打印？')">⏸ 暂停</button> ` : ''}
+          ${p.status === '暂停' ? `<button class="mini" onclick="printerCtl(${p.id},'resume','恢复 ${esc(p.name)} 的打印？')">▶ 恢复</button> ` : ''}
+          <button class="bad" onclick="printerCtl(${p.id},'stop','⚠️ 停止 ${esc(p.name)} 的打印？停机不可恢复，耗材作废')">⏹ 停止</button>
+        </div>` : '';
+    return `<div class="pcard"${staleIdle ? ' style="opacity:.75"' : ''}>
+      <b>${esc(p.name)}</b> <span class="detail">${esc(p.model)}</span><span class="st badge" style="background:${color}">${statusHtml}</span>
       ${job}${prog}
+      ${staleIdle ? '<div class="detail" style="color:var(--bad)">⚠️ 超过 3 分钟无状态报文——分发不可选，请检查打印机电源/网络</div>' : ''}
       <div class="detail" style="margin-top:4px">AMS: ${ams}${p.autoDispatch ? '' : '｜⚙️ 人工机型'}</div>
+      ${ctl}
     </div>`;
   }).join('') + '</div>';
 }
 
+/** 打印机控制（admin）：pause/resume/stop，带确认 */
+async function printerCtl(id, action, confirmText) {
+  if (!confirm(confirmText)) return;
+  const res = await fetch(`/api/printers/${id}/${action}`, { method: 'POST' });
+  const data = await res.json().catch(() => ({}));
+  toast(res.ok ? '✅ 指令已下发' : '❌ ' + (data.error || '指令失败'));
+  setTimeout(loadPrinters, 800);
+}
+
 (async function init() {
+  $('list').innerHTML = '<div class="empty">加载中…</div>';
   await loadMe();
   await loadTaxonomy();
+  loadColors();
   restoreSelMemory();
   $('file').addEventListener('change', updateSlicedMode); // 双通道模式感知
   preflight();
   schedulePreview();
+  renderSelSummary();
   if (ME) { await loadList(); loadPrinters(); }
   setInterval(() => { if (ME) { loadList(); loadPrinters(); } }, 15000);
 })();

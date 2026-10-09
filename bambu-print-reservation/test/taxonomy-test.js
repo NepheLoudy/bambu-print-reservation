@@ -140,6 +140,21 @@ check('警告级：柔性弹性 × CF（材料条件）', () => {
   assert.equal(validateSelection({ deflection_scale: 1 }, { material: 'PLA-CF' }).warnings.length, 0);
 });
 
+check('收缩量要求标尺在池（-3~+3，带两端文案，2026-10-08 曼波需求）', () => {
+  const shrink = groups.flatMap((g) => g.fields).find((f) => f.id === 'shrink_scale');
+  assert.ok(shrink, '缺 shrink_scale 字段');
+  assert.equal(shrink.type, 'scale');
+  assert.equal(shrink.min, -3); assert.equal(shrink.max, 3);
+  assert.ok(shrink.minLabel.includes('收缩'), 'minLabel 应表达负收缩（变小）');
+  assert.ok(shrink.maxLabel.includes('涨量'), 'maxLabel 应表达膨胀涨量（变大）');
+  const r = validateSelection({ shrink_scale: -2 });
+  assert.deepEqual(r.errors, [], '收缩标尺合法值应通过校验');
+  assert.equal(validateSelection({ shrink_scale: 4 }).errors.length, 1, '越界值应报错');
+  const t = getTaxonomy();
+  const shrinkOut = t.groups.flatMap((g) => g.fields).find((f) => f.id === 'shrink_scale');
+  assert.equal(shrinkOut.minLabel, shrink.minLabel, '窗口输出应携带 minLabel');
+});
+
 // ---------- selectionFromFormFields ----------
 
 const FORM_FIELDS = [

@@ -7,7 +7,7 @@
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "deploy": "node push.js",
-    "test": "node test/dispatcher-test.js && node test/dispatcher-persist-test.js && node test/dispatcher-manual-race-test.js && node test/approval-test.js && node test/taxonomy-test.js && node test/process-rules-test.js && node test/local-reservation-test.js && node test/auth-test.js && node test/learning-loop-test.js && node test/ops-test.js",
+    "test": "node test/dispatcher-test.js && node test/dispatcher-persist-test.js && node test/dispatcher-manual-race-test.js && node test/taxonomy-test.js && node test/process-rules-test.js && node test/local-reservation-test.js && node test/auth-test.js && node test/learning-loop-test.js && node test/ops-test.js && node test/printer-upload-channel-test.js",
     "push": "node push.js"
   },
   "keywords": [

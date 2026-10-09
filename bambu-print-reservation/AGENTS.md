@@ -1,7 +1,7 @@
 # bambu-print-reservation 开发边界（防需求发错会话）
 
 ## 本项目职能
-3D 打印预约机器人：预约审批流（申请/审核/取消，审批实例事件主通道驱动）、打印机状态监控、`/print-*` 指令、预约镜像表事件（后备模式）；打印/暂停/恢复/停止控制仅暴露 HTTP API（无对应聊天指令）。
+3D 打印预约机器人：预约审批流（申请/审核/取消，v37 路线 A 起本地存储 + 自建页面审批，飞书审批链已断）、打印机状态监控、`/print-*` 查看类指令；打印/暂停/恢复/停止控制仅暴露 HTTP API（无对应聊天指令）。
 
 
 ## 顶层规则与交互性（每次开工先读）
@@ -9,7 +9,7 @@
 本会话是独立工作区，**不会自动加载顶层规则**——开工前先读一遍 `../AGENTS.md`（顶层职能总表 + 架构铁律）；涉及消息路由、@识别、指令转发的改动，再读顶层 `.agents/skills/qianli-chat-architecture/SKILL.md`。
 
 与其它机器人/服务的交互契约（改接口前先对顶层文档）：
-- 五个机器人**共用同一个飞书应用**；长连接只属于 feishu-gateway，本项目事件一律 `FEISHU_USE_LONG_CONNECTION=false`，由网关转发到本项目的 `POST /api/feishu/event`；
+- 五个机器人**共用同一个飞书应用**；长连接只属于 feishu-gateway，本项目不消费飞书事件（`POST /api/feishu/event` 已随 v46 审批链遗留清理删除），指令唯一入口 = hub 经 `POST /api/chat/command` 转发；
 - 指令交互契约：`POST /api/chat/command`，入参 `{command, args}`，回 `{reply}`（回复由调用方——网关或 hub——代发）；
 - 群播报走群自定义机器人 webhook，对话回复走飞书 IM API；
 - 部署一律项目内 `npm run push`（不带参数——本仓 push 无 git 步骤，版本锚点取顶层仓库归档提交；规则见 qianli-deploy skill 与顶层 AGENTS.md），部署目标凭证在 .env 的 DEPLOY_*（=小电脑）；

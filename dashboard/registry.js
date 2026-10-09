@@ -106,11 +106,12 @@ module.exports = {
       windows: [
         { m: 'GET', p: '/api/print/policy', d: '打印机登记/分发参数全景（只读）' },
         { m: 'GET', p: '/api/print/taxonomy', d: '需求标签池全景（只读）' },
+        { m: 'GET', p: '/api/print/colors', d: '颜色字典窗口（可匹配色名全集，只读）' },
         { m: 'GET', p: '/api/print/process-rules', d: '工艺映射规则库全景（只读）' },
         { m: 'POST', p: '/api/print/process-rules', d: '规则热改 upsert/remove/reset（token）' },
         { m: 'GET', p: '/api/print/rule-suggestions', d: '规则建议待审池（reviewer+）' },
       ],
-      notes: 'push 无 git 步骤；版本锚点取顶层归档提交；v37 路线 A 断飞书审批链转自建前后端（账号/标签池/规则库/学习链路）；v39 标尺类需求字段（when 范围条件）；v40 份数真实执行+多色 AMS 匹配+givenUp 恢复入口；v41 双通道（3mf 直通/stl-step 需求定档）；v42 审批拦未切片+3mf 内嵌参数上卡+每日数据快照备份（BACKUP_DIR，保留 14 天，uploads 不备份）+页面交互 usage 上报（local:<username> 命名空间）',
+      notes: 'push 无 git 步骤；版本锚点取顶层归档提交；v37 路线 A 断飞书审批链转自建前后端（账号/标签池/规则库/学习链路）；v39 标尺类需求字段（when 范围条件）；v40 份数真实执行+多色 AMS 匹配+givenUp 恢复入口；v41 双通道（3mf 直通/stl-step 需求定档）；v42 审批拦未切片+3mf 内嵌参数上卡+每日数据快照备份（BACKUP_DIR，保留 14 天，uploads 不备份）+页面交互 usage 上报（local:<username> 命名空间）；v46 收缩量标尺（shrink_scale -3~+3→轮廓补偿三档）+复刻+队列 ETA+真机 debug 端点（GET /api/printers/:id/debug admin）+完成事件首报文补收尾+存储损坏隔离+颜色/打印机 datalist 校验+上传进度条+打印机卡控制按钮（admin）+审批链遗留文件清理；同批二次交付：页面展示优化（状态语义色+打印中脉冲/打印机失联标注 stateStale/队列条全员可见+明细/轨迹与参数折叠/已选摘要 chips/组折叠/移动端卡片化/表头 thead 语义修正）',
     },
     {
       id: 'approval',

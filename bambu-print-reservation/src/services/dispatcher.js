@@ -13,6 +13,17 @@ const reservationStore = require('./reservationStore');
 const isUnslicedFile = (r) => !!r && !/\.3mf$/i.test(String(r.fileName || ''));
 const plaza = require('./plaza');
 
+/**
+ * printing 幽灵巡检阈值（纯函数，单测覆盖）：有打印机上报的预估时长（expectedMinutes，
+ * start 事件时从 mc_remaining_time 捕获）按「预估×2 且 ≥1h」动态判定；无预估（需求链路
+ * 单/报文缺失）退回保守的固定 12h（此前唯一口径）
+ */
+function staleThresholdMs(expectedMinutes) {
+  const m = Number(expectedMinutes);
+  if (!Number.isFinite(m) || m <= 0) return 12 * 3600 * 1000;
+  return Math.max(m * 2, 60) * 60 * 1000;
+}
+
 // 任务来源谓词（2026-10-05 本地化改造）：
 //   'approval' = 旧飞书审批实例源（不写任何表，状态由引擎内存/状态文件追踪）
 //   'local'    = 自建前后端预约源（状态回写 reservationStore；文件在本地 uploads）
@@ -39,6 +50,7 @@ function buildLocalTask(reservation) {
     materialPrefer: reservation.processParams?.materialPrefer || [],
     quantity: reservation.quantity || 1,
     remaining: Math.max(0, (reservation.quantity || 1) - 1), // 份数续打:首件外剩余件数
+    estMinutes: Number(reservation.estMinutes) > 0 ? Number(reservation.estMinutes) : null, // 3mf 内嵌预估时长（队列 ETA 用）
     applicant: { id: '', name: reservation.applicant || '' },
   };
 }
@@ -198,6 +210,13 @@ class Dispatcher {
         if (task) this.completeTask(task, printer);
       } else if (event === 'failed') {
         if (task) this.failTask(task, printer, '打印机上报失败状态');
+      } else if (event === 'start') {
+        // 预估时长捕获（v46）：start 时刻打印机已算出本任务 ETA（mc_remaining_time，
+        // 分钟）——幽灵巡检阈值从固定 12h 变动态（预估×2 且 ≥1h）
+        if (task && Number(printer.remainingMinutes) > 0) {
+          task.expectedMinutes = Number(printer.remainingMinutes);
+          console.log(`[分发] 任务 ${task.applicationNo || task.recordId} 预估时长 ${task.expectedMinutes} 分钟（巡检阈值随之动态化）`);
+        }
       } else if (event === 'idle') {
         // 打印中断电/断联恢复场景（2026-09-27）：PRINTING→IDLE 直接回空闲，
         // 跳过了 FINISH/FAILED——printing 里的旧任务成幽灵，新任务分发时
@@ -250,7 +269,8 @@ class Dispatcher {
     }, 300);
   }
 
-  /** 启动恢复：队列/打印中/已知记录/完成计数（文件缺失或损坏按空启动） */
+  /** 启动恢复：队列/打印中/已知记录/完成计数（文件缺失按空启动；损坏先隔离留档再按空——
+   *  直接按空会让下一次落盘覆盖坏文件，队列/打印中映射再无抢救机会） */
   restoreState() {
     try {
       if (!fs.existsSync(STATE_FILE)) return;
@@ -276,7 +296,10 @@ class Dispatcher {
       }
       console.log(`[分发] 已恢复持久化状态: 队列 ${this.queue.length} / 打印中 ${this.printing.size} / 已知 ${this.known.size}（${STATE_FILE}）`);
     } catch (err) {
-      console.warn('[分发] 恢复持久化状态失败（按空队列启动）:', err.message);
+      // 损坏隔离（2026-10-08 同 reservationStore 口径）：坏文件改名留档，防下一次落盘覆盖
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      try { fs.renameSync(STATE_FILE, `${STATE_FILE}.corrupt-${stamp}`); } catch { /* 留在原地 */ }
+      console.error(`[分发] 状态文件损坏已隔离（${err.message}）——按空队列启动，请人工检查抢救`);
     }
   }
 
@@ -837,22 +860,22 @@ class Dispatcher {
       applicant: t.applicant?.name || '',
       recordId: t.recordId,
       remaining: Number(t.remaining) > 0 ? Number(t.remaining) : 0, // 份数续打剩余
+      estMinutes: Number(t.estMinutes) > 0 ? Number(t.estMinutes) : null, // 预估时长（队列 ETA）
     }));
   }
 
   /**
-   * printing 幽灵巡检（2026-09-13）：任务打印中时长超过「预估时长 × STALE_MULT」且打印机
-   * 实况已回空闲/已完成 → 补跑 completeTask（表格状态与队列收尾）；实况仍在打印 → 继续等。
-   * 预估时长缺省 6h（保守；真实打印时长无处可查，宁慢勿误）。
+   * printing 幽灵巡检（2026-09-13）：任务打印中时长超过巡检阈值且打印机实况已回
+   * 空闲/已完成 → 补跑 completeTask（表格状态与队列收尾）；实况仍在打印 → 继续等。
+   * 阈值动态化（2026-10-08）：有打印机上报预估时长（expectedMinutes）按「预估×2 且 ≥1h」，
+   * 无预估退回固定 12h（见 staleThresholdMs）
    */
   async sweepStalePrinting() {
-    const STALE_MULT = 2;
-    const BASE_HOURS = 6;
     let released = false;
     for (const [printerId, task] of [...this.printing.entries()]) {
       if (!task.startedAt) continue;
       const ageMs = Date.now() - task.startedAt;
-      if (ageMs < BASE_HOURS * 3600 * 1000 * STALE_MULT) continue;
+      if (ageMs < staleThresholdMs(task.expectedMinutes)) continue;
       const state = printerManager.getPrinterState(printerId);
       if (!state) continue;
       if (['空闲', '已完成'].includes(state.status)) {
@@ -882,12 +905,17 @@ class Dispatcher {
   }
 
   getPrintingSnapshot() {
-    return [...this.printing.entries()].map(([printerId, task]) => ({
-      printer: printerManager.getPrinterState(printerId)?.name || printerId,
-      applicationNo: task.applicationNo,
-      fileName: task.fileName,
-      startedAt: task.startedAt,
-    }));
+    return [...this.printing.entries()].map(([printerId, task]) => {
+      const state = printerManager.getPrinterState(printerId);
+      return {
+        printer: state?.name || printerId,
+        applicationNo: task.applicationNo,
+        fileName: task.fileName,
+        startedAt: task.startedAt,
+        remainingMinutes: Number(state?.remainingMinutes) > 0 ? Number(state.remainingMinutes) : null, // 实时剩余（ETA 用）
+        estMinutes: Number(task.estMinutes) > 0 ? Number(task.estMinutes) : null,
+      };
+    });
   }
 
   /** 重试耗尽待人工恢复的单（观测面 + /print-dispatch 恢复的前置查询） */
@@ -1010,3 +1038,4 @@ module.exports = dispatcher;
 module.exports.colorDistance = colorDistance;
 module.exports.materialMatch = materialMatch;
 module.exports.buildLocalTask = buildLocalTask;
+module.exports.staleThresholdMs = staleThresholdMs;

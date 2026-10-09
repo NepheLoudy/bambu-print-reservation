@@ -14,6 +14,30 @@ const STATUS_ICONS = {
   '暂停': '🟡', '已完成': '✅', '故障': '🔴', '未连接': '⚫',
 };
 
+/** 分钟 → 「Xh Ym」可读形态（ETA 展示；0/空返回空串） */
+function fmtMinutes(mins) {
+  const m = Number(mins);
+  if (!Number.isFinite(m) || m <= 0) return '';
+  return m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? (m % 60) + 'm' : ''}` : `${m}m`;
+}
+
+/** 队列/在打 ETA 汇总行（页面与 /print-status 共用口径）：
+ *  队列按 3mf 内嵌预估时长求和；在打按打印机实时剩余分钟求和 */
+function etaSummary(queue, printing) {
+  const queueKnown = queue.filter((t) => Number(t.estMinutes) > 0);
+  const queueSum = queueKnown.reduce((s, t) => s + Number(t.estMinutes), 0);
+  const unknown = queue.length - queueKnown.length;
+  const printSum = printing.reduce((s, p) => s + (Number(p.remainingMinutes) || 0), 0);
+  const parts = [];
+  if (queue.length > 0) {
+    parts.push(`队列预估总时长 ${queueSum > 0 ? '~' + fmtMinutes(queueSum) : '未知'}${unknown > 0 ? `（${unknown} 单无预估）` : ''}`);
+  }
+  if (printing.length > 0) {
+    parts.push(`在打 ${printing.length} 台实时剩余合计 ${printSum > 0 ? '~' + fmtMinutes(printSum) : '未知'}`);
+  }
+  return parts.join('｜');
+}
+
 async function handleHelpCommand() {
   const botName = config.bot.name || '爆米花机';
   return `🖨️ ${botName} - 3D打印预约指令帮助
@@ -51,6 +75,7 @@ async function handlePrintStatusCommand() {
   }
 
   const queue = dispatcher.getQueueSnapshot();
+  const printing = dispatcher.getPrintingSnapshot();
   const lines = ['🖨️ 打印机状态', ''];
 
   printers.forEach((printer, i) => {
@@ -84,6 +109,10 @@ async function handlePrintStatusCommand() {
     });
     if (queue.length > 5) lines.push(`  …共 ${queue.length} 单`);
   }
+
+  // ETA 汇总（2026-10-08）：回答「几点能来取件」——队列按内嵌预估、在打按实时剩余
+  const eta = etaSummary(queue, printing);
+  if (eta) lines.push('', `⏱️ ${eta}`);
 
   return lines.join('\n');
 }
@@ -235,4 +264,6 @@ module.exports = {
   handlePrintAmsCommand,
   handlePrintListCommand,
   handlePrintPendingCommand,
+  etaSummary,
+  fmtMinutes,
 };

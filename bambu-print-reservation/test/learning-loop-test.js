@@ -83,6 +83,16 @@ check('拒绝：pending → rejected', () => {
   assert.throws(() => ruleSuggestions.reject(target.id, '测试管理员'), /不可重复处理/);
 });
 
+check('采纳后同 when+set 再提交：新建议独立 id 可再采纳（2026-10-08 撞 id 修复回归）', () => {
+  // 采纳 infillDensity 70 的建议后，同组合再提一条——旧实现 id 固定 sug-<key>，
+  // 与已采纳条目撞车，adopt 的 find 永远命中旧条目报「不可重复处理」，新建议成死单
+  const re = ruleSuggestions.add({ when: { load_magnitude: 'heavy' }, set: { infillDensity: 70 }, reason: '同组合再次修正', suggestedBy: '第三人' });
+  assert.equal(re.merged, false, '已采纳的聚合键不再合并，应生成新建议');
+  assert.notEqual(re.suggestion.id, `sug-${re.suggestion.key}`, '建议 id 不应复用聚合 key');
+  const re2 = ruleSuggestions.adopt(re.suggestion.id, '测试管理员', 155);
+  assert.equal(re2.status, 'adopted', '新建议应可正常采纳');
+});
+
 // ---------- 3mf 参数提取 ----------
 
 /** 构造 Bambu 风格 3mf（zip + project_settings.config） */

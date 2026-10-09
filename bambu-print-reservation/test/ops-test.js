@@ -50,6 +50,16 @@ function submitFile(fileName, overrides = {}) {
   });
 }
 
+// ---------- 存储损坏隔离（必须最先执行：隔离会重命名存储文件，放在后面会与悬挂中的异步用例竞态） ----------
+
+check('存储损坏隔离:坏文件改名留档,不再静默覆盖', () => {
+  fs.writeFileSync(process.env.RESERVATIONS_STORE_FILE, '{corrupt json!');
+  const records = store.list();
+  assert.equal(records.length, 0, '损坏按空启动');
+  const quarantined = fs.readdirSync(os.tmpdir()).filter((f) => f.startsWith('bambu-test-ops-res-') && f.includes('.corrupt-'));
+  assert.equal(quarantined.length, 1, '应留下 .corrupt- 隔离件供人工抢救');
+});
+
 // ---------- 审批拦未切片 ----------
 
 check('审批通过 stl/step 被拦截(带切片指引),3mf 放行', async () => {
@@ -138,6 +148,60 @@ check('usage 上报:payload 组装正确,失败静默不影响主链路', async 
     global.fetch = origFetch;
     delete process.env.USAGE_REPORT_URL;
   }
+});
+
+// ---------- 2026-10-08 优化批：预估时长提取 / 变迁判定 / 巡检阈值 / 存储损坏隔离 ----------
+
+check('预计时长解析:gcode 秒数流派/时分秒流派/time_cost 兜底/解析失败 null', () => {
+  const { parseEstimatedMinutes } = require('../src/services/slicerExtract');
+  assert.equal(parseEstimatedMinutes('; total estimated time (s): 5400\n', {}), 90);
+  assert.equal(parseEstimatedMinutes('; estimated printing time (normal mode) = 2h 30m 0s\n', {}), 150);
+  assert.equal(parseEstimatedMinutes('no time here', {}), null);
+  assert.equal(parseEstimatedMinutes('', { time_cost: '7200' }), 120);
+});
+
+check('extractFrom3mf 输出 estMinutes(嵌入 gcode 头部)', () => {
+  const zip = new AdmZip();
+  zip.addFile('Metadata/plate_1.gcode', Buffer.from('; total estimated time (s): 3600\n; layer_height = 0.2\n'));
+  const r = extractFrom3mf(zip.toBuffer());
+  assert.equal(r.estMinutes, 60);
+  assert.equal(r.params.layerHeight, 0.2, '参数提取不受影响');
+});
+
+check('resolveJobEvent:首报文补收尾事件(重启间隙),常规变迁口径不变', () => {
+  const { resolveJobEvent } = require('../src/printer/manager');
+  // 首报文（服务重启/重连后 prevState 为空）
+  assert.equal(resolveJobEvent('', 'FINISH', true), 'finish', '停机窗口完成的任务补 finish');
+  assert.equal(resolveJobEvent('', 'IDLE', true), 'idle', '幽灵任务补 idle 收尾');
+  assert.equal(resolveJobEvent('', 'FINISH', false), null, '无在册任务首报文不发事件');
+  assert.equal(resolveJobEvent('', 'PRINTING', true), null, '重启续打不发 start（printing 映射已恢复）');
+  // 常规变迁（与历史口径一致）
+  assert.equal(resolveJobEvent('IDLE', 'PRINTING', false), 'start');
+  assert.equal(resolveJobEvent('PRINTING', 'FINISH', true), 'finish');
+  assert.equal(resolveJobEvent('PRINTING', 'FAILED', true), 'failed');
+  assert.equal(resolveJobEvent('PRINTING', 'IDLE', true), 'idle');
+  assert.equal(resolveJobEvent('FINISH', 'IDLE', true), null, 'FINISH→IDLE 不再发 idle');
+  assert.equal(resolveJobEvent('PRINTING', 'PRINTING', true), null, '同态不发事件');
+  assert.equal(resolveJobEvent('RESUME', 'PRINTING', true), null, 'RESUME→PRINTING 不算 start');
+});
+
+check('staleThresholdMs:有预估按×2且≥1h,无预估退回固定12h', () => {
+  const { staleThresholdMs } = require('../src/services/dispatcher');
+  assert.equal(staleThresholdMs(null), 12 * 3600 * 1000);
+  assert.equal(staleThresholdMs(0), 12 * 3600 * 1000);
+  assert.equal(staleThresholdMs(30), 60 * 60 * 1000, '短任务下限 1h');
+  assert.equal(staleThresholdMs(90), 180 * 60 * 1000, '90min → ×2=3h');
+});
+
+check('ETA 汇总:队列按内嵌预估求和+无预估计数,在打按实时剩余', () => {
+  const { etaSummary } = require('../src/services/chatService');
+  const queue = [{ estMinutes: 60 }, { estMinutes: 30 }, { estMinutes: null }];
+  const printing = [{ remainingMinutes: 45 }, { remainingMinutes: null }];
+  const out = etaSummary(queue, printing);
+  assert.match(out, /~1h30m/, '队列已知预估求和');
+  assert.match(out, /1 单无预估/, '无预估单计数');
+  assert.match(out, /~45m/, '在打实时剩余求和');
+  assert.equal(etaSummary([], []), '', '空队列空在打无 ETA 行');
 });
 
 // ---------- 收尾 ----------

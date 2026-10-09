@@ -31,7 +31,11 @@ function load() {
       sessions: data.sessions && typeof data.sessions === 'object' ? data.sessions : {},
     };
   } catch (err) {
-    console.warn('[账号存储] 加载失败（按空启动）:', err.message);
+    // 损坏隔离（2026-10-08 同 reservationStore 口径）：坏文件改名留档，防止下一次
+    // register/save 把仅存的账号表静默覆盖；隔离件可人工抢救
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    try { fs.renameSync(AUTH_FILE, `${AUTH_FILE}.corrupt-${stamp}`); } catch { /* 留在原地 */ }
+    console.error(`[账号存储] 存储文件损坏已隔离（${err.message}）——按空启动，请人工检查抢救`);
     return { users: [], sessions: {} };
   }
 }

@@ -1,5 +1,8 @@
 const config = require('../config');
+const fs = require('fs');
+const path = require('path');
 const store = require('./reservationStore');
+const processRules = require('./processRules');
 const { sendMessage, buildReservationAlertCard, buildReviewResultCard } = require('../feishu/bot');
 const quietHours = require('../utils/quietHours');
 
@@ -146,6 +149,71 @@ class ReservationService {
     dispatcher.dequeue(id); // 队列中/分发中/打印中（停机）统一由 dequeue 处理
 
     return { success: true };
+  }
+
+  // ---------- 复刻（2026-10-08：已完成单一键带参重提，打坏了重打/帮同学打同款） ----------
+
+  /**
+   * 从既有记录复制提交一份新预约（新单号、发起人=当前登录者）。
+   * 源文件在保留期内 → 服务端直接复制文件（浏览器无需重传 200MB）；
+   * 需求链路单按当前规则库**重新定档**（规则库可能已演进），3mf 直通单保持快照为空。
+   * overrides 可覆盖 color/quantity/assignedPrinter/materialType/isUrgent
+   */
+  async reprintReservation(id, requester, overrides = {}) {
+    const src = store.get(id);
+    if (!src) throw new Error('预约记录不存在');
+    if (src.fileCleaned) throw new Error('源文件已过保留期被清理，请重新上传模型文件');
+
+    // 服务端复制源文件（复刻单与源单生命周期独立：源单日后清理不影响复刻单）
+    const ext = path.extname(src.fileName || '') || '.3mf';
+    const newPath = path.join(store.UPLOAD_DIR, `${Date.now()}-${Math.round(Math.random() * 1e6)}${ext}`);
+    try {
+      fs.mkdirSync(store.UPLOAD_DIR, { recursive: true });
+      await fs.promises.copyFile(src.filePath, newPath);
+    } catch (err) {
+      throw new Error(`源文件已不存在（${err.code === 'ENOENT' ? '可能已过保留期清理' : err.message}），请重新上传模型文件`);
+    }
+
+    const pick = (key, fallback) => (overrides[key] !== undefined && overrides[key] !== null && overrides[key] !== ''
+      ? overrides[key] : fallback);
+    const materialType = pick('materialType', src.materialType);
+    const isSliced = /\.3mf$/i.test(String(src.fileName || ''));
+
+    let applied = null;
+    if (!isSliced) {
+      applied = processRules.applyRules(src.selection || {}, { material: materialType });
+      if (applied.blocked) {
+        try { fs.unlinkSync(newPath); } catch { /* 已不存在 */ }
+        const err = new Error('需求勾选存在硬冲突（规则库可能已更新）');
+        err.details = { errors: applied.errors, warnings: applied.warnings };
+        throw err;
+      }
+    }
+
+    let record;
+    try {
+      record = store.create({
+        applicant: requester.displayName,
+        submittedBy: requester.id,
+        fileName: src.fileName,
+        filePath: newPath,
+        fileSize: src.fileSize,
+        materialType,
+        color: pick('color', src.color),
+        assignedPrinter: pick('assignedPrinter', src.assignedPrinter),
+        isUrgent: pick('isUrgent', src.isUrgent),
+        quantity: pick('quantity', src.quantity),
+        estMinutes: src.estMinutes,
+        selection: src.selection || {},
+        processParams: applied ? applied.params : null,
+        appliedRules: applied ? applied.applied : [],
+        embeddedParams: src.embeddedParams, // 3mf 直通单参数摘要随单携带
+      });
+    } catch (err) {
+      try { fs.unlinkSync(newPath); } catch { /* 已不存在 */ }
+      throw err;
+    }
+    return store.get(record.id);
   }
 
   // ---------- 遗留兼容 ----------
