@@ -35,9 +35,12 @@ qianli 项目群的所有机器人共用同一个飞书自建应用（`cli_aac7e
               消息事件：路由规则命中单一目标      多维表格事件：广播（各机器人按 table_id 过滤）
         ┌───────────────────┬───────────────────┬───────────────────┐
         ▼                   ▼                   ▼                   ▼
-  hub :3000           approval :3002      bambu :3001         ticket :3003
-  项目管理机器人        审批机器人           打印预约机器人        工单机器人
-  (对话/关键词/DDL)    (/approval-*)       (/print-*, legacy)  (/ticket-*, 接单)
+  hub :3000           approval :3002      ticket :3003
+  项目管理机器人        审批机器人           工单机器人
+  (对话/关键词/DDL)    (/approval-*)       (/ticket-*, 接单)
+
+  （bambu :3001 已随 v35 退网：路线 A 页面审批直连，不再消费表格/审批事件；
+    legacy 拆条转发机制保留备用，恢复只需在 CONSUMERS 末尾追加 bambu 条目）
 ```
 
 ### 消息事件路由（按顺序匹配，命中即停；未命中走默认目标 hub）
@@ -63,7 +66,7 @@ qianli 项目群的所有机器人共用同一个飞书自建应用（`cli_aac7e
 
 ### 多维表格事件
 
-广播给全部消费者（可用 `BITABLE_TARGETS` 收窄）。各机器人已有 table_id 过滤，互不干扰。对标记 `legacy` 的消费者（bambu），网关把 V2 `action_list` 事件拆成旧版 `bitable.record.create/update` 单记录事件（`record.fields` 取 `after_value`，缺省回退 `before_value`），bambu 无需改代码即可恢复预约事件链路。
+广播给全部消费者（可用 `BITABLE_TARGETS` 收窄）。各机器人已有 table_id 过滤，互不干扰。对标记 `legacy` 的消费者，网关把 V2 `action_list` 事件拆成旧版 `bitable.record.create/update` 单记录事件（`record.fields` 取 `after_value`，缺省回退 `before_value`）。**唯一 legacy 用户 bambu 已随 v35 退网**（路线 A 页面审批直连），现网消费者=hub/approval/ticket；legacy 机制保留备用。
 
 ### 审批事件（approval_instance / approval_task）
 
@@ -82,7 +85,7 @@ qianli 项目群的所有机器人共用同一个飞书自建应用（`cli_aac7e
 | `MESSAGE_ROUTES` | 消息路由规则（JSON 数组），覆盖默认规则 |
 | `DEFAULT_TARGET` | 消息未命中任何规则时的目标，默认 hub |
 | `BITABLE_TARGETS` | 表格事件广播目标，留空=全部消费者 |
-| `APPROVAL_TARGETS` | 审批事件转发目标，留空=bambu+ticket |
+| `APPROVAL_TARGETS` | 审批事件转发目标，留空=ticket（工单接单联动；bambu 打印审批链已随 v35 退役） |
 | `DOC_SUBSCRIBES` | 启动时需订阅记录变更的云文档 appToken（逗号分隔） |
 | `FEISHU_VERIFICATION_TOKEN` | 透传给下游机器人的校验 token（可选） |
 | `GATEWAY_DATA_DIR` | 使用统计落盘目录，默认 `/home/qianli/feishu-gateway-data`（必须在项目外：部署 tar 会清空项目目录。部署目标为 Windows 小电脑，POSIX 形式路径实际解析到当前盘根，即 `C:\home\qianli\feishu-gateway-data`，找文件按这个来） |
@@ -103,11 +106,12 @@ qianli 项目群的所有机器人共用同一个飞书自建应用（`cli_aac7e
 ```bash
 node scripts/stub-test-usage-sync.js    # 网关日活跃单表同步 stub（全量 create/签名跳过/变化 update/未配置跳过）
 node scripts/stub-test-usage-serious.js # 正经活跃口径 stub（娱乐剔除/学习清单/静态清单/旧数据兼容/双口径并存）
-node scripts/stub-test-usage-mentions.js # 群聊被@统计 stub（普通成员计数/@机器人与@所有人剔除/私聊不计/对象形态 id/自然日滑窗/prune 同窗；
-                                        # 注意：push 部署闸门目前只串联跑前两支，mentions 桩需手动跑）
+node scripts/stub-test-usage-mentions.js # 群聊被@统计 stub（普通成员计数/@机器人与@所有人剔除/私聊不计/对象形态 id/自然日滑窗/prune 同窗）
 node smoke-test.js                      # 本地冒烟（起 mock 消费者+无凭证网关，验证路由/模式/legacy 转换/去重；
                                         # 仅本机跑——硬编码 3010 端口，勿入 push 闸门以免与部署目标在线网关撞端口）
 ```
+
+> push 部署闸门自 v34 起 `readdirSync` 自动发现并串联运行 `scripts/stub-test-*.js` 全部桩（smoke-test 除外），新增桩即入闸。
 
 
 ## 部署与切换步骤

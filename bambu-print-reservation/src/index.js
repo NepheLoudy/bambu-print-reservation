@@ -688,7 +688,11 @@ function startServer() {
     if (!config.bitable.appToken) console.log('ℹ️ 未配置 BITABLE_APP_TOKEN（路线 A 已不依赖表格，保持空即可）');
   });
 
-  // 2026-10-05 路线 A：startEventSubscription()（审批/表格事件订阅 + 审批对账）已退役
+  // 2026-10-05 路线 A：startEventSubscription()（审批/表格事件订阅 + 审批对账）已退役；
+  // 2026-10-10 修复：当时把 dispatcher.start() 一并弄丢（原挂在事件订阅启动里），
+  // 分发引擎此后从未启动——队列恢复、jobEvent 完成收尾/失败重排/份数续打、幽灵巡检、
+  // 退出冲刷全是死代码，且被「真机未接入 + 桩测试直调方法」双重掩盖。这里接回。
+  require('./services/dispatcher').start();
 
   // 晚间静默：启动时若有积压通知，按当前时点调度补发（过点立即、未过点等到窗口结束整点）
   require('./utils/quietHours').initQuietHoursFlush();
@@ -725,3 +729,4 @@ if (require.main === module) {
 }
 
 module.exports = app;
+module.exports.startServer = startServer; // 桩测试/运维脚本用（生产走 require.main 分支）

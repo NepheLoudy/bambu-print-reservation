@@ -20,6 +20,7 @@ description: qianli 工作区飞书机器人项目的统一部署与开发链路
 | duty-bot | /c/qianli/opt/duty-bot | duty-bot | 3006 | 值日域：排班/值日助手/管辖策略下发（独立仓，push.js 混合模式同 approval-bot） |
 | bambu-print-reservation | /c/qianli/opt/bambu-print-server | bambu-print-server | 3001 | 打印预约（纯 SFTP 部署，无 git 步骤） |
 | wecom-attendance-bot | /c/qianli/opt/wecom-attendance-bot | wecom-attendance | 3007 | 企业微信考勤周报（不接飞书链路，仅共用部署基建；repo:top 同 gateway，SFTP 直传） |
+| netlog | /c/qianli/opt/netlog | qianli-netlog | 3016 | 网络监测/断网复活引擎（repo:top 同 gateway，SFTP 直传；通知走机器人本体私聊，不消费消息事件链路） |
 
 本地目录布局：ticket-bot 与 project-management-robot 归拢在 `ticket-pm/` 下（`ticket-pm/<项目名>`，联动契约见该目录 AGENTS.md）；approval-bot、feishu-gateway、bambu-print-reservation 在本仓库根目录。部署命令不变，仍在各自项目目录内执行。
 

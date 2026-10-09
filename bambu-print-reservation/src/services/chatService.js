@@ -45,6 +45,7 @@ async function handleHelpCommand() {
 打印预约指令：
   /print-help     显示打印相关帮助
   /print-status   查看打印机状态
+  /print-ams      查看所有打印机装载的耗材明细
   /print-list     查看预约列表
   /print-pending  查看待审批预约
 

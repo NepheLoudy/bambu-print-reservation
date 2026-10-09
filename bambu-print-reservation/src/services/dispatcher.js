@@ -817,7 +817,7 @@ class Dispatcher {
         require('../feishu/bot').buildJobFailedCard(
           task,
           printer,
-          `打印失败：${reason}；已自动重试 ${task.dispatchRetries} 次仍失败，已暂停自动分发，可 /print-dispatch 人工恢复`
+          `打印失败：${reason}；已自动重试 ${task.dispatchRetries} 次仍失败，已暂停自动分发，请在打印预约页面重新提交或联系管理员在运维台恢复`
         ),
         (err) => console.error('[分发] 失败播报失败:', err.message)
       );

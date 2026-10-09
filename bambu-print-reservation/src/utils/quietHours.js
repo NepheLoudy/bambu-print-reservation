@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 // ============================================================
 // 晚间静默（播报时段限制）
@@ -144,7 +145,7 @@ async function gateTask(name, fireKey, run, label = name) {
     console.log(`[晚间静默] ${label} 该槽位已积压，跳过重复登记`);
     return { deferred: true, note: '已积压' };
   }
-  items.push({ type: 'task', name, fireKey, queuedAt: new Date().toISOString() });
+  items.push({ id: crypto.randomUUID(), type: 'task', name, fireKey, queuedAt: new Date().toISOString() });
   saveBacklog(items);
   scheduleFlushFromGate();
   console.log(`[晚间静默] ${label} 落入积压（共 ${items.length} 条），${nextQuietEnd().toLocaleString('zh-CN')} 统一补跑`);
@@ -158,7 +159,7 @@ async function gateTask(name, fireKey, run, label = name) {
 function gatePayload(name, payload, label = name) {
   if (!inQuietHours()) return false;
   const items = loadBacklog();
-  items.push({ type: 'payload', name, payload, queuedAt: new Date().toISOString() });
+  items.push({ id: crypto.randomUUID(), type: 'payload', name, payload, queuedAt: new Date().toISOString() });
   saveBacklog(items);
   scheduleFlushFromGate();
   console.log(`[晚间静默] ${label} 载荷落盘积压（共 ${items.length} 条），${nextQuietEnd().toLocaleString('zh-CN')} 统一补发`);
@@ -181,9 +182,13 @@ function describeItem(item) {
   return `${item.name}（${item.queuedAt}）`;
 }
 
-/** 积压条目身份键：type+name+fireKey+queuedAt（gate 落盘后序列化往返稳定） */
+/**
+ * 积压条目身份键（2026-10-10 与 ticket-bot 同批对齐）：优先用 gate 入队时签发的
+ * 唯一 id——毫秒级 queuedAt 在同一毫秒入队的两条积压上碰撞，冲刷时同轮结算的
+ * 一对同毫秒条目会被 settledKeys 误吞。存量无 id 条目回落旧键保持兼容。
+ */
 function itemKey(item) {
-  return `${item.type}|${item.name}|${item.fireKey || ''}|${item.queuedAt}`;
+  return item.id || `${item.type}|${item.name}|${item.fireKey || ''}|${item.queuedAt}`;
 }
 
 function scheduleFlush(delayMs) {

@@ -96,6 +96,18 @@ function makeDeps({ poolUsers, preferred = '31108753', baseline = 100, verifySes
   check('自动换号复活（继续 login 剩余候选，首选项重新优先）',
     lastLogin !== '20261103' && lastLogin === '31108753', JSON.stringify(d1.logins));
 
+  console.log('\n== 3b. 换号后 pendingSlow 已清：下一 tick 不再对旧账号慢速判定（2026-10-10 回归） ==');
+  const bannedBefore = d1.banned.length;
+  const throttledBefore = d1.events.filter((e) => e.event === 'account_throttled').length;
+  const loginsBefore = d1.logins.length;
+  d1.latencyQueue.push(500, 600, 550); // 若旧账号判定仍挂起，这些慢样本会触发重复 ban+换号
+  await d1.nextTick();
+  check('旧账号不再被重复 ban', d1.banned.length === bannedBefore, JSON.stringify(d1.banned));
+  check('不再重复发 account_throttled', d1.events.filter((e) => e.event === 'account_throttled').length === throttledBefore);
+  check('不再重复 login（替号直接进入成功验证）', d1.logins.length === loginsBefore, JSON.stringify(d1.logins));
+  check('替号本轮复活成功收尾', d1.events.some((e) => e.event === 'revive_success'));
+  check('慢速判定转挂到替号账号', d1.guard.summary().pendingSlow === '31108753', JSON.stringify(d1.guard.summary().pendingSlow));
+
   console.log('\n== 4. 恢复后慢速正常 → 不 ban ==');
   const d4 = makeDeps({ poolUsers: [['31108753', 'pw1', 1]], baseline: 100 });
   for (let i = 0; i < 5; i++) { d4.latencyQueue.push(95 + i); await d4.guard.sampleBaseline(); } // 预采样健康基线（~97ms，避免落到 30ms 下限）

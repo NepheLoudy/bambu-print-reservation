@@ -128,8 +128,9 @@ module.exports = {
 
   // ---------- 使用上报（顶层「队员/功能统计上报规则」：页面交互向网关归因） ----------
   usage: {
-    // 网关使用上报端点（网关与本服务同机 pm2；空串=关闭上报）
-    reportUrl: process.env.USAGE_REPORT_URL || 'http://127.0.0.1:3000/api/usage/report',
+    // 网关使用上报端点（网关 ：3010 与本服务同机 pm2；空串=关闭上报）。
+    // 2026-10-10 修复：默认值原误指 :3000（hub），上报全部 404 静默丢弃
+    reportUrl: process.env.USAGE_REPORT_URL || 'http://127.0.0.1:3010/api/usage/report',
     // 全工作区共享 API_TOKEN（顶层规则同值）
     token: process.env.API_TOKEN || '',
   },

@@ -249,7 +249,7 @@ function buildMaterialMissingCard(waitingCount, needs) {
       { tag: 'markdown', content: `**⚠️ 有 ${waitingCount} 个打印任务因缺料等待**` },
       { tag: 'hr' },
       { tag: 'markdown', content: `**所需耗材**: ${needs}` },
-      { tag: 'markdown', content: '🔧 请为对应打印机 AMS 换料/补料，装好后会自动开始打印；或用 /print-dispatch 手动指定其它打印机' },
+      { tag: 'markdown', content: '🔧 请为对应打印机 AMS 换料/补料，装好后会自动开始打印；如需改派其它打印机，请在打印预约页面联系审批者处理' },
     ],
     header: { template: 'yellow', title: { content: '⚠️ 缺料提醒', tag: 'plain_text' } },
   };

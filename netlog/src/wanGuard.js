@@ -165,6 +165,10 @@ function createWanGuard(deps) {
         await emit('revive_start', `换号复活：弃用 ${user} 后重新走账号池`);
         state.reviving = true;
         state.queue = candidates();
+        // 2026-10-10 修复：换号分支必须先清 pendingSlow——原样 return 会把挂起
+        // 判定留在旧被 ban 账号上，下个 tick 的 slowCheck 优先执行：重复 ban、
+        // 重复发事件、并对同一替号账号每 tick 重复 login，替号永不进入成功验证
+        state.pendingSlow = null;
         await tryNextCandidate();
         return;
       }

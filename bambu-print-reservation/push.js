@@ -24,10 +24,16 @@ function runTestGate() {
     return true;
   }
   const { spawnSync } = require('child_process');
-  const cmd = 'node test/dispatcher-test.js && node test/dispatcher-persist-test.js && node test/dispatcher-manual-race-test.js && node test/taxonomy-test.js && node test/process-rules-test.js && node test/local-reservation-test.js && node test/auth-test.js && node test/learning-loop-test.js && node test/ops-test.js && node test/printer-upload-channel-test.js';
-  if (!cmd) { console.log('[测试闸门] 无测试命令，跳过'); return true; }
-  console.log('[测试闸门] 运行:', cmd);
-  const r = spawnSync(cmd, { shell: true, stdio: 'inherit', cwd: __dirname });
+  // 2026-10-10 对齐：自动发现 test/*-test.js（原手工清单与 package.json 双维护，
+  // 新增套件漏改 push.js 会绕过闸门——gateway 曾因手工清单漏挂出过事故）
+  const tests = fs.readdirSync(path.join(__dirname, 'test'))
+    .filter((f) => f.endsWith('-test.js'))
+    .sort()
+    .map((f) => `node test/${f}`)
+    .join(' && ');
+  if (!tests) { console.log('[测试闸门] 无测试命令，跳过'); return true; }
+  console.log('[测试闸门] 运行:', tests);
+  const r = spawnSync(tests, { shell: true, stdio: 'inherit', cwd: __dirname });
   if (r.status !== 0) {
     console.error('部署前测试未通过（SKIP_TESTS=1 可跳过），中止部署');
     return false;
