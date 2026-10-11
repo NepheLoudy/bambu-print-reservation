@@ -5,7 +5,7 @@ description: qianli 工作区飞书机器人项目的统一部署与开发链路
 
 # qianli 机器人统一部署链路
 
-七个项目（六个飞书 + 一个企业微信考勤播报）共用同一条链路口径：**项目根目录 `npm run push "提交说明"` 一条命令完成 提交→推送→部署→上传 .env→重启**。不要手写 SSH/SCP 部署命令，不要恢复任何独立 deploy 脚本。（实现形态有三种：approval-bot / pm-robot / ticket-bot 独立仓库 git push + 部署目标同步；gateway 只暂存自身路径推顶层远端、部署走 SFTP；bambu 纯 SFTP 无 git。）
+六个项目（全部飞书系；2026-10-12 wecom-attendance-bot 废止清理出清单）共用同一条链路口径：**项目根目录 `npm run push "提交说明"` 一条命令完成 提交→推送→部署→上传 .env→重启**。不要手写 SSH/SCP 部署命令，不要恢复任何独立 deploy 脚本。（实现形态有三种：approval-bot / pm-robot / ticket-bot 独立仓库 git push + 部署目标同步；gateway 只暂存自身路径推顶层远端、部署走 SFTP；bambu 纯 SFTP 无 git。）
 
 > 术语约定：部署目标=小电脑 DESKTOP-FE1MIGI；部署连接键=各仓 `.env` 的 `DEPLOY_HOST/DEPLOY_PORT/DEPLOY_USER/DEPLOY_PASSWORD`、运维台代理端点 `/api/deploy/*`（2026-10-07 曼波定，由历史 `NAS_*`、`/api/nas/*` 全面改名，防止与旧 NAS 混淆）；历史 DEVLOG/事故记录里的「NAS」为迁移前旧称，保持原貌。
 
@@ -19,7 +19,6 @@ description: qianli 工作区飞书机器人项目的统一部署与开发链路
 | ticket-bot | /c/qianli/opt/ticket-bot | ticket-bot | 3003 | 工单播报/接单/分桶 API |
 | duty-bot | /c/qianli/opt/duty-bot | duty-bot | 3006 | 值日域：排班/值日助手/管辖策略下发（独立仓，push.js 混合模式同 approval-bot） |
 | bambu-print-reservation | /c/qianli/opt/bambu-print-server | bambu-print-server | 3001 | 打印预约（纯 SFTP 部署，无 git 步骤） |
-| wecom-attendance-bot | /c/qianli/opt/wecom-attendance-bot | wecom-attendance | 3007 | 企业微信考勤周报（不接飞书链路，仅共用部署基建；repo:top 同 gateway，SFTP 直传） |
 | netlog | /c/qianli/opt/netlog | qianli-netlog | 3016 | 网络监测/断网复活引擎（repo:top 同 gateway，SFTP 直传；通知走机器人本体私聊，不消费消息事件链路） |
 
 本地目录布局：ticket-bot 与 project-management-robot 归拢在 `ticket-pm/` 下（`ticket-pm/<项目名>`，联动契约见该目录 AGENTS.md）；approval-bot、feishu-gateway、bambu-print-reservation 在本仓库根目录。部署命令不变，仍在各自项目目录内执行。

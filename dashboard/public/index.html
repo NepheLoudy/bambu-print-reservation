@@ -630,7 +630,7 @@ function renderWinPanel(p) {
     }
     if (w.kind === 'action') {
       // 名册刷新保留专属交互（同步人数 + 联动重拉名册/白名单）；其余按窗口定义的
-      // method/path/params 渲染通用表单提交（此前硬编码 rosterRefresh，wecom 的 action 窗口必 404）
+      // method/path/params 渲染通用表单提交（此前硬编码 rosterRefresh，action 窗口必 404）
       if (w.p === '/api/duty/roster/refresh') {
         return `<div class="win-row">· ${w.d} <span class="badge method">${w.m}</span>
           <button onclick="rosterRefresh(${p.port}, this)">立即执行</button></div>`;
