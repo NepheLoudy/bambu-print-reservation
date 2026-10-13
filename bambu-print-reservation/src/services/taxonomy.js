@@ -13,7 +13,7 @@
 //   （CAD 导出的设计姿态通常是使用姿态）。Z 向受力 ≈ 层间受力（最弱方向）。
 // ============================================================
 
-const TAXONOMY_VERSION = 'v2';
+const TAXONOMY_VERSION = 'v4';
 
 /** 选项：{ id, label }；bool/number 字段无 options */
 const groups = [
@@ -181,22 +181,6 @@ const groups = [
         ],
       },
       {
-        id: 'shrink_scale',
-        type: 'scale',
-        min: -3,
-        max: 3,
-        minLabel: '-3 收缩（变小）',
-        maxLabel: '+3 涨量（变大）',
-        title: '收缩量要求',
-        formTitle: '收缩量要求',
-        tooltip: '尺寸偏差方向标尺（-3 ~ +3，0=常规不偏重）：负数=要求负收缩（打印件比模型偏小，外轮廓负补偿）；正数=要求膨胀涨量（打印件偏大，正补偿抵消材料收缩）；越靠近 0 = 尺寸偏差要求越小（高精度档，外壁降速保尺寸）。引擎映射：≤-2 外轮廓负补偿、≥+2 外轮廓正补偿、±1 高精度档',
-        mapsHint: [
-          '≤-2 → 外轮廓负补偿（xyContourComp 约 -0.15）主动收小尺寸',
-          '≥+2 → 外轮廓正补偿（xyContourComp 约 +0.15）放大抵消收缩',
-          '±1 近零区 → 高精度档：外壁降速（precise）保尺寸',
-        ],
-      },
-      {
         id: 'fastener',
         type: 'multi',
         title: '连接方式',
@@ -337,6 +321,45 @@ const groups = [
         formTitle: '重量敏感',
         tooltip: '对重量有要求（无人机、云台末端、臂末端）。将用低填充+镂空方向设计，强度档位让位于减重',
         mapsHint: ['Gyroid 低填充、顶底壳减至 3 层（壳厚是减重大头）、必要时镂空（人工确认）'],
+      },
+    ],
+  },
+  {
+    id: 'auto',
+    title: '几何体检（自动检测）',
+    tooltip: '上传 STL 后由模型几何分析自动预勾（通孔/悬空/曲面/贴底接触），机器人只提建议——不符合实际就手动取消，勾选与其他组同等参与引擎映射',
+    fields: [
+      {
+        id: 'through_holes',
+        type: 'bool',
+        title: '通孔补偿',
+        formTitle: '通孔补偿',
+        tooltip: '自动检测：模型存在孔特征（拓扑亏格/孔口拟圆）。FDM 打印孔径普遍收缩（螺孔插不进是重灾区），引擎对孔径做负向补偿留出缩量',
+        mapsHint: ['xyHoleComp 约 -0.1mm（孔径打印收缩补偿）；孔周壁致密由配合类规则叠加'],
+      },
+      {
+        id: 'overhang_heavy',
+        type: 'bool',
+        title: '悬空支撑',
+        formTitle: '悬空支撑',
+        tooltip: '自动检测：重悬空（近水平朝下面）面积占比高，或上半程存在悬端（悬臂结构）。支撑加密 + 建议确认摆放朝向',
+        mapsHint: ['supportDensity 30%（较基准加密）；悬端过高时朝向建议转人工确认'],
+      },
+      {
+        id: 'curved_surface',
+        type: 'bool',
+        title: '曲面保护',
+        formTitle: '曲面保护',
+        tooltip: '自动检测：曲面/过渡面（非平面片）占比高。曲面上的支撑疤与层纹最显眼——减少支撑接触、外壁降速保光顺；若曲面是接触/外观面请再补勾「滚压/点接触」或「外观件」',
+        mapsHint: ['supportThresholdAngle 放宽到 40°（减少曲面支撑疤）、precise 降速保曲面光顺'],
+      },
+      {
+        id: 'small_footprint',
+        type: 'bool',
+        title: '小接触面加裙边',
+        formTitle: '小接触面加裙边',
+        tooltip: '自动检测：贴底接触面积占包围盒占地比例小（尖脚/柱状/球底件），或接触面积绝对值小而件又高——打印中易被碰倒、易翘边，加裙边（brim）固定',
+        mapsHint: ['brim=true + 裙边宽 5mm：防倾倒防翘边'],
       },
     ],
   },

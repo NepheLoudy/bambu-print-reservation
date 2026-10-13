@@ -96,32 +96,36 @@ npm run push
 - **四条铁律**：①每标签必须能回答映射到什么切片参数（`mapsHint` 强制非空）；②维度正交（方向×类型×性质拆分，组内单选/组间多选）；③默认不勾=常规件一键提交；④词汇表（`taxonomy.js`，`TAXONOMY_VERSION`）与映射规则库（`processRules`，待建，`rulesVersion`）分离，版本号独立；
 - **受力参照系**：方向标签按**此件工作时的朝向**（Z=工作时竖直向上，可多选）——Z 向受力≈打印层缝方向（最弱），是规则引擎调朝向的依据；材料类型**可不填**（2026-10-05 曼波定）：勾选标签由规则引擎反推材料约束（materialExclude/materialPrefer 随单下发，分发匹配时对 AMS 实装料槽求值）；配合需求精简为间隙/过盈/精密（去过渡配合）；连接方式含「打印件自配合（插接/卡扣）」；份数仅在表单顶部（标签池不重复设）；
 - **冲突双级**：`block`（表单端拦截，如耐温≥80°C×PLA、电气绝缘×CF 系——碳纤导电、长期静载×PLA 蠕变）/ `warn`（警告放行，如高速×外观件）；材料类冲突需提供材料字符串时才判定；
-- **落地物**：`src/services/taxonomy.js`（标签池 v2：8 组 21 字段 + 7 条冲突规则；2026-10-08 增「收缩量要求」标尺 shrink_scale——负数=负收缩（打印件偏小）、正数=涨量（偏大）、越近 0=尺寸偏差要求越小）、`validateSelection(selection, {material})`（校验）、`selectionFromFormFields([{title,value}])`（审批表单字段 → 标准化勾选，供 parseForm 后续接线）、`GET /api/print/taxonomy`（只读窗口：标签全景+映射提示+冲突规则，运维台展示与打标指南取数）；
-- 测试：`node test/taxonomy-test.js`（19 项，已并入 npm test 与 push 闸门）。
+- **落地物**：`src/services/taxonomy.js`（标签池 v4：9 组 24 字段 + 7 条冲突规则；2026-10-11 增「几何体检（自动检测）」组——through_holes/overhang_heavy/curved_surface/small_footprint 四个 bool，由模型几何分析预勾选、用户可改；同批下架「收缩量要求」标尺 shrink_scale 及配套三条映射规则）、`validateSelection(selection, {material})`（校验）、`selectionFromFormFields([{title,value}])`（审批表单字段 → 标准化勾选，供 parseForm 后续接线）、`GET /api/print/taxonomy`（只读窗口：标签全景+映射提示+冲突规则，运维台展示与打标指南取数）；
+- 测试：`node test/taxonomy-test.js`（21 项，已并入 npm test 与 push 闸门）。
 
 ## 工艺映射规则库（processRules，2026-10-05 起）
 
 体系的第二层：标签勾选 → **切片参数集**。`src/services/processRules.js`：
 
 - **参数白名单**（22 个，CLI 可消费的核心参数全集；2026-10-05 细化批新增顶/底面实心层数、支撑悬垂阈值角、支撑密度、裙边宽度、喷嘴温度Δ）：`directionStrategy/layerHeight/wallLoops/infillDensity/infillPattern/supportType/speedProfile/seamPosition/xyHoleComp/xyContourComp/ironing/brim/temperatureDelta/materialExclude/materialPrefer`；规则 `set` 引用白名单外参数、`when` 引用池外字段、缺 `reason` 一律拒收（可审计铁律）；
-- **应用语义**：`BASELINE`（出厂默认）为底，规则按 `priority` 升序叠加，同名参数 priority 大者赢；标签级冲突不做二次裁判——`applyRules` 入口统一走 `taxonomy.validateSelection`，errors 非空即 `blocked`（含材料类冲突，需传 `material` 才判定）；出厂种子 27 条（2026-10-08 新增收缩量三条：≤-2 外轮廓负补偿 -0.15 / ≥+2 正补偿 +0.15 / ±1 近零区高精度档降速）；
+- **应用语义**：`BASELINE`（出厂默认）为底，规则按 `priority` 升序叠加，同名参数 priority 大者赢；标签级冲突不做二次裁判——`applyRules` 入口统一走 `taxonomy.validateSelection`，errors 非空即 `blocked`（含材料类冲突，需传 `material` 才判定）；出厂种子 28 条（2026-10-11 增几何体检四条，priority 60：孔特征→xyHoleComp -0.1 / 重悬空→supportDensity 30 / 曲面→阈值 40+precise / 小接触面→brim 5mm，让位显式外观/重载勾选）；
 - **材料裁定**：`materialExclude/materialPrefer` 存 regex 源（如 `'^PLA'`），对材料字符串求值得 `materialVerdict`（选机匹配层消费；表单端 block 是第一道闸，此处是引擎端兜底）；
 - **版本**：`rulesVersion` = 规则集内容 hash 短码，与 `taxonomyVersion`、baseline 版本、Bambu Studio 版本共同构成切片产物缓存 key 四件套；
 - **窗口**：`GET /api/print/process-rules`（基线/白名单/规则集全景）；`POST /api/print/process-rules`（X-API-Token 鉴权，`{op:'upsert'|'remove'|'reset', rule?, id?}`，内存热改 + 原子写回规则文件）；
-- **存储**：出厂种子规则内置代码（27 条，翻译自 taxonomy 各标签 mapsHint）；外部规则文件 `PROCESS_RULES_FILE`（默认项目根 `.process-rules.json`，生产配项目外数据目录，防 push 清目录丢失——同 `DISPATCH_STATE_FILE` 模式）；文件加载失败回退种子；
-- 测试：`node test/process-rules-test.js`（17 项，已并入 npm test 与 push 闸门）。
+- **存储**：出厂种子规则内置代码（28 条，翻译自 taxonomy 各标签 mapsHint）；外部规则文件 `PROCESS_RULES_FILE`（默认项目根 `.process-rules.json`，生产配项目外数据目录，防 push 清目录丢失——同 `DISPATCH_STATE_FILE` 模式）；文件加载失败回退种子；
+- 测试：`node test/process-rules-test.js`（21 项，已并入 npm test 与 push 闸门）。
 
 ## 学习链路（2026-10-05 第三批：「机器学人」落地）
 
-`src/services/ruleSuggestions.js`（待审池）+ `src/services/slicerExtract.js`（3mf 提取）：
+`src/services/ruleSuggestions.js`（待审池）+ `src/services/slicerExtract.js`（3mf 提取）+ `src/services/modelFeatures.js`（STL 几何体检，2026-10-11）：
 
 - **修正回路**：审批人/使用者在记录上点「建议修正」→ 编辑参数 + 填理由 → 自动携带该单勾选组合（`normalizeWhen` 归一化单据 selection 为规则 when 形态）入待审池；**相同 when+set 自动聚合计数**（高频修正浮顶，审核负担不随修正次数增长）；
 - **冷启动（专家作品导入）**：上传专家手工切片 3mf → `extractFrom3mf` 解包（zip：`project_settings.config` JSON 优先 / gcode 头部注释兜底）→ Bambu 参数名映射白名单内核心参数（`%/枚举`清洗）→ 与 baseline 的 diff 即候选草稿 → 以页面当前勾选为条件提交待审池。⚠️ 映射表按 Bambu Studio 常见导出字段编写，首次真机导入以 raw 键值人工核对并校准；
+- **几何体检（2026-10-11 模型特征自拟合）**：STL/3mf 提交前 `analyzeStl`/`analyze3mf` 分析裸网格（焊接索引 + 边表；3mf 解 `3D/Objects/*.model` XML，多零件逐件分析）——①通孔=拓扑亏格（genus，多体相加）+ 平面片边界环内环拟圆（Kåsa 最小二乘拿孔径，上下对合口去重）；②悬空=面法线与 -Z 夹角分带（贴底层不算悬空）+ 上半程悬端代理；③贴底接触面积/占地比；④曲面占比=总面积−显著平面片。映射为 taxonomy「几何体检」组 4 标签**预勾选建议**（只 true 不 false，用户可改），提交后照旧走规则引擎（几何数值不进规则 when，`validateRule` 池内校验不被打穿）；体检快照随单入档（`modelFeatures` 字段，学习回路将来吃「人工修正 vs 自动建议」差值）。能力边界：STL 二进制/ASCII + 3mf 工程文件（已切片 gcode.3mf 无对象网格只出参数）；>80MB 或单对象 >60 万三角面降级跳过；网格不闭合时孔数按圆口检出计并标注；壁厚/倒扣不做。规划中：STEP（B-rep 真特征：圆角/孔位精确）、几何预填与修正回路联动拟合；
+- **服务端切片桥（2026-10-12 二批：今天跑通）**：`node scripts/slice-with-engine.js <stl> <out.gcode.3mf> --machine/--process/--filament <Orca档名> --params '{"layerHeight":0.2,...}'`——引擎参数档 → OrcaSlicer CLI（`ORCA_SLICER_EXE`，默认 `~/AppData/Local/Programs/OrcaSlicer/orca-slicer.exe`，v2.4.2 portable）→ gcode.3mf。**CLI 喂配置的五连坑**（全踩全修）：①vendor 档要沿 `inherits` 拍平（CLI 无 datadir 不解析继承）；②`type`/`name` 键必须显式补（Orca vendor 档没 type，CLI 按 type 分流，缺了静默跳过整档=裸默认）；③`from` 必须 `user`（system 档按名查 datadir 找不到即回退默认）；④machine 的 `inherits` 与 process 的 `compatible_printers` 必须指向同一身份（-17 拒切）；⑤Orca 改键名 `threshold_overhang_angle→support_threshold_angle`，百分比键（infill/supportDensity）必须带 `%`。已验证：引擎 6 项参数（层高/墙数/支撑阈值 40°/孔补偿 -0.1/支撑开/填充 20%）全部内嵌产物且改变切片行为（时长 38m58s→41m12s）。实测挂钩.stl 155 层 41 分钟，gcode 含 114 段 Support 树支撑特征。**已知边界**：无头环境无 OpenGL → 缩略图缺失 → CLI 退出码 1 但 gcode+slice_info.config 完整（结构=原生导出减 5 张 PNG）；曼波 Bambu Studio 02.08 打开 Orca 2.4.2 产物会弹「配置替换」（ensure_vertical_shell_thickness=ensure_all、ironing_pattern=rectilinear 是 Orca 方言新值，点确认即可，gcode 不受影响）；缺口：H2C 机器档 Orca 2.4.2 未带（用 H2D/X1C 代或自拷 vendor 档）、双挤出机耗材映射（--load-filaments 多文件）未通、中文文件名过 PowerShell 桥会乱码（先复制成 ASCII 名）；
+- **批量识别压测（2026-10-11 二批，曼波纠偏：这不是训练）**：`npm run train [目录] [--commit]`（`scripts/train-from-models.js`，名字历史遗留）——扫目录模型文件全量过几何体检 + 3mf 参数提取，JSONL 数据集落 `C:/home/qianli/bambu-data/training/`（md5 去重；STEP/OBJ 记 pending 等 B-rep 批）。⚠️ **无人工工况标注时，这批数据只是「模型识别能力基准」**——「几何 when × 专家参数 diff」的配对只是识别输出与切片器 profile 的相关性（脚本会剥掉 ≥80% 同值的 profile 常量再展示，且 `--commit` 入池需人工复核），不构成监督样本。Downloads 首测：29 文件 → 60 对象识别（孔 42 / 悬空 22 / 曲面 25 / 小接触面 32 触发）+ 5 条配对展示（未入池）；
+- **训练集录入工坊（2026-10-12 三批，曼波定：直上训练集）**：独立页面 `/train.html`（与预约页同款视觉，**无审批**——录入人即标注权威，删除留 reviewer+）。流程反转：交「模型（自动提几何特征）+ 已切片 3mf（自动提专家参数）+ 工况勾选（人工标注金标准）」→ 三方合成一条样本入库。样本 = `{model: 特征+文件归档, slice: 参数提取+文件归档, selection: 人工工况, spatial: 3D 空间标注, machine: 机型, fit: 拟合度, autoSuggestion: 几何自动建议, outcome: 打印结果}`。**拟合度条置顶**（2026-10-12 曼波纠正语义：引擎按工况算的参数 vs 专家切片参数的贴合程度 = 规则库覆盖缺口度量；差异项一键「记忆为规则候选」进待审池，`src/services/paramFit.js` 口径=只在专家声明键上评估、百分比/布尔归一化）。**3D 工况标注工房**（`public/annotator.js`，纯 WebGL）：模型 3D 渲染 + 工况工具排（悬空/受弯/受压/接触/外观/自由），点模型表面落空间标注存 `spatial`——人修正几何链路盲区的接口。**机型隔离**（多品牌机队 `.printer-fleet.json` 人工维护）：样本按 `machine` 归档，几何链路全机通用。存储：索引 `.training-samples.json`（`TRAINING_SAMPLES_FILE`）、文件归档 `bambu-data/training/files/`（>80MB 只记元数据）；端点 `POST/GET/DELETE /api/training/samples` + `analyze-slice` + `fit` + `mesh` + `fleet` + `:id/outcome` + `export`。**工况勾选 ≥1 项硬性要求**。测试 `param-fit-test`（5 项）+ `training-store-test`（9 项），已并入 npm test。**学习范式定位与双链路完整解读见 [TRAINING-ARCHITECTURE.md](TRAINING-ARCHITECTURE.md)**；
 - **审核闸门（强制）**：待审池建议一律不直接生效——reviewer 及以上「采纳」才经 `processRules.upsertRule` 转正（默认 priority 120，介于外观 100 与高速 200 之间，可指定）；拒绝即归档。采纳/拒绝不可重复操作；
 - **使用效率**：提交页**参数实时预览**（勾选变化即调 `POST /api/print/process-rules/preview`，提交前看到「本单会怎么切」与材料裁定）；勾选记忆（上次选择自动恢复）；审批卡展示命中规则与理由（既有）；
-- 端点：`POST /api/print/process-rules/preview`（登录）、`POST /api/print/rule-suggestions`（登录可提）、`GET /api/print/rule-suggestions?status=` 与 `/:id/adopt`、`/:id/reject`（reviewer+）、`POST /api/print/slicer-extract`（reviewer+，multipart 3mf）；
+- 端点：`POST /api/print/process-rules/preview`（登录）、`POST /api/print/rule-suggestions`（登录可提）、`GET /api/print/rule-suggestions?status=` 与 `/:id/adopt`、`/:id/reject`（reviewer+）、`POST /api/print/slicer-extract`（reviewer+，multipart 3mf）、`POST /api/print/model-features`（登录，multipart STL 几何体检）；
 - 存储：`RULE_SUGGESTIONS_FILE`（默认项目根 `.rule-suggestions.json`，生产配项目外）；
-- 测试：`node test/learning-loop-test.js`（10 项，已并入 npm test 与 push 闸门）。规划中：失败原因打标反馈回路（只记录不自动调参）、规则命中率统计上 policy 窗口。
+- 测试：`node test/learning-loop-test.js`（10 项）+ `node test/model-features-test.js`（12 项，合成网格断言），均已并入 npm test 与 push 闸门。规划中：失败原因打标反馈回路（只记录不自动调参）、规则命中率统计上 policy 窗口。
 
 ## 账号体系（2026-10-05 第二批：防止未授权使用）
 

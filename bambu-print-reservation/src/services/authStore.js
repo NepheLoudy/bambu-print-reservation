@@ -180,6 +180,20 @@ const authStore = {
     return true;
   },
 
+  /** 管理员重置密码（2026-10-12：终结反复锁死循环——临时密码随返回值给管理员转交） */
+  adminResetPassword(userId, tempPassword) {
+    const data = load();
+    const user = data.users.find((u) => u.id === userId);
+    if (!user) throw new Error('用户不存在');
+    if (!/^[S]{6,}$/.test(tempPassword)) throw new Error('临时密码至少 6 位');
+    const salt = crypto.randomBytes(16).toString('hex');
+    user.salt = salt;
+    user.passHash = hashPassword(tempPassword, salt);
+    user.sessions = {}; // 清会话：被重置者全部登录态失效
+    save(data);
+    return { username: user.username, tempPassword };
+  },
+
   /** 角色变更（admin 操作）：member/reviewer/admin */
   setRole(userId, role) {
     if (!ROLES.includes(role)) throw new Error(`非法角色: ${role}`);

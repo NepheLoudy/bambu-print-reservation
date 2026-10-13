@@ -25,8 +25,19 @@ function check(name, fn) {
 
 // ---------- 结构完整性 ----------
 
-check('标签池版本为 v2（力学/耐久扩充批）', () => {
-  assert.equal(TAXONOMY_VERSION, 'v2');
+check('标签池版本为 v4（几何体检组批）', () => {
+  assert.equal(TAXONOMY_VERSION, 'v4');
+});
+
+check('几何体检（自动检测）组：4 个 bool 字段齐备', () => {
+  const auto = groups.find((g) => g.id === 'auto');
+  assert.ok(auto, '缺 auto 组');
+  const ids = auto.fields.map((f) => f.id);
+  assert.deepEqual(ids, ['through_holes', 'overhang_heavy', 'curved_surface', 'small_footprint']);
+  for (const f of auto.fields) {
+    assert.equal(f.type, 'bool', `${f.id} 应为 bool`);
+    assert.ok(f.tooltip.includes('自动检测'), `${f.id} tooltip 应说明自动检测语义`);
+  }
 });
 
 check('每个字段具备 tooltip 与 mapsHint（可映射铁律）', () => {
@@ -140,19 +151,11 @@ check('警告级：柔性弹性 × CF（材料条件）', () => {
   assert.equal(validateSelection({ deflection_scale: 1 }, { material: 'PLA-CF' }).warnings.length, 0);
 });
 
-check('收缩量要求标尺在池（-3~+3，带两端文案，2026-10-08 曼波需求）', () => {
+check('收缩量要求标尺已下架（2026-10-10 曼波需求，池内不得残留）', () => {
   const shrink = groups.flatMap((g) => g.fields).find((f) => f.id === 'shrink_scale');
-  assert.ok(shrink, '缺 shrink_scale 字段');
-  assert.equal(shrink.type, 'scale');
-  assert.equal(shrink.min, -3); assert.equal(shrink.max, 3);
-  assert.ok(shrink.minLabel.includes('收缩'), 'minLabel 应表达负收缩（变小）');
-  assert.ok(shrink.maxLabel.includes('涨量'), 'maxLabel 应表达膨胀涨量（变大）');
-  const r = validateSelection({ shrink_scale: -2 });
-  assert.deepEqual(r.errors, [], '收缩标尺合法值应通过校验');
-  assert.equal(validateSelection({ shrink_scale: 4 }).errors.length, 1, '越界值应报错');
-  const t = getTaxonomy();
-  const shrinkOut = t.groups.flatMap((g) => g.fields).find((f) => f.id === 'shrink_scale');
-  assert.equal(shrinkOut.minLabel, shrink.minLabel, '窗口输出应携带 minLabel');
+  assert.ok(!shrink, 'shrink_scale 应已从标签池移除');
+  // 历史勾选残留：未知标签按既有口径拦截，不静默放行
+  assert.equal(validateSelection({ shrink_scale: -2 }).errors.length, 1, '池外字段应报「未知需求标签」');
 });
 
 // ---------- selectionFromFormFields ----------
@@ -200,7 +203,7 @@ check('提取结果可直接过校验并与材料联动', () => {
 check('getTaxonomy 输出全景：version/groups/conflicts，正则转字符串', () => {
   const t = getTaxonomy();
   assert.equal(t.version, TAXONOMY_VERSION);
-  assert.ok(Array.isArray(t.groups) && t.groups.length >= 8);
+  assert.ok(Array.isArray(t.groups) && t.groups.length >= 9);
   assert.ok(Array.isArray(t.conflicts) && t.conflicts.length >= 6);
   for (const c of t.conflicts) {
     assert.ok(c.materialMatch === null || typeof c.materialMatch === 'string');

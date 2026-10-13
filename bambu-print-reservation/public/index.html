@@ -114,6 +114,10 @@
   .preview { margin-top: 12px; padding: 10px 12px; background: #f0f7fc; border: 1px solid #cfe6f5; border-radius: 8px; font-size: 12px; }
   .preview b { color: var(--accent); }
   .preview .pv { display: inline-block; margin: 2px 10px 2px 0; }
+  .mfChips { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .mfChip { background: #fff; border: 1px solid #cfe6f5; border-radius: 10px; padding: 1px 8px; font-size: 11px; }
+  .mfNotes { margin-top: 6px; line-height: 1.7; }
+  .mfFoot { margin-top: 6px; color: #7a8a99; font-size: 11px; }
   textarea.paramEdit { width: 100%; height: 110px; font-family: Consolas, monospace; font-size: 12px; padding: 8px; border: 1px solid var(--line); border-radius: 6px; }
   .sugbox { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; font-size: 12px; }
   .sugbox .cnt { display: inline-block; background: var(--warn); color: #fff; border-radius: 9px; padding: 0 8px; font-size: 11px; margin-left: 6px; }
@@ -135,8 +139,8 @@
     <h2>🔐 账号</h2>
     <div class="tabs">
       <button id="tabLogin" class="on" onclick="switchAuth('login')">登录</button>
-      <button id="tabRegister" onclick="switchAuth('register')">注册（首位注册者自动成为管理员）</button>
     </div>
+    <div class="hint warn">🔒 注册已关闭——需要账号请联系 <b>2805328773@qq.com</b>（注明姓名与用途），由管理员人工开通</div>
     <div class="row">
       <div><label>用户名（3–32 位字母/数字/下划线）</label><input type="text" id="authUsername"></div>
       <div><label>显示姓名（审批卡/队列里显示）</label><input type="text" id="authDisplayName" style="display:none"></div>
@@ -166,6 +170,7 @@
         <div><label>模型 / 切片文件 *（.stl/.step 走需求链路：勾选工况自动定档；.3mf 走审批直通：切片参数已内嵌）</label><input type="file" id="file" accept=".stl,.step,.stp,.3mf,.obj"></div>
       </div>
       <div class="preview" id="slicedNotice" style="display:none">📦 <b>3mf 审批直通模式</b>——切片参数与 AMS 颜色映射已内嵌文件，无需工况勾选；材料/颜色栏仅用于选机匹配</div>
+      <div class="preview" id="modelPanel" style="display:none"></div>
       <div id="taxonomy"></div>
       <div class="hint" id="conflictHint"></div>
       <div class="convention" id="convention"></div>
@@ -225,11 +230,10 @@ function toast(msg) { const t = $('toast'); t.textContent = msg; t.style.display
 const isReviewer = () => ME && ['reviewer', 'admin'].includes(ME.role);
 const isAdmin = () => ME && ME.role === 'admin';
 
-function switchAuth(mode) {
-  authMode = mode;
-  $('tabLogin').className = mode === 'login' ? 'on' : '';
-  $('tabRegister').className = mode === 'register' ? 'on' : '';
-  $('authDisplayName').style.display = mode === 'register' ? 'block' : 'none';
+function switchAuth(mode) { // 注册已关闭（2026-10-12）：保留函数签名兼容旧调用，只支持 login
+  authMode = 'login';
+  $('tabLogin').className = 'on';
+  $('authDisplayName').style.display = 'none';
 }
 
 async function doAuth() {
@@ -284,6 +288,7 @@ function renderIdentity() {
   $('authCard').style.display = 'none';
   $('appBody').style.display = 'block';
   box.innerHTML = `你好，<b>${esc(ME.displayName)}</b><span class="role r-${ME.role}">${ME.role}</span>
+    ${isReviewer() ? '<a href="/train.html" style="font-size:12px;margin-right:4px">🎓 训练录入</a>' : ''}
     <button onclick="changePassword()">改密码</button>
     <button onclick="logout()">退出</button>`;
   $('adminCard').style.display = isAdmin() ? 'block' : 'none';
@@ -319,7 +324,7 @@ async function applyPreview() {
       return;
     }
     const p = data.params;
-    const items = ['layerHeight', 'wallLoops', 'topShellLayers', 'bottomShellLayers', 'infillDensity', 'infillPattern', 'speedProfile', 'supportType', 'supportThresholdAngle', 'supportDensity', 'seamPosition']
+    const items = ['directionStrategy', 'layerHeight', 'wallLoops', 'topShellLayers', 'bottomShellLayers', 'infillDensity', 'infillPattern', 'speedProfile', 'supportType', 'supportThresholdAngle', 'supportDensity', 'seamPosition', 'xyHoleComp', 'xyContourComp', 'ironing', 'brim', 'brimWidth', 'temperatureDelta', 'nozzleTempDelta']
       .map((k) => p[k] !== undefined && `<span class="pv">${PARAM_LABELS[k]}=<b>${p[k]}</b></span>`).filter(Boolean).join('');
     const mat = data.materialVerdict ? `<span class="pv">材料裁定=<b>${data.materialVerdict.excluded ? '⛔排除' : data.materialVerdict.preferred ? '✅优先' : '—'}</b></span>`
       : (p.materialExclude?.length || p.materialPrefer?.length)
@@ -431,12 +436,23 @@ async function loadUsers() {
   const res = await fetch('/api/auth/users');
   if (!res.ok) return;
   const users = await res.json();
-  $('userList').innerHTML = `<table><tr><th>用户名</th><th>姓名</th><th>角色</th><th>操作</th></tr>` +
+  $('userList').innerHTML = `<table><tr><th>用户名</th><th>姓名</th><th>角色</th><th>最后登录</th><th>操作</th></tr>` +
     users.map(u => `<tr><td>${esc(u.username)}</td><td>${esc(u.displayName)}</td>
       <td><select class="roleSel" onchange="setRole('${u.id}', this.value)">
         ${['member','reviewer','admin'].map(r => `<option ${u.role === r ? 'selected' : ''}>${r}</option>`).join('')}
       </select></td>
-      <td class="detail">${esc((u.lastLoginAt || '').replace('T', ' ').slice(0, 16)) || '从未登录'}</td></tr>`).join('') + '</table>';
+      <td class="detail">${esc((u.lastLoginAt || '').replace('T', ' ').slice(0, 16)) || '从未登录'}</td>
+      <td><button class="mini" onclick="resetPwd('${u.id}')">重置密码</button></td></tr>`).join('') + '</table>';
+}
+
+async function resetPwd(id) {
+  if (!confirm('重置该用户的密码？（生成随机临时密码，会话全清，请转告本人登录后修改）')) return;
+  const res = await fetch(`/api/auth/users/${id}/reset-password`, { method: 'POST' });
+  const data = await res.json().catch(() => ({}));
+  if (res.ok) {
+    prompt(`✅ 已重置 ${data.username} 的密码，临时密码如下（只显示这一次，请复制转告）：`, data.tempPassword);
+    loadUsers();
+  } else toast('❌ ' + (data.error || '失败'));
 }
 
 async function setRole(id, role) {
@@ -588,6 +604,65 @@ function updateSlicedMode() {
   else preflight();
 }
 
+// ---------- STL 几何体检（2026-10-11 模型特征自拟合） ----------
+
+let MODEL_FEATURES = null;  // 当前 STL 体检结果（提交随单入档）
+let lastAutoChecked = [];   // 上一轮自动预勾选的字段（换文件时先撤掉，只管体检组）
+
+/** 选了 STL 就自动体检：面板展示指标 + 几何体检组自动预勾选（可手动取消） */
+async function analyzeModel() {
+  const file = $('file').files[0];
+  MODEL_FEATURES = null;
+  const panel = $('modelPanel');
+  if (!file || isSlicedFile() || !/\.stl$/i.test(file.name)) { panel.style.display = 'none'; panel.innerHTML = ''; return; }
+  panel.style.display = 'block';
+  panel.innerHTML = '🔍 模型体检中…（几何特征分析）';
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    const res = await fetch('/api/print/model-features', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) { panel.innerHTML = '🔍 模型体检不可用：' + esc(data.error || '解析失败'); return; }
+    MODEL_FEATURES = data;
+    renderModelPanel(data);
+    applyAutoSuggestions(data.suggestions);
+  } catch { panel.style.display = 'none'; } // 体检挂了不拦提交
+}
+
+function renderModelPanel(f) {
+  const panel = $('modelPanel');
+  if (!f.ok) { panel.innerHTML = '🔍 模型体检跳过：' + esc(f.reason || '未知原因') + '（不影响提交，按勾选走）'; return; }
+  const chips = [
+    `📐 ${f.bbox.x}×${f.bbox.y}×${f.bbox.z} mm`,
+    `🧊 ${f.volumeCm3} cm³`,
+    `🔺 ${f.triangles} 面`,
+    f.holes.count > 0 ? `🕳 ${f.holes.count} 孔${f.holes.radii[0] !== undefined ? `（最小 r${f.holes.radii[0]}mm）` : ''}` : '🕳 无孔检出',
+    `⬇️ 重悬空 ${f.overhang.severePct}%`,
+    `📥 贴底 ${f.contact.areaMm2}mm²（${f.contact.footprintPct}%）`,
+    `🌀 曲面 ${f.curvedPct}%`,
+    f.mesh.closed ? '' : '⚠️ 网格不闭合（孔数可能不准）',
+  ].filter(Boolean).map(c => `<span class="mfChip">${c}</span>`).join('');
+  const notes = (f.suggestions.notes || []).map(n => `<div>• ${esc(n)}</div>`).join('');
+  panel.innerHTML = `<b>🔍 模型体检</b><div class="mfChips">${chips}</div>${notes ? `<div class="mfNotes">${notes}</div>` : '<div class="mfNotes">常规几何，无需特殊处理建议</div>'}<div class="mfFoot">「几何体检（自动检测）」组已按检测结果预勾选——不符合实际请手动取消</div>`;
+}
+
+/** 套用预勾选：先撤上一轮自动勾的（体检组语义跟随当前文件），再勾本轮建议 */
+function applyAutoSuggestions(sug) {
+  for (const fieldId of lastAutoChecked) {
+    const label = document.querySelector(`.opt[data-field="${fieldId}"]`);
+    if (label) { label.querySelector('input').checked = false; label.classList.remove('on'); }
+  }
+  lastAutoChecked = [];
+  const sel = (sug && sug.selection) || {};
+  for (const [fieldId, v] of Object.entries(sel)) {
+    if (v !== true) continue;
+    const label = document.querySelector(`.opt[data-field="${fieldId}"]`);
+    if (label) { label.querySelector('input').checked = true; label.classList.add('on'); lastAutoChecked.push(fieldId); }
+  }
+  updateLoadTypeDesc();
+  collectSelection(); preflight(); schedulePreview(); saveSelMemory(); renderSelSummary();
+}
+
 function collectSelection() {
   const sel = {};
   document.querySelectorAll('.opt.on').forEach(l => {
@@ -670,6 +745,8 @@ function submitReservation() {
   fd.append('quantity', $('quantity').value || 1);
   // 3mf 直通不提交勾选（切片参数内嵌）；需求链路提交标签
   fd.append('selection', JSON.stringify(isSlicedFile() ? {} : collectSelection()));
+  // STL 体检快照随单入档（学习回路底料；3mf 无此项）
+  if (!isSlicedFile() && MODEL_FEATURES && MODEL_FEATURES.ok) fd.append('modelFeatures', JSON.stringify(MODEL_FEATURES));
 
   const btn = $('submitBtn'); btn.disabled = true; $('submitHint').textContent = '上传中 0%';
   // XHR 而非 fetch：大文件（≤200MB）需要 upload.onprogress 进度条
@@ -690,6 +767,7 @@ function submitReservation() {
       toast(`✅ 已提交 ${data.id}，等待审批`);
       $('file').value = ''; $('submitHint').textContent = '';
       updateSlicedMode();
+      analyzeModel(); // 文件已清空：收起体检面板、清掉快照（value 置空不触发 change，手动补）
       saveSelMemory();
       loadList();
     } catch { $('submitHint').textContent = ''; toast('❌ 服务响应异常'); }
@@ -922,7 +1000,7 @@ async function printerCtl(id, action, confirmText) {
   await loadTaxonomy();
   loadColors();
   restoreSelMemory();
-  $('file').addEventListener('change', updateSlicedMode); // 双通道模式感知
+  $('file').addEventListener('change', () => { updateSlicedMode(); analyzeModel(); }); // 双通道模式感知 + STL 几何体检
   preflight();
   schedulePreview();
   renderSelSummary();

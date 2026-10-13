@@ -1,11 +1,15 @@
 const express = require('express');
+// dotenv 必须最先加载（config 内 require('dotenv').config）：authStore/processRules/
+// trainingStore 等服务模块在顶层读 process.env.XXXX 决定存储路径——晚于它们加载
+// 会让 .env 的存储路径静默失效、退回项目根默认（2026-10-12 审查发现，账号库
+// 实际落在了项目根而非 bambu-data 数据目录）
+const config = require('./config');
 const { requireApiToken, requireUser, parseCookies } = require('./auth');
 const authStore = require('./services/authStore');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
-const config = require('./config');
 const reservationService = require('./services/reservation');
 const reservationStore = require('./services/reservationStore');
 const processRules = require('./services/processRules');
@@ -24,10 +28,11 @@ app.use(cors());
 // 审批事件/表单可能较大（AGENTS.md 通用坑：express.json 放宽到 2mb）
 app.use(express.json({ limit: '2mb' }));
 
-// 前端页面（同源伺服，public/index.html）；HTML 不缓存——页面迭代后浏览器不得吃旧版
+// 前端页面（同源伺服，public/index.html）；HTML 不缓存——页面迭代后浏览器不得吃旧版；
+// js/css 同样不缓存（2026-10-12：迭代期启发式缓存让浏览器跑旧脚本，"功能又坏了"类反馈的真凶）
 app.use(express.static(path.join(__dirname, '..', 'public'), {
   setHeaders: (res, filePath) => {
-    if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
+    if (filePath.endsWith('.html') || filePath.endsWith('.js') || filePath.endsWith('.css')) res.setHeader('Cache-Control', 'no-cache');
   },
 }));
 
@@ -92,13 +97,10 @@ app.get('/api/health', (req, res) => {
 // ---------- 账号体系（2026-10-05 第二批：防止未授权使用） ----------
 // 注册开放（首位注册者自动 admin，之后均 member）；审批人由 admin 在页面升权。
 
+// 注册已关闭（2026-10-12 曼波：需要账号联系 2805328773@qq.com 人工开）。
+// 端点保留并 fail-closed 403——防止老客户端/脚本仍走开放注册
 app.post('/api/auth/register', (req, res) => {
-  try {
-    const { username, password, displayName, inviteCode } = req.body || {};
-    res.json(authStore.register({ username, password, displayName, inviteCode }));
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
+  res.status(403).json({ error: '注册已关闭——如需账号请联系 2805328773@qq.com（注明姓名与用途），由管理员人工开通' });
 });
 
 app.post('/api/auth/login', (req, res) => {
@@ -119,6 +121,16 @@ app.post('/api/auth/logout', (req, res) => {
   if (token) authStore.destroySession(token);
   res.setHeader('Set-Cookie', 'bambu_session=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0');
   res.json({ success: true });
+});
+
+// 管理员重置用户密码（2026-10-12）：临时密码随返回值给管理员转交，被重置者会话全清
+app.post('/api/auth/users/:id/reset-password', requireUser('admin'), (req, res) => {
+  try {
+    const temp = 'tmp' + String(Math.floor(1000 + Math.random() * 9000));
+    res.json(require('./services/authStore').adminResetPassword(req.params.id, temp));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 app.get('/api/auth/me', (req, res) => {
@@ -281,6 +293,275 @@ app.post('/api/print/slicer-extract', requireUser('reviewer', 'admin'), upload.s
   }
 });
 
+// STL/3mf 几何体检（登录即可；2026-10-11 模型特征自拟合）：解析上传的裸模型，
+// 返回几何特征 + taxonomy「几何体检」组预勾选建议——体检是提效不设卡：
+// 失败/超限不阻塞提交，前端按「无建议」降级。2026-10-12 扩 3mf（训练录入页复用）
+app.post('/api/print/model-features', requireUser(), upload.single('file'), (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: '缺少模型文件（multipart 字段名 file）' });
+    const name = req.file.originalname || '';
+    const clean = () => { try { fs.unlinkSync(req.file.path); } catch { /* 已不存在 */ } };
+    const mf = require('./services/modelFeatures');
+    if (/\.stl$/i.test(name)) {
+      const result = mf.analyzeStl(fs.readFileSync(req.file.path));
+      clean();
+      return res.json(result);
+    }
+    if (/\.3mf$/i.test(name)) {
+      const result = mf.analyze3mf(fs.readFileSync(req.file.path));
+      clean();
+      return res.json(result);
+    }
+    clean();
+    return res.status(400).json({ error: '几何体检目前仅支持 .stl / .3mf（step/obj 按需求勾选走）' });
+  } catch (err) {
+    if (req.file) { try { fs.unlinkSync(req.file.path); } catch { /* 已不存在 */ } }
+    res.status(400).json({ ok: false, skipped: true, error: `模型解析失败: ${err.message}` });
+  }
+});
+
+// ---------- 训练集录入工坊（2026-10-12，无审批：录入即入库） ----------
+
+// 机队档案（多品牌机型隔离；JSON 人工维护）
+app.get('/api/training/fleet', requireUser(), (req, res) => {
+  res.json({ machines: require('./services/printerFleet').load() });
+});
+
+// 拟合度（2026-10-12 曼波纠正置信度语义）：引擎按人工工况算的参数 vs 专家切片参数，
+// 衡量规则库对此 case 的覆盖程度；差异项即「可被记忆的参数」（一键转规则候选）
+app.post('/api/training/fit', requireUser(), (req, res) => {
+  try {
+    const { selection, materialType, expertParams } = req.body || {};
+    if (!expertParams || !Object.keys(expertParams).length) {
+      return res.status(400).json({ error: '缺少专家切片参数（先上传切片产物）' });
+    }
+    const applied = require('./services/processRules').applyRules(selection || {}, { material: materialType });
+    if (applied.blocked) {
+      return res.json({ score: null, blocked: true, errors: applied.errors });
+    }
+    const fit = require('./services/paramFit').compare(applied.params, expertParams);
+    res.json({ ...fit, engineParams: applied.params });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// 网格下发（3D 标注工房用）：模型文件 → 抽稀网格 JSON（≤12 万面，浏览器可渲染）
+app.post('/api/training/mesh', requireUser(), upload.single('file'), (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: '缺少模型文件' });
+    if (req.file.size > 80 * 1024 * 1024) {
+      try { fs.unlinkSync(req.file.path); } catch { /* 已不存在 */ }
+      return res.status(400).json({ error: '模型超过 80MB，3D 标注视图不支持（不影响录入）' });
+    }
+    const clean = () => { try { fs.unlinkSync(req.file.path); } catch { /* 已不存在 */ } };
+    const mf = require('./services/modelFeatures');
+    const parsed = /\.3mf$/i.test(req.file.originalname || '')
+      ? (() => {
+          // 注意：用 parse3mfModel 拿原始网格（analyze3mf 的对象是分析结果，不含几何）
+          const r = mf.parse3mfModel(fs.readFileSync(req.file.path));
+          if (r.error || !r.objects.length) throw new Error(r.error || '3mf 内无可渲染网格');
+          // 多零件取首件（v1 标注以主零件为界，多零件逐件标注待下批）
+          return r.objects[0];
+        })()
+      : mf.parseStl(fs.readFileSync(req.file.path));
+    clean();
+    if (parsed.error) { clean(); return res.status(400).json({ error: parsed.error }); }
+    const { positions, faces, triangles } = parsed;
+    const MAX_VIEW_FACES = 120000;
+    const skip = Math.max(1, Math.ceil(triangles / MAX_VIEW_FACES));
+    const outFaces = [];
+    for (let t = 0; t < triangles; t += skip) outFaces.push(faces[t * 3], faces[t * 3 + 1], faces[t * 3 + 2]);
+    res.json({
+      positions: Array.from(positions),
+      faces: outFaces,
+      faceCount: outFaces.length / 3,
+      originalFaceCount: triangles,
+      decimated: skip > 1,
+      skip,
+    });
+  } catch (err) {
+    if (req.file) { try { fs.unlinkSync(req.file.path); } catch { /* 已不存在 */ } }
+    res.status(400).json({ error: `网格下发失败: ${err.message}` });
+  }
+});
+
+// 切片产物参数提取（登录即可）：3mf 工程/已切片产物 → 专家切片参数 + baseline diff
+app.post('/api/training/analyze-slice', requireUser(), upload.single('file'), (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: '缺少切片产物（multipart 字段名 file，.3mf）' });
+    const clean = () => { try { fs.unlinkSync(req.file.path); } catch { /* 已不存在 */ } };
+    if (!/\.3mf$/i.test(req.file.originalname || '')) {
+      clean();
+      return res.status(400).json({ error: '切片产物仅支持 .3mf（工程导出或已切片产物）' });
+    }
+    if (req.file.size > 50 * 1024 * 1024) {
+      clean();
+      return res.status(400).json({ error: '3mf 超过 50MB，跳过提取（adm-zip 需整文件进内存）' });
+    }
+    const result = require('./services/slicerExtract').extractFrom3mf(fs.readFileSync(req.file.path));
+    clean();
+    res.json(result);
+  } catch (err) {
+    if (req.file) { try { fs.unlinkSync(req.file.path); } catch { /* 已不存在 */ } }
+    res.status(400).json({ error: `切片参数提取失败: ${err.message}` });
+  }
+});
+
+// 录入训练样本（登录即可，无审批）：模型文件必填 + 切片产物可选 + 人工工况勾选必填
+app.post('/api/training/samples', requireUser(), upload.fields([
+  { name: 'model', maxCount: 1 },
+  { name: 'slice', maxCount: 1 },
+]), (req, res) => {
+  try {
+    const body = req.body || {};
+    let selection = {};
+    let spatial = [];
+    try {
+      selection = body.selection ? JSON.parse(body.selection) : {};
+      spatial = body.spatial ? JSON.parse(body.spatial) : [];
+    } catch {
+      return res.status(400).json({ error: 'selection/spatial 不是合法 JSON' });
+    }
+    // spatial 字段净化 v5（客户端数据不信任）：point（点）/ axis（两面交线受弯轴线）/
+    // survey（悬垂面普查）/ circle（识别孔口环）/ region（面区域染色的面索引集）/
+    // load（载荷标注：力方向 + 受力类型）。只收白名单字段；faces 封顶 20 万
+    const cleanP3 = (arr) => Array.isArray(arr) ? arr.slice(0, 3).map((n) => { const v = Number(n); return Number.isFinite(v) ? +v.toFixed(2) : 0; }) : null;
+    const LOAD_TYPES = ['compression', 'tension', 'shear', 'bending', 'torsion', 'contact'];
+    spatial = (Array.isArray(spatial) ? spatial : []).slice(0, 200).map((s) => {
+      if (!s || !String(s.tool || '').slice(0, 40)) return null;
+      const base = { tool: String(s.tool).slice(0, 40) };
+      if (s.type === 'load') {
+        const pos = cleanP3(s.pos), dir = cleanP3(s.dir);
+        const NATURES = ['static', 'fatigue', 'impact', 'vibration'];
+        const MAGS = ['light', 'medium', 'heavy'];
+        const natureOk = !s.loadNature || NATURES.includes(s.loadNature);
+        const magOk = !s.loadMagnitude || MAGS.includes(s.loadMagnitude);
+        return pos && dir && LOAD_TYPES.includes(s.loadType) && natureOk && magOk
+          ? { ...base, type: 'load', loadType: s.loadType, pos, dir, ...(natureOk && s.loadNature ? { loadNature: s.loadNature } : {}), ...(magOk && s.loadMagnitude ? { loadMagnitude: s.loadMagnitude } : {}) } : null;
+      }
+      if (s.type === 'axis') {
+        const a = cleanP3(s.a), b = cleanP3(s.b), dir = cleanP3(s.dir);
+        const note = s.note ? String(s.note).slice(0, 200) : undefined;
+        NOTE_OK
+      }
+      if (s.type === 'survey' || s.type === 'region') {
+        const faces = Array.isArray(s.faces) ? s.faces.slice(0, 200000).map((n) => Number(n) | 0).filter((n) => n >= 0) : [];
+        const supportFaces = Array.isArray(s.supportFaces) ? s.supportFaces.slice(0, 200000).map((n) => Number(n) | 0).filter((n) => n >= 0) : undefined;
+        const normal = cleanP3(s.normal) || [0, 0, 0];
+        return faces.length > 0 ? { ...base, type: s.type, faces, ...(supportFaces && supportFaces.length ? { supportFaces } : {}), normal, ...(s.seed !== undefined ? { seed: Number(s.seed) || 0 } : {}) } : null;
+      }
+      if (s.type === 'circle') {
+        const c = cleanP3(s.c), n = cleanP3(s.n);
+        const r = Number(s.r);
+        return c && n && Number.isFinite(r) && r > 0 ? { ...base, type: 'circle', c, n, r: +r.toFixed(2), ...(s.note ? { note: String(s.note).slice(0, 200) } : {}) } : null;
+      }
+      const pos = cleanP3(s.pos);
+      return pos ? { ...base, type: 'point', pos, face: Number(s.face) || 0, ...(s.note ? { note: String(s.note).slice(0, 200) } : {}) } : null;
+    }).filter(Boolean);
+    const modelFile = (req.files && req.files.model && req.files.model[0]) || null;
+    const sliceFile = (req.files && req.files.slice && req.files.slice[0]) || null;
+    if (!modelFile) return res.status(400).json({ error: '缺少模型文件（multipart 字段名 model）' });
+
+    // 几何特征（分析失败不阻塞——负样本也是数据）；>80MB 不读内存（整读会拖垮进程）
+    let features = null;
+    let modelBuf = null;
+    if (modelFile.size <= 80 * 1024 * 1024) {
+      try {
+        const mf = require('./services/modelFeatures');
+        modelBuf = fs.readFileSync(modelFile.path);
+        features = /\.3mf$/i.test(modelFile.originalname || '') ? mf.analyze3mf(modelBuf) : mf.analyzeStl(modelBuf);
+      } catch (err) {
+        console.warn(`[训练集] 模型特征分析失败（照常入库）: ${err.message}`);
+      }
+    } else {
+      console.warn(`[训练集] 模型 ${Math.round(modelFile.size / 1048576)}MB 超上限，特征与归档跳过（只记元数据）`);
+    }
+
+    // 专家切片参数提取（失败不阻塞）——必须在拟合度计算之前：v48 曾把它写在
+    // fit 块后面，fit 块引用 extraction 触发 TDZ，所有带工况的入库请求 400
+    let extraction = null;
+    if (sliceFile && req.files.slice[0].size <= 50 * 1024 * 1024) {
+      try {
+        extraction = require('./services/slicerExtract').extractFrom3mf(fs.readFileSync(sliceFile.path));
+      } catch (err) {
+        console.warn(`[训练集] 切片参数提取失败（照常入库）: ${err.message}`);
+      }
+    }
+
+    // 机型置信度快照改为「拟合度」：引擎(工况) vs 专家(切片) 参数贴合程度
+    let fit = null;
+    if (Object.keys(selection).length && extraction && extraction.params) {
+      try {
+        const applied = require('./services/processRules').applyRules(selection, { material: body.materialType });
+        if (!applied.blocked) {
+          fit = require('./services/paramFit').compare(applied.params, extraction.params);
+        }
+      } catch { /* 不阻塞 */ }
+    }
+
+    const sample = require('./services/trainingStore').create({
+      createdBy: req.user.displayName,
+      notes: body.notes,
+      selection,
+      machine: body.machine,
+      confidence: (() => { const v = Number(body.confidence); return Number.isFinite(v) ? Math.max(0, Math.min(100, Math.round(v))) : null; })(),
+      spatial,
+      materialType: body.materialType,
+      fit,
+      model: {
+        originalName: Buffer.from(modelFile.originalname || 'unnamed', 'latin1').toString('utf8'),
+        ...(modelBuf ? { buffer: modelBuf } : { buffer: Buffer.alloc(0), tooLargeToArchive: true }),
+        features,
+      },
+      slice: sliceFile ? {
+        originalName: Buffer.from(sliceFile.originalname || 'slice.3mf', 'latin1').toString('utf8'),
+        buffer: fs.readFileSync(sliceFile.path),
+        extraction,
+      } : null,
+    });
+    res.json(sample);
+  } catch (err) {
+    res.status(400).json({ error: err.message, details: err.details });
+  } finally {
+    // 清理 multer 落盘的临时文件（样本内已归档副本）
+    if (req.files) for (const arr of Object.values(req.files)) for (const f of arr) { try { fs.unlinkSync(f.path); } catch { /* 已不存在 */ } }
+  }
+});
+
+app.get('/api/training/samples', requireUser(), (req, res) => {
+  const store = require('./services/trainingStore');
+  res.json({ samples: store.list(), stats: store.stats() });
+});
+
+// 打印结果回填（学习信号奖励通道）
+app.post('/api/training/samples/:id/outcome', requireUser(), (req, res) => {
+  try {
+    res.json(require('./services/trainingStore').setOutcome(req.params.id, {
+      ...(req.body || {}),
+      recordedBy: req.user.displayName,
+    }));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// 训练管线消费口：JSONL 全量导出
+app.get('/api/training/export', requireUser('reviewer', 'admin'), (req, res) => {
+  const store = require('./services/trainingStore');
+  res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="training-samples-${Date.now()}.jsonl"`);
+  res.send(store.dumpJsonl());
+});
+
+app.delete('/api/training/samples/:id', requireUser('reviewer', 'admin'), (req, res) => {
+  try {
+    res.json(require('./services/trainingStore').remove(req.params.id));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 app.get('/api/reservations', requireUser(), async (req, res) => {
   try {
     const reservations = await reservationService.getAllReservations();
@@ -354,6 +635,30 @@ app.post('/api/reservations', requireUser(), upload.single('file'), async (req, 
       }
     }
 
+    // STL 几何体检快照随单入档（2026-10-11）：前端体检结果原样存档（compact 数值集），
+    // 与 selection 同级信任——将来学习回路的「人工修正 vs 自动建议」差值分析吃这个数据。
+    // 只收白名单数值键，防伪造膨胀；无/解析失败为 null
+    let modelFeatures = null;
+    if (!isSliced && body.modelFeatures) {
+      try {
+        const raw = JSON.parse(body.modelFeatures);
+        if (raw && raw.ok === true) {
+          modelFeatures = {
+            triangles: Number(raw.triangles) || 0,
+            vertices: Number(raw.vertices) || 0,
+            bbox: raw.bbox || null,
+            volumeCm3: Number(raw.volumeCm3) || 0,
+            overhang: raw.overhang || null,
+            contact: raw.contact || null,
+            curvedPct: Number(raw.curvedPct) || 0,
+            holes: raw.holes || null,
+            mesh: raw.mesh || null,
+            suggested: (raw.suggestions && raw.suggestions.selection) || {},
+          };
+        }
+      } catch { /* 非法 JSON 忽略，不阻塞提交 */ }
+    }
+
     // 指定打印机校验（2026-10-08）：自由文本填错名字此前会静默走自动匹配或永远排队——
     // 显式指定的值必须命中登记清单，拼错当场打回
     if (String(body.assignedPrinter || '').trim()) {
@@ -385,6 +690,7 @@ app.post('/api/reservations', requireUser(), upload.single('file'), async (req, 
       appliedRules: applied ? applied.applied : [],
       embeddedParams, // 3mf 内嵌参数摘要（审批透明化；需求链路单为 null）
       estMinutes,     // 3mf 内嵌预估时长（队列 ETA；需求链路单为 null）
+      modelFeatures,  // STL 几何体检快照（需求链路单；3mf 直通为 null）
     });
 
     reservationService.notifyReviewers(reservation).catch(() => {}); // fire-and-forget

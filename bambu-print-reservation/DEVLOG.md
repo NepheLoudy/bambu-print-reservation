@@ -408,3 +408,59 @@
 - push.js 测试闸门改自动发现 test/*-test.js（原与 package.json 双维护，漏改即绕闸）；清理僵尸依赖 lowdb/node-cron/ws（全仓零引用）。
 - 文案修正：缺料卡/失败卡不再指已移除的 /print-dispatch（改指预约页面/运维台）；/help 补列 /print-ams（指南 MD/HTML 本就有，代码侧滞后）。
 - npm test 11 套全过。**部署状态：本项目 push 为纯 SFTP 无 git 步骤，因小电脑离线（本机在校园网侧 + Radmin 不通）整批挂起——上线后 npm run push 即完成部署；本版锚点=顶层 v145 归档提交。**
+
+## v48 · 2026-10-12 · 锚点=顶层归档待补（未提交状态 SFTP 直传） · feat
+
+**训练集录入工坊大批次：几何自拟合 + 拟合度 + 3D 标注 + 机型隔离 + 切片桥 + 注册关闭**
+
+- **收缩量条下架**：shrink_scale 标签与配套 3 条规则移除，TAXONOMY_VERSION v3（几何体检批内再升 v4）；
+- **几何体检 v4**：`src/services/modelFeatures.js`——STL/3mf 解析（焊接/边表/亏格/平面环拟圆/悬空分带/贴底接触/曲面占比），taxonomy 新增「几何体检（自动检测）」组 4 标签（通孔补偿/悬空支撑/曲面保护/小接触面裙边）+ 规则引擎 4 条种子（priority 60）；拟合口径修正后另立 `paramFit.js`；
+- **训练集录入工坊** `/train.html`（无审批）：模型（自动特征）+ 已切片 3mf（自动提专家参数）+ 工况勾选（人工标注 ≥1 项硬校验）三方合成样本；`trainingStore.js` 索引 + 文件归档 `bambu-data/training/files/`；
+- **拟合度条（曼波纠正语义）**：`paramFit.js` 引擎(工况)参数 vs 专家(切片)参数贴合度，只在专家声明键上评估；差异项一键「记忆为规则候选」进待审池——知识库覆盖缺口直接度量与记忆闭环；
+- **3D 工况标注工房** `annotator.js`（纯 WebGL）：轨道旋转/滚轮缩放/面拾取（单次 draw 颜色属性缓冲）/悬停高亮/遮挡感知标注点/自由标注附备注；工具排=悬空需支撑/受弯/受压/接触面/外观面/自由；空间标注随样本存 `spatial`——人修正几何链路盲区的接口；
+- **机型隔离**：`printerFleet.js` 机队档案（`.printer-fleet.json` 人工维护，种子 X1C/P1S/AD5M Pro），样本按 `machine` 归档，几何链路全机通用；
+- **outcome 奖励通道 + JSONL 导出**：样本回填打印结果（成功/失败/部分成功+问题），`/api/training/export` 供训练管线；
+- **渲染一致性验证**：mesh 端点与特征分析同解析路径，三方对账（三角面/焊接顶点/包围盒）STL+3mf 双格式全 ✓；
+- **注册关闭**：`/api/auth/register` fail-closed 403，UI 改「联系 2805328773@qq.com」；
+- **测试**：新增 model-features(16)/param-fit(5)/training-store(11) 三套，全量 14 套全绿；push 闸门自动发现 test/*-test.js 已覆盖；
+- **npm run push 纯 SFTP 部署**（本版未做顶层归档提交，锚点待补）。
+
+## v49 · 2026-10-13 · 锚点=顶层归档待补（未提交状态 SFTP 直传） · feat
+
+**3D 标注支撑检出具批：悬垂自动染色 + Shift 同特征并选 + 右上角 3D 指向标（曼波三点需求 + 两枚存量 bug 修复）**
+
+- **支撑标注修通（曼波「支撑的标注功能目前还有问题」）**：病根是工具 shape 两边对不上——train.html 配 `survey`、annotator 点击处理认 `support_region`，点击落到点标注兜底，v1.8 支撑染色成死代码；统一为 `support_region`（后缀「点面染悬垂」，survey 仅作历史样本字段兼容）。`?v=20` 破缓存。
+- **悬垂检出具（点面）**：平滑洪波（25°）取「人眼的那个面」→ 区内**悬垂带**（朝下、法线与 −Z 夹角 ≤25°=重悬空带、非贴底）染红、其余淡蓝，口径与 modelFeatures.overhangSevereDeg 一致；无悬垂的面点击给提示不落标注。
+- **Shift 同特征并选**：候选=全模型悬垂带 ∩ 与种子悬垂带平均法线夹角 ≤30°（朝向相同）∩ 包围盒至少一轴重叠（坐标方向相同，容差 2% span），**单轴区间扫掠+并查集**传递闭包（视图网格上限 12 万面，两两暴力不可行）——一排同高孔位、被筋隔开的同一高度面一次收齐；无同特征给提示。
+- **右上角 3D 指向标**：纯 WebGL 三轴箭头（杆+锥+端盖）+ 眼空间背光圆盘，随视角旋转；字母层走 SVG（背向相机调暗）；pick/hover 帧不画（不污染拾取缓冲）；角落 scissor 清深，模型贴边也不遮挡。
+- **P0 存量修复：getAnnotations 未定义**——该名字只在返回 API 的属性上，作用域内无函数，全文件 13 处 `opts.onChange(getAnnotations())` 必抛 ReferenceError：标注已 push 且渲染，但 onChange 必炸、页面标注清单永不刷新。补作用域函数并让 API 属性直接引用。
+- **染色即时重绘**：recomputeTints 只重传 tint 缓冲从不触发 GL 重绘，区域染色要等下一次鼠标划过才现身——末尾补 invalidate()。
+- **指向标转置修复（曼波实测当场抓出）**：首版箭头矩阵把世界→眼旋转写成转置（逆旋转），字母用 basis、箭头用 Rᵀ，动起来对不上；改为 basis 三元组直接作 R 的三列。
+- **浏览器实测（IAB + 临时 harness 页，验后即删）**：夹具=立墙+两块同高悬臂+三轴都不对齐的干扰悬臂。普通点悬臂底面=仅该底面染红（faces 2/sup 2）；Shift=两悬臂同染（faces 4/sup 4/shift true）干扰块正确排除；无悬垂面=提示不落标注；孤立悬垂 Shift=「无同特征」提示；同 seed 再点=取消；指向标三角度截图核对字母箭头同步（X 正对相机缩成点）。踩坑：合成点击必须补 mousedown（moved 防抖只在 mousedown 清零）；readPixels 包一层即可窥探拾取真值。
+- npm test 全部通过。
+
+## v50 · 2026-10-13 · 锚点=顶层归档待补（未提交状态 SFTP 直传） · fix+feat
+
+**录入工坊补丁批（曼波三条反馈 + 入库 P0 双雷）：载荷性质显显、机队添员、可信度下架、入库链路修复**
+
+- **P0：新登录用户工况区空白、入库永远被拒**——loadTaxonomy/loadFleet/computeFit 只在 init() 的「刷新时已登录」路径调用，登录过渡（renderIdentity）只刷 loadSamples：现场新登录拿到的页面工况勾选区 0 组 0 项，submitSample 恒被「工况勾选不能为空」弹回。重构为 initWorkbench()（TAXONOMY 非空即跳过防双渲染），renderIdentity 统一走它，登录过渡与刷新同路径。
+- **P0：所有带工况的入库请求 400（Cannot access 'extraction' before initialization）**——v48 起样本路由里拟合度块引用 extraction 在其 let 声明之前（TDZ），try/catch 兜成 400 文案回给前端；v48 从未上过生产、本地测试又只测 store 不测路由，今日首部署即爆。修法：切片提取块移到拟合度块之前。
+- **载荷性质上箭头（曼波：载荷性质没能在箭头上体现）**：loadNature 此前只入存储与 taxonomy 联动。annotator.js 箭头文字改中文三段式「受压载荷·静载·中载」（LOAD_TYPE_LABEL/NATURE_LABEL 映射，受力类型顺势中文化）；train.html spatialLabel 同步补性质+量级；?v=21 破缓存。IAB 冒烟：bending/impact/heavy 桩箭头标签「弯曲载荷·冲击·重载」正确。
+- **机队添员 + 可信度下架（曼波点名）**：.printer-fleet.json 与 printerFleet.js 种子新增 Bambu Lab H2D（350×320×325）、Flashforge Adventurer 5M（AD5M，220³）、Flashforge Creator 5 Pro（C5 Pro，256³ 四喷头多色）；机型 reliability 字段无任何消费方（评分职责已归 paramFit）连数据删除，下拉框仅显机型名（原「（品牌｜可信度 75）」尾巴）。C5 Pro 型号全称经 web 搜索核实。
+- **回归验证**：本地隔离环境（AUTH_STORE_FILE/TRAINING_FILES_DIR 重定向 + 页内构造 File）真服务端 E2E：退出→重登（工况区自动出 9 组 43 项）→勾选→选机型→入库 → 「✅ 样本 T20261012-001 已入库」列表落行；npm test 全绿。
+## v50 · 2026-10-13 · 锚点=顶层归档待补（待推） · fix
+
+**载荷箭头补显「载荷性质」（曼波：载荷性质没能在箭头上体现）**：`loadNature`（静载/动载疲劳/冲击/振动）此前只入存储和 taxonomy 联动（syncLoadsToSelection 本就消费它），箭头标签与标注清单都不显示。① annotator.js 箭头文字改中文三段式「受压载荷·静载·中载」（受力类型也顺势中文化，新增 LOAD_TYPE_LABEL/NATURE_LABEL 映射）；② train.html spatialLabel 同步补性质+量级+类型中文（`?v=21` 破缓存）。IAB 冒烟截图验证：桩选择器落 bending/impact/heavy 箭头，标签「弯曲载荷·冲击·重载」正确呈现。**部署状态：未推，待下次 `npm run push`。**
+
+## v51 · 2026-10-13 · 锚点=顶层归档待补（未提交状态 SFTP 直传） · fix
+
+**面逻辑统一（曼波：接触面识别有问题、受压区是好的，以受压区为准）**：接触面/外观面原走「平滑连通片」洪波（25° 逐步法线，可沿曲面渐变爬出种子法向、绕整圈），受压区走「法向轴向连通」洪波（predAxis：与种子法线平行 ±64°、边邻接连通）。三工具统一为 axis_region，coplane_region 分支与 predCoplanar 死代码删除；悬空需支撑保留独立语义。annotator.js 升 v2.0，`?v=22` 破缓存。24 边棱柱 harness 实测：侧墙点击两工具各染 6 面（轴向行为，旧平滑洪波会染满 24 面），面集合逐一相同；顶面平面上两逻辑本就一致作回归对照。
+
+## v52 · 2026-10-13 · 锚点=顶层归档待补（未提交状态 SFTP 直传） · fix
+
+**支撑标注交互修批（曼波三连：Shift 后大片浅蓝、区内点击取消无效、取消/撤销体验差）**
+
+- **浅蓝溢出双源修**：① Shift 同特征并选不再把命中面各自的平滑片拖进来当淡蓝底，只红染命中面本身；② Shift 种子也改**纯红**（faces==supportFaces，不带淡蓝底）——Shift 语义=精准批量标悬垂；③ 普通点击的淡蓝底保留（「选中的面里不需支撑的部分」语义）但平滑洪波加 **60° 法线锥**（floodSmooth 可选轴约束，口径同受压区 ±64°）——孔壁/圆角不再被爬满一整圈。
+- **区内任意面取消**：同工具点击染色区内任意面即取消该标注（原只认恰好点中种子三角，点区内其他面无反应——「取消选中点击还是没有用」）；两条区域分支（support/axis）统一该手势，取消时同步清 selectedId。
+- **重做栈**：新增 redo（Ctrl+Y / Ctrl+Shift+Z / 列表「↪ 重做」按钮），snapshot 时截断重做分支；undo/redo 后清失配的 selectedId。
+- **回归实测（双隧道 harness，验后即删）**：底块+两条 ∩ 形半圆隧道（洞顶悬垂带 15°/段平滑可爬）。普通点击 A 洞顶=16 面 60° 锥+8 面红带；Shift 点 B 洞顶=两洞顶红带共 16 面、faces==supportFaces（零淡蓝）、A 带被同特征并选；点区内另一面=整条标注取消；undo 恢复/redo 再取消 ✓。

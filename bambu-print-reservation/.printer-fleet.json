@@ -1,0 +1,53 @@
+{
+  "savedAt": "2026-10-11T19:38:38.697Z",
+  "machines": [
+    {
+      "name": "Bambu Lab X1C",
+      "brand": "Bambu Lab",
+      "model": "X1 Carbon",
+      "buildVolume": [256, 256, 256],
+      "nozzle": 0.4,
+      "notes": "主力机"
+    },
+    {
+      "name": "Bambu Lab P1S",
+      "brand": "Bambu Lab",
+      "model": "P1S",
+      "buildVolume": [256, 256, 256],
+      "nozzle": 0.4,
+      "notes": ""
+    },
+    {
+      "name": "Bambu Lab H2D",
+      "brand": "Bambu Lab",
+      "model": "H2D",
+      "buildVolume": [350, 320, 325],
+      "nozzle": 0.4,
+      "notes": ""
+    },
+    {
+      "name": "Flashforge Adventurer 5M",
+      "brand": "Flashforge",
+      "model": "AD5M",
+      "buildVolume": [220, 220, 220],
+      "nozzle": 0.4,
+      "notes": ""
+    },
+    {
+      "name": "Flashforge Adventurer 5M Pro",
+      "brand": "Flashforge",
+      "model": "AD5M Pro",
+      "buildVolume": [220, 220, 220],
+      "nozzle": 0.4,
+      "notes": ""
+    },
+    {
+      "name": "Flashforge Creator 5 Pro",
+      "brand": "Flashforge",
+      "model": "C5 Pro",
+      "buildVolume": [256, 256, 256],
+      "nozzle": 0.4,
+      "notes": "四喷头多色"
+    }
+  ]
+}

@@ -139,6 +139,7 @@ const reservationStore = {
       processParams: input.processParams || null,   // applyRules 快照（需求链路单；3mf 直通为 null）
       appliedRules: input.appliedRules || [],
       embeddedParams: input.embeddedParams || null, // 3mf 内嵌参数摘要（审批透明化）
+      modelFeatures: input.modelFeatures || null,   // STL 几何体检快照（需求链路单；学习回路底料）
       processWarnings: [...gate.warnings, ...colorWarnings],
       review: null,
       printer: null,

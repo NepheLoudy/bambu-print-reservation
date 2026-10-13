@@ -24,3 +24,7 @@ data/
 .auth-users.json
 # 数据快照备份目录（本地开发默认在项目根,勿提交）
 backup/
+
+# 训练集样本库索引（训练资产本体在 bambu-data/training，勿提交）
+.training-samples.json
+.rule-suggestions.json

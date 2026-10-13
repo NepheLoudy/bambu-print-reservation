@@ -15,6 +15,7 @@ const { spawnSync } = require('child_process');
 const { Client } = require('ssh2');
 const os = require('os');
 const path = require('path');
+const fs = require('fs'); // 测试闸门 readdirSync 用（2026-10-12 修复：清理批误删此 require 致闸门崩溃）
 
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 // ---------- [0] 部署前测试闸门（2026-09-13 R4）：测试不过不部署；SKIP_TESTS=1 可跳过 ----------
@@ -78,6 +79,8 @@ const pack = spawnSync('tar', [
   '--exclude=.reservations.json',
   '--exclude=.auth-users.json',
   '--exclude=.rule-suggestions.json',
+  // 训练集样本库（2026-10-12）：训练资产本体在 bambu-data/training，索引不随包覆盖
+  '--exclude=.training-samples.json',
   // 本地私有环境覆盖（.env 上传单独走 SFTP）
   '--exclude=.env.local',
   '--exclude=.env.*.local',
