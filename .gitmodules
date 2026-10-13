@@ -1,0 +1,15 @@
+[submodule "approval-bot"]
+	path = approval-bot
+	url = https://github.com/NepheLoudy/approval-bot
+[submodule "duty-bot"]
+	path = duty-bot
+	url = https://github.com/NepheLoudy/Duty-Management.git
+[submodule "sop/site-sop-planet"]
+	path = sop/site-sop-planet
+	url = https://github.com/NepheLoudy/qianli-sop.git
+[submodule "ticket-pm/project-management-robot"]
+	path = ticket-pm/project-management-robot
+	url = https://github.com/NepheLoudy/Qianli-Project-Management-Robot
+[submodule "tools/rm-battlescope"]
+	path = tools/rm-battlescope
+	url = https://github.com/ezthor/rm-battlescope.git
