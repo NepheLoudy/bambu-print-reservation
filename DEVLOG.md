@@ -1314,3 +1314,11 @@
 ## v154 · 2026-10-14 · 随本提交落地 · fix
 
 dashboard keepalive.vbs 双机路径探测批：保活脚本第 3 行原硬编码笔记本绝对路径（`C:\Users\0d00\Desktop\qianli\...`），台式机（qianli 在 `D:\dev\qianli`）计划任务每 10 分钟触发 WSH 报 80070002「系统找不到指定的文件」弹窗。改为 `Scripting.FileSystemObject.FileExists` 探测：台式机 `D:\dev\qianli` 优先，回退笔记本桌面路径——两机同版可用，运维台宿主移交后的保活链路双机对齐。实测台式机 cscript 触发无报错、端口守卫幂等跳过（3100 已监听不重复启动）、运维台在岗（127.0.0.1:3100）。踩坑沉淀：①计划任务传递的 vbs 含硬编码路径，跨机分发文件（tar 中文名丢件同批）必须探测或模板化；②vbs 修改后走 cscript //nologo 手动触发 + 独立 netstat 验证（管道 grep 计数退出码会骗 && 链，两次踩同一坑）。
+
+## v154 · 2026-10-14 · 575d84a · fix
+
+dashboard keepalive.vbs 双机路径探测批：保活脚本硬编码笔记本绝对路径（`C:\Users\0d00\...`），台式机计划任务每 10 分钟 WSH 80070002 弹窗（运维台宿主移交时 tar 传输文件，路径未本地化）。改 `Scripting.FileSystemObject.FileExists` 探测：台式机 `D:\dev\qianli` 优先、回退笔记本路径，两机同版。实测 cscript 触发零报错、端口守卫幂等、运维台 :3100 在岗。踩坑：tar 中文名长路径丢件同批（feishu-novel 8 文件由 git 对象恢复）；验证管道里 grep 计数/head 退出码会骗 && 链（两踩）。
+
+## v155 · 2026-10-14 · 34af792 · fix
+
+迁移后全量审查修复批（6 路只读审查产出，v154 时点）：**bambu v54**（4 P1：axis NOTE_OK 半成品/重置密码正则丢反斜杠/gcode 审批门未跟双品牌/载荷勾选联动断链；P2：_aid 发号/清会话真身/训练样本损坏隔离；测试 14 套全绿+gcode 审批断言锁）——e8f608d；**gateway v38**（connecting 恒挂兜底落地：死常量 WS_START_WATCHDOG_MS 本来语义实现，超 5 分钟自退交 pm2 重建；command 投递附共享 X-API-Token——approval 已挂鉴权裸转发 403；cors 死依赖清理）——cf2e12c；**duty-bot v55**（独立仓：隐私 dump .tmp-kaoqin-roster.json 清理三处+gitignore 补 .tmp-*（历史清洗待裁决）、README NAS 字样、ZKLink 模板 17 键、push.js PATH 精简、zklink 原子写，17 套全绿）——f4b1a4a；**hub v131**（独立仓：兜底策略补「确认全部已取」两处词形，11 套全绿）——7664ff0；**ticket-bot**（独立仓：DEVLOG 指针校正 v91+.env.example 补 ACCEPT_TRACE_FIELD）——8e14329；**netlog**（本机 .env 账号池路径改 D:/dev 种子；v19 补部署实际成功——pm2 online+health 全绿，push.js 末步健康检查连接被 sshd 频率保护 ECONNRESET 误报失败，人工 SSH 验证为准）；**approval-bot**（.env 补 OCR_FIELDS_FILE 到项目外；detached HEAD 归位 main）；**dashboard**（台式机 Startup 补开机自启 vbs）；顶层 AGENTS.md 使用指南 HTML 双机落点。未动待办：bambu /api/chat/command 鉴权需与 hub /print-* 两仓同批；duty git 历史清洗待裁决。测试总账：全群 9 组套件全绿。
