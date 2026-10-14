@@ -176,6 +176,7 @@ description: qianli 实验室/家庭网络拓扑、设备接入与断网排查�
 **用途**：曼波不在 31.x 内网时（烂网/离开实验室），笔记本经 Radmin VPN 隧道直达小电脑的 SSH/RDP/全部服务。**依赖边界**：小电脑自身必须有外网（校园网会话活着）；实验室整体断网时此通道与 netlog 同死，属物理限制。
 
 - **网络**：`qianli-mesh`（私有网络）；笔记本 `26.33.107.52`（LAPTOP-BGC4G36V）/ 小电脑 `26.6.74.79`（DESKTOP-FE1MIGI）。实测隧道 ping 6ms（P2P 打洞直连）。
+- **台式机通道（2026-10-14 实测）**：`26.174.14.117`（DESKTOP-PCOONE5，RDP 用户名 nebula——桌面「台式机-mesh.rdp」）；**SSH 22 公钥直通**（笔记本 BatchMode 免密可达），默认 shell=cmd（远端命令别用 Unix 管道/tail，纯 cmd 语法；git 2.55 在 PATH）。qianli 工作区=`D:devqianli`（顶层 monorepo clone，2026-10-14 迁移核查：5 submodule 对齐+hub server/.env 已补送+与 GitHub 同步）。
 - **凭据**（网络名+密码）：大脑仓库 `config/radmin-mesh.local.env`（**归属勘定 2026-09-29 曼波定：网络基础设施凭据归大脑记忆区，不进业务 bot .env**；该文件已被大脑仓库 .gitignore `/config/*.local.env` 排除，不入 git）。
 - **防火墙**：小电脑已放行 26.0.0.0/8 → 本机 22（SSH-qianli-RadminVPN-26）+ 3389 TCP/UDP（RDP-qianli-RadminVPN-26-TCP/UDP）。
 - **重启自愈链**：RvControlSvc 服务自启 + GUI HKCU Run 自启 + Winlogon AutoAdminLogon=1（mechax 自动登录）→ 重启后自动回网，无需人工。
