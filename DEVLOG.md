@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v153**（2026-10-14，随本提交落地，迁移基础设施批——顶层仓正名 NepheLoudy/qianli+ticket-bot 转正第 6 子模块+大脑记忆链路 qianli-brain/brain-sync 落地，两机一致性达成）。上一版 v152（2026-10-14，e62ce67，bambu v53 双品牌纯内网批归档，已上线小电脑）。上一版 v151（2026-10-13，f9fac9d，bambu v48+v49 归档批+5 个 gitlink 注册前置）。
+当前最新：**v154**（2026-10-14，随本提交落地，dashboard keepalive.vbs 双机路径探测批——保活脚本硬编码笔记本路径改两机探测，修台式机每 10 分钟 WSH 弹窗）。上一版 v153（2026-10-14，迁移基础设施批——顶层仓正名 NepheLoudy/qianli+ticket-bot 转正第 6 子模块+大脑记忆链路 qianli-brain/brain-sync 落地，两机一致性达成）。上一版 v152（2026-10-14，e62ce67，bambu v53 双品牌纯内网批归档，已上线小电脑）。上一版 v151（2026-10-13，f9fac9d，bambu v48+v49 归档批+5 个 gitlink 注册前置）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -1310,3 +1310,7 @@
 - **大脑记忆链路落地**（AGENTS.md 记忆协议的基础设施件，此前 brain-sync.sh/大脑仓库均未实落）：①建私有仓 `NepheLoudy/qianli-brain`；②两机 `memory/` 入 git（笔记本首推 f4eae42，台式机 scp 整目录含 .git 接入）；③`brain-sync.sh`+`brain-sync.cmd`（cmd/双击入口自动定位 git-bash+切仓库根）进顶层仓分发；④`.gitattributes` 锁 `*.sh` LF；⑤台式机 winget 装 GitHub CLI+token 灌入（私有仓读写凭据）。双向同步实测闭环：台式机写探针→save→GitHub→笔记本 pull 收到→清理。
 - **踩坑沉淀**：git-over-SSH 到 Windows cmd 默认 shell 的远端路径引号不通（scp-style 前导斜杠被拒）——整目录 scp 最省；裸 `bash.exe` 无 PATH（dirname 不可用）→ pwd 定位；`D:\` 盘符路径经 BASH_SOURCE 进 bash 落错目录 → cmd 包装器 `cd /d %~dp0` 绕开；WSL `System32\bash.exe` 抢 PATH → 包装器定位 git 自带 bash。
 - 联动：两机私配对齐（凭据台账.local.md / campus-accounts.local.json 已补送台式机，仍不入 git）。
+
+## v154 · 2026-10-14 · 随本提交落地 · fix
+
+dashboard keepalive.vbs 双机路径探测批：保活脚本第 3 行原硬编码笔记本绝对路径（`C:\Users\0d00\Desktop\qianli\...`），台式机（qianli 在 `D:\dev\qianli`）计划任务每 10 分钟触发 WSH 报 80070002「系统找不到指定的文件」弹窗。改为 `Scripting.FileSystemObject.FileExists` 探测：台式机 `D:\dev\qianli` 优先，回退笔记本桌面路径——两机同版可用，运维台宿主移交后的保活链路双机对齐。实测台式机 cscript 触发无报错、端口守卫幂等跳过（3100 已监听不重复启动）、运维台在岗（127.0.0.1:3100）。踩坑沉淀：①计划任务传递的 vbs 含硬编码路径，跨机分发文件（tar 中文名丢件同批）必须探测或模板化；②vbs 修改后走 cscript //nologo 手动触发 + 独立 netstat 验证（管道 grep 计数退出码会骗 && 链，两次踩同一坑）。
