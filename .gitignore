@@ -31,3 +31,4 @@ memory/
 .tmp-*
 WLAN-*.xml
 .dashboard-run.log
+*.local.json.bak*

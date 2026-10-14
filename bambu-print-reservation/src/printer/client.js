@@ -3,6 +3,7 @@ const { Client: SSHClient } = require('ssh2');
 const ftp = require('ftp');
 const { Client: FTPSClient } = require('basic-ftp');
 const net = require('net');
+const RtpsSession = require('./rtsps');
 
 // gcodeState（打印机上报的 gcode_state）→ 统一中文状态
 const GCODE_STATE_MAP = {
@@ -159,6 +160,9 @@ class PrinterClient {
     const job = state.job || {};
     const temps = state.temps || {};
     const gcodeState = String(state.gcodeState || 'IDLE').toUpperCase();
+    // spd_lvl 不在 bambu-link 的归一化字段里，从原始报文取（"1"~"4"）
+    const spdRaw = state.raw && state.raw.print ? state.raw.print.spd_lvl : null;
+    const speedLevel = spdRaw != null ? Number(spdRaw) || null : null;
 
     return {
       gcodeState,
@@ -170,6 +174,12 @@ class PrinterClient {
       nozzleTemp: temps.nozzle || null,
       bedTemp: temps.bed || null,
       chamberTemp: temps.chamber || null,
+      // 目标温度/风扇/速度档/灯：全量报文才带，增量报文里是 undefined → 保持 null
+      nozzleTargetTemp: temps.nozzleTarget ?? null,
+      bedTargetTemp: temps.bedTarget ?? null,
+      fans: state.fans ? { part: state.fans.part ?? null, aux: state.fans.aux ?? null, chamber: state.fans.chamber ?? null } : null,
+      speedLevel,
+      lights: state.lights ? { chamber: state.lights.chamber || null, work: state.lights.work || null } : null,
       // 失联标注：true 表示该状态来自过期报文（幽灵空闲防护，选机侧会过滤）
       stateStale: this.isStateStale(),
     };
@@ -280,19 +290,20 @@ class PrinterClient {
   }
 
   /**
-   * 腔灯控制（2026-10-14 观察台指令条）：标准 LAN 协议 ledctrl 命令。
-   * bambu-link 未封装，直接走底层 MQTT sendCommand（序号沿用 projectSeq 高段位防撞车）
+   * 灯控制（观察台指令条）：标准 LAN 协议 ledctrl 命令，直接走底层 MQTT sendCommand
+   * （序号沿用 projectSeq 高段位防撞车）。lamp：chamber_light（腔灯）/ work_light（工作灯）
    */
-  async lightControl(on) {
+  async lightControl(on, lamp = 'chamber_light') {
     if (!this.client || !this.connected) {
       throw new Error('打印机未连接');
     }
+    const node = lamp === 'work_light' ? 'work_light' : 'chamber_light';
     const sequenceId = ++this.projectSeq;
     const payload = {
       system: {
-        sequence_id: String(sequenceId),
+        sequence_id: sequenceId, // 必须数字——回包匹配器按数值序号对帧（字符串会超时）
         command: 'ledctrl',
-        led_node: 'chamber_light',
+        led_node: node,
         led_mode: on ? 'on' : 'off',
         led_time: 600,
       },
@@ -300,14 +311,88 @@ class PrinterClient {
     return this.client.getMqttClient().sendCommand(JSON.stringify(payload), sequenceId, true);
   }
 
+  // ============ 全量远控（2026-10-15 观察台 v55）============
+  // 参数校验前置（未连接也先报参数错，前端 400/409 语义区分）；动作本体走
+  // bambu-link 现成封装。危险面（轴动/回原点/校准/退料）的状态门控在 manager/端点层。
+
+  /** 打印速度档：1 静默 / 2 标准 / 3 竞速 / 4 疯狂 */
+  async setSpeed(level) {
+    const n = Number(level);
+    if (!Number.isInteger(n) || n < 1 || n > 4) {
+      throw new Error('速度档必须是 1-4 的整数');
+    }
+    if (!this.client || !this.connected) throw new Error('打印机未连接');
+    return this.client.printSpeedSet(n);
+  }
+
+  /** 风扇速度：kind = PART(模型扇 P1) / AUX(辅助扇 P2) / CHAMBER(腔室扇 P3)，0-255 */
+  async setFanSpeed(kind, speed) {
+    const K = String(kind || '').toUpperCase();
+    if (!['PART', 'AUX', 'CHAMBER'].includes(K)) {
+      throw new Error('风扇类型必须是 part/aux/chamber');
+    }
+    const s = Number(speed);
+    if (!Number.isInteger(s) || s < 0 || s > 255) {
+      throw new Error('风扇速度必须是 0-255 的整数');
+    }
+    if (!this.client || !this.connected) throw new Error('打印机未连接');
+    return this.client.setFanSpeed(s, K);
+  }
+
+  /** gcode 直控：单条（可多行）原始 G-code 下发 */
+  async sendGcode(line) {
+    const g = String(line || '').trim();
+    if (!g) throw new Error('gcode 不能为空');
+    if (g.length > 800) throw new Error('gcode 过长（>800 字符）');
+    if (!this.client || !this.connected) throw new Error('打印机未连接');
+    return this.client.printGcode(g.endsWith('\n') ? g : g + '\n');
+  }
+
+  async calibration() {
+    if (!this.client || !this.connected) throw new Error('打印机未连接');
+    return this.client.calibration();
+  }
+
+  async home() {
+    if (!this.client || !this.connected) throw new Error('打印机未连接');
+    return this.client.home();
+  }
+
+  /** 轴相对移动：axis X/Y/Z，distance mm（带符号）；Z 轴限低速防撞 */
+  async moveAxis(axis, distance) {
+    const A = String(axis || '').toUpperCase();
+    if (!['X', 'Y', 'Z'].includes(A)) {
+      throw new Error('轴必须是 x/y/z');
+    }
+    const d = Number(distance);
+    if (!Number.isFinite(d) || d === 0) {
+      throw new Error('移动距离必须是非 0 数字');
+    }
+    if (Math.abs(d) > 100) {
+      throw new Error('单次移动距离不能超过 100mm');
+    }
+    if (!this.client || !this.connected) throw new Error('打印机未连接');
+    return this.client.move(A, d, A === 'Z' ? 1200 : 9000);
+  }
+
+  async unloadFilament() {
+    if (!this.client || !this.connected) throw new Error('打印机未连接');
+    return this.client.unloadFilament();
+  }
+
   /**
-   * 本地摄像头流（P1/A1 系：TCP 6000 直推 H.264 Annex-B，LAN 模式/云模式下端口均开；
-   * X1/H2D 系为 RTSP:554 不走此通道）。观察台经 WebSocket 中继消费——每个观看客户端
-   * 独立一条 socket，断开即销毁，不在 client 内长驻
+   * 本地摄像头流，按机型分通道（观察台 WS 中继消费——每个观看客户端独立一路，
+   * 断开即销毁，不在 client 内长驻）：
+   *   P1/A1 系 = TCP 6000 裸 H.264 Annex-B（LAN/云模式端口均开，无握手）
+   *   X1/H2D 系 = RTSPS :322（RTSP over TLS，digest 认证，RTP interleaved，
+   *               rtsps.js 还原成同款 Annex-B 字节流）
    */
   openCameraStream() {
-    const socket = net.connect({ host: this.config.host, port: 6000, timeout: 8000 });
-    return socket;
+    const model = String(this.config.model || '').toUpperCase();
+    if (model.includes('X1') || model.includes('H2D')) {
+      return new RtpsSession({ host: this.config.host, password: this.config.accessCode }).connect();
+    }
+    return net.connect({ host: this.config.host, port: 6000, timeout: 8000 });
   }
 
   // ============ 文件传输（SFTP 优先，FTPS/FTP 兜底） ============

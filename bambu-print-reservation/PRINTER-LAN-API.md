@@ -72,6 +72,93 @@
 
 ---
 
+### 1.5 画面通道（RTSPS 322，v55 落地；官方未公开，社区事实 + 2026-10-15 真机 H2D 实测）
+
+| 项 | 事实 |
+|---|---|
+| 端口 | **322**（RTSP over TLS）。554 不开；6000 是 P1/A1 的裸 H.264 通道，与 X1/H2D 无关 |
+| URL | `rtsps://bblp:<Access Code>@<ip>:322/streaming/live/1`——**URI scheme 必须写 rtsps**，写 rtsp 会 301 重定向（Location 指回 rtsps） |
+| 认证 | HTTP Digest（MD5），realm=`LIVE555 Streaming Media`（服务器即 LIVE555）；用户名 `bblp`、密码 = Access Code |
+| 传输 | SETUP 走 TCP interleaved（RTP/RTCP 与 RTSP 文本同连接混跑）；RTP payload type 96 = H.264，channel 1 = RTCP |
+| 实现位 | `src/printer/rtsps.js`（RTSPS 会话 + RTP 拆包 → Annex-B 字节流，零新依赖）；经 `/api/printers/:id/camera/h264` WS 中继给前端 WebCodecs |
+| 实测 | 真机 H2D ≈2.1Mbps，GOP ~5s（IDR 约 165KB）；TLS 1.3 |
+
+实现注记（踩坑即文档）：RTSP 响应与 interleaved 二进制在同一条 TLS 流混跑，且 **PLAY 响应回来前 RTCP SR 就先到**——解析必须按缓冲区首字节分流（`RTSP`=响应 / `# 打印机局域网接入查证与逻辑链路 · bambu-print-reservation
+
+> 覆盖范围：拓竹（Bambu Lab）与闪铸（FlashForge）打印机「局域网接入」方式的官方/社区资料查证（查证日 2026-09-06），以及本系统当前打印机链路的完整现状。
+> 行号以 2026-09-06 工作区代码为准；代码改动后请同步更新本文件。
+> 本文只描述「现在是什么」。官方口径与社区事实逐条标注；对接入决策、协议选型的改动决策记在各项目 DEVLOG.md。
+> 资料核验程度约定：✔ = 已抓取原文核对正文；△ = 检索结果/摘要条目（未逐一抓取正文，谨慎引用）。
+
+---
+
+## 0. 结论摘要
+
+- **拓竹官方没有面向个人开发者的局域网 API 文档**。官方 wiki 仅公开《打印机网络端口》✔ 一页网络事实（局域网模式：MQTT 8883、FTP 990+50000~50100、视频 6000；发现 SSDP 1990/2021）；官方对第三方开放的开发者通道是 **Fleet Hub 开发者中心**（企业授权：设备激活 Key + 客户端证书 + 本地 HTTP API，△）。局域网 MQTT 的用户名 `bblp`、topic、命令 JSON 等细节**均为社区逆向事实标准**（本仓库内 `node_modules/bambu-link` 即按此实现，已核源码）。
+- **闪铸同样没有公开的局域网 API 开发文档**。官方口径只有「局域网模式/LAN Only + 屏幕 8 位 Printer ID（社区亦称 Check Code）」配合官方切片软件 FlashPrint 5 / Orca-FlashForge 绑定的操作说明（△）；协议事实（8898 HTTP / 8899 TCP / 8080 摄像头）来自社区对官方工具与固件的分析。
+- **两家架构本质差异**：拓竹 = 打印机作为 MQTT broker 的**推送式长连接**（状态主动上报）；闪铸 AD5M 系 = **无状态 HTTP 轮询 + TCP 文本口**，没有公开的 MQTT/事件推送通道。
+- **本系统现状：只实接拓竹**，走局域网直连（不经拓竹云）：MQTT 8883 状态/命令 + SFTP/FTP 文件上传，参数全部来自 `.env`；闪铸 AD5M 仅「登记展示 + 人工通道」（详见第 4 章）。
+
+---
+
+## 1. 拓竹 Bambu Lab：局域网接入
+
+### 1.1 官方依据（wiki.bambulab.com《打印机网络端口》✔，已抓取核对）
+
+官方把端口分成三组，本表只列与本系统相关的行（原文分组如下）：
+
+| 模式 | 用途 | 端口/协议 |
+|---|---|---|
+| 云模式 | HTTP API | 80 / 443 / 8080（TCP） |
+| 云模式 | MQTT | 8883（TCP，连 `us.mqtt.bambulab.com` / `cn.mqtt.bambulab.com`） |
+| 云/局域网共用 | 设备发现 | 1990 / 2021（SSDP，multicast/broadcast） |
+| 云/局域网共用 | NTP | 123（TCP/UDP） |
+| **局域网模式** | **LAN MQTT** | **8883（TCP）** |
+| **局域网模式** | **LAN FTP** | **990、50000~50100（TCP）** |
+| 局域网模式 | LAN 视频 | 6000（TCP） |
+
+官方页原文要点（引号内为页面原话）：
+- 「当打印机处于局域网模式时，所有域名/IP地址都是无用的」——局域网模式下打印机不依赖任何云域名，可整机断外网自包含。
+- 「域名/IP地址在未来可能会被改变」——云侧地址不保证长期不变。
+
+官方对第三方的接入通道（△ 检索结果，未抓正文）：**Fleet Hub 开发者中心**（企业授权，创建设备激活 Key、签发客户端证书、提供 API 文档与示例代码，商务邮箱 `devpartner@bambulab.com`）；面向个人的 Cloud API / LAN API 开发文档官方未公开。
+
+### 1.2 接入要素与获取步骤
+
+| 要素 | 说明 | 本系统对应 |
+|---|---|---|
+| 局域网 IP | 打印机与机器人同一网段；可用官方发现端口（SSDP 1990/2021）或打印机屏幕「网络设置」查看 | `.env` `PRINTER_HOSTS` |
+| Access Code | 8 位数字，打印机屏幕「设置 → 网络 → 局域网模式/开发者模式」下显示；社区经验：约 3 个月过期需重取 | `.env` `PRINTER_ACCESS_CODES` |
+| 序列号 SN | 打印机「关于」页/Bambu Studio 可见；MQTT topic 与 TLS 登录名的组成部分 | `.env` `PRINTER_SERIALS` |
+| 机型 | 决定文件上传通道（见 1.4） | `.env` `PRINTER_MODELS` |
+
+获取步骤（官方操作口径 + 社区注记）：同网段 → 打印机屏幕开启局域网模式（LAN Only / 开发者模式）→ 记录屏幕显示的 IP 与 8 位 Access Code → 填入 `.env` 四列数组（`src/config.js:9-22` 按位置对齐）→ 重启服务，`manager.js` 自动建连（见 4.2）。
+
+### 1.3 MQTT 协议事实（社区标准；本仓库 `node_modules/bambu-link` 源码已核 ✔）
+
+| 项 | 事实 |
+|---|---|
+| Broker | 打印机本机，`mqtts://<host>:8883`，MQTT over TLS（自签证书，客户端跳过校验 `rejectUnauthorized: false`） |
+| 用户名/密码 | 用户名固定 `bblp`，密码 = Access Code |
+| Topic | 状态上报与命令收发共用 `device/{serial}/report`（bambu-link 订阅与 publish 同一 topic；社区文档中另有多实现把命令发到 `device/{serial}/request` 的写法，两套对固件均兼容） |
+| 建连后首帧 | `{"pushing":{sequence_id, command:"pushall", version:1, push_target:1}}` 拉全量状态（bambu-link `dist/index.js:865-870`，sequence 自 10 起） |
+| 后续数据 | 打印机持续推送增量状态 JSON（print/temps/ams/network 等分段） |
+| 命令回包 | 命令帧带 `sequence_id`，回包中回显（`print.sequence_id` / `system.sequence_id`），按序号匹配挂起命令；超时默认 10s（bambu-link `dist/index.js:479,564-598`） |
+| 命令类型 | 打印 3mf：`project_file`；打印 gcode 文件/控制：`print`（`print_gcode_file` 等）；`pause` / `resume` / `stop`；拉全量：`pushall` |
+| 重连 | `reconnectPeriod: 5000ms`（bambu-link `dist/index.js:836`） |
+
+> 注：1.3 全部内容均为社区协议事实，**官方未公开过上述字段级文档**；以官方 wiki 端口表佐证「8883 = LAN MQTT」这一点与社区一致。
+
+### 1.4 文件上传通道（本系统现状 + 与官方表差异注记）
+
+- 官方端口表将局域网 FTP 记为 **990 + 50000~50100**（FTPS，TLS 加密数据口），未区分机型。
+- 本系统按机型走（`src/printer/client.js` `uploadBuffer`）：**X1/H2D → SFTP:22**；**P1/A1 → FTPS:990 优先（implicit TLS），失败回退 FTP:21 兼容老固件**；凭证同为 `bblp` + Access Code，远端目录 `/sdcard/`。
+- **2026-10-07 实测批（4A 隔离区两台 P1 系真机，云模式+局域网端口集并开）**：两台 990/8883/6000 常开、**21/22 明文/SSH 口全部 REFUSED**——新固件已砍社区明文通道，官方 990 FTPS（vsFTPd 3.0.5，TLSv1.2）为唯一文件通道；本系统同批从 node-ftp（无 TLS）引入 `basic-ftp` 实现 `ftpsPut`，21 回退保留。**历史注记**：此前版本仅走 22/21 社区通道（当时实机可用）；22/21 不在官方端口表内属社区实现事实，官方 990 通道现为首选。
+
+---
+
+=帧），跨内容类型跳字节会把响应文本当垃圾吃掉。
+
 ## 2. 闪铸 FlashForge（AD5M / AD5X 系）：局域网接入
 
 > 本节素材核验程度：官方部分为检索到的官方页面条目 △（未逐一抓取正文，仅确认存在与大意）；协议部分为社区资料条目 △。引用时注意。
@@ -220,6 +307,8 @@
 | 拉全量 | `pushall`（`version:1, push_target:1`） | 未公开 | 通用 | — |
 | 文件上传 | X1/H2D SFTP:22；P1/A1 FTPS:990（implicit TLS）→回退 FTP:21 | ✔ 官方表记 LAN FTP 990+50000~50100（FTPS） | 多通道并存，按机型 | 2026-10-07 实测：新固件 21/22 全关、990 为唯一通道（vsFTPd 3.0.5）；本系统 basic-ftp 走 990，21 回退兼容老固件 |
 | 命令帧 | `project_file`（`url: ftp:///sdcard/…`）/ print / pause / resume / stop | 未公开 | 通用 | `url` 用 `ftp:///` 字面量是社区标准写法（`client.js:214` 注释） |
+| 画面 | X1/H2D RTSPS :322 digest 认证（v55 rtsps.js 自研）；P1/A1 TCP6000 裸 H.264 | 未公开（官方表记 LAN 视频 6000，未提 322） | `rtsps://bblp:<码>@ip:322/streaming/live/1`（SimplyPrint / BambuStudio#1536 口径） | 2026-10-15 真机 H2D 实测全通；见 §1.5 |
+| 控制面 | MQTT 帧全集：pause/resume/stop/ledctrl/speed/setFanSpeed(M106)/gcode_line/calibration/home/move/unload_filament/project_file | 未公开 | OpenBambuAPI 等 | v55 起全量暴露为 HTTP 端点（分级权限+状态门控），观察台控制面板消费 |
 | 状态判定 | `gcodeState` + `job`/`temps`/`ams` 字段 | 未公开 | 通用 | 依赖库内字段名（如 `remainingSeconds` 实为分钟，见 4.3） |
 
 风险注记汇总：

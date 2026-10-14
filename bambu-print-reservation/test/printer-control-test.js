@@ -1,0 +1,122 @@
+/**
+ * 全量远控纯逻辑单测（不连打印机）：动机械状态门控 / client 参数校验 / 机型画面通道。
+ * 用法：node test/printer-control-test.js
+ */
+const assert = require('assert');
+
+// 隔离：让 manager 保持 0 台打印机、不触发外部连接（dotenv 不覆盖已存在 env）
+process.env.PRINTER_HOSTS = '';
+process.env.PRINTER_ACCESS_CODES = '';
+process.env.PRINTER_SERIALS = '';
+process.env.PRINTER_NAMES = '';
+process.env.PRINTER_MODELS = '';
+process.env.PLAZA_BITABLE_TABLE_ID = '';
+
+const manager = require('../src/printer/manager');
+const PrinterClient = require('../src/printer/client');
+
+let failures = 0;
+function check(name, fn) {
+  try {
+    fn();
+    console.log(`✓ ${name}`);
+  } catch (err) {
+    failures++;
+    console.error(`✗ ${name} — ${err.message}`);
+  }
+}
+
+async function checkAsync(name, fn) {
+  try {
+    await fn();
+    console.log(`✓ ${name}`);
+  } catch (err) {
+    failures++;
+    console.error(`✗ ${name} — ${err.message}`);
+  }
+}
+
+// ---------- canJogMachine：动机械状态门控 ----------
+check('空闲/完成/故障态可动机械', () => {
+  for (const s of ['IDLE', 'FINISH', 'FAILED', 'idle', 'Finish']) {
+    assert.strictEqual(manager.canJogMachine(s), true, `gcodeState=${s} 应放行`);
+  }
+});
+check('打印中/暂停/准备/切片禁止动机械', () => {
+  for (const s of ['PRINTING', 'RESUME', 'PAUSE', 'PREPARE', 'SLICING']) {
+    assert.strictEqual(manager.canJogMachine(s), false, `gcodeState=${s} 应拒绝`);
+  }
+});
+check('未知/空状态保守拒绝', () => {
+  assert.strictEqual(manager.canJogMachine(''), false);
+  assert.strictEqual(manager.canJogMachine(undefined), false);
+  assert.strictEqual(manager.canJogMachine('SOME_NEW_STATE'), false);
+});
+
+// ---------- cameraKind：画面通道分型 ----------
+check('机型画面通道分型', () => {
+  assert.strictEqual(manager.cameraKind({ model: 'H2D' }), 'rtsp');
+  assert.strictEqual(manager.cameraKind({ model: 'X1C' }), 'rtsp');
+  assert.strictEqual(manager.cameraKind({ model: 'P1S' }), 'p1stream');
+  assert.strictEqual(manager.cameraKind({ model: 'A1 mini' }), 'p1stream');
+  assert.strictEqual(manager.cameraKind({ model: 'AD5M' }), 'mjpeg');
+  assert.strictEqual(manager.cameraKind({ model: '奇形怪状' }), null);
+});
+
+// ---------- client 参数校验（校验前置于连接检查，未连接也可测） ----------
+const client = new PrinterClient({ id: 1, name: '测试机', model: 'H2D', host: '127.0.0.1', accessCode: '00000000', serial: 'TEST' });
+
+(async () => {
+
+checkAsync('速度档非法值拒绝', async () => {
+  for (const bad of [0, 5, -1, 2.5, 'a', null, undefined]) {
+    await assert.rejects(() => client.setSpeed(bad), /速度档/, `level=${bad} 应拒`);
+  }
+});
+checkAsync('速度档合法值通过校验（卡在未连接）', async () => {
+  await assert.rejects(() => client.setSpeed(3), /未连接/);
+});
+
+checkAsync('风扇类型与速度域校验', async () => {
+  await assert.rejects(() => client.setFanSpeed('side', 10), /风扇类型/);
+  await assert.rejects(() => client.setFanSpeed(null, 10), /风扇类型/);
+  await assert.rejects(() => client.setFanSpeed('part', 256), /风扇速度/);
+  await assert.rejects(() => client.setFanSpeed('part', -1), /风扇速度/);
+  await assert.rejects(() => client.setFanSpeed('part', 1.5), /风扇速度/);
+  await assert.rejects(() => client.setFanSpeed('CHAMBER', 128), /未连接/);
+});
+
+checkAsync('gcode 空与超长拒绝', async () => {
+  await assert.rejects(() => client.sendGcode(''), /gcode 不能为空/);
+  await assert.rejects(() => client.sendGcode('   '), /gcode 不能为空/);
+  await assert.rejects(() => client.sendGcode('N'.repeat(801)), /过长/);
+  await assert.rejects(() => client.sendGcode('M104 S220'), /未连接/);
+});
+
+checkAsync('轴移动参数域校验', async () => {
+  await assert.rejects(() => client.moveAxis('w', 1), /轴必须/);
+  await assert.rejects(() => client.moveAxis(null, 1), /轴必须/);
+  await assert.rejects(() => client.moveAxis('x', 0), /非 0/);
+  await assert.rejects(() => client.moveAxis('x', NaN), /非 0/);
+  await assert.rejects(() => client.moveAxis('x', 101), /不能超过 100/);
+  await assert.rejects(() => client.moveAxis('z', -101), /不能超过 100/);
+  await assert.rejects(() => client.moveAxis('X', 10), /未连接/);
+});
+
+checkAsync('校准/回原点/退料未连接报错', async () => {
+  await assert.rejects(() => client.calibration(), /未连接/);
+  await assert.rejects(() => client.home(), /未连接/);
+  await assert.rejects(() => client.unloadFilament(), /未连接/);
+});
+
+checkAsync('灯控 lamp 参数归一（腔灯缺省/工作灯）', async () => {
+  // 未连接会在连接检查处抛错，但 lamp 归一发生在组帧前——仅验证不抛参数错
+  await assert.rejects(() => client.lightControl(true), /未连接/);
+  await assert.rejects(() => client.lightControl(true, 'work_light'), /未连接/);
+  await assert.rejects(() => client.lightControl(true, '奇怪的灯'), /未连接/); // 归一为 chamber_light
+});
+
+// 异步断言全部收尾后再退（checkAsync 不阻塞同步流程，直接 exit 会抢杀未决断言）
+await Promise.resolve();
+setTimeout(() => process.exit(failures ? 1 : 0), 50);
+})();

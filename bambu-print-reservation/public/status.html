@@ -28,6 +28,7 @@
   .cam img, .cam canvas { max-width: 100%; max-height: 100%; display: block; }
   .cam .ph { color: var(--dim); font-size: 12px; text-align: center; padding: 0 16px; }
   .cam .camBtn { position: absolute; right: 8px; top: 8px; z-index: 2; }
+  .cam .camTag { position: absolute; left: 8px; bottom: 6px; font-size: 10px; color: var(--dim); }
   .pbar { height: 8px; background: #0a0d11; border-radius: 5px; overflow: hidden; margin: 6px 0 2px; }
   .pbar > div { height: 100%; background: var(--print); transition: width .5s; }
   .temps { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
@@ -37,7 +38,22 @@
   .tray { border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; font-size: 11px; min-width: 72px; background: #0a0d11; }
   .tray.active { border-color: var(--ok); box-shadow: 0 0 0 1px var(--ok); }
   .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: middle; margin-right: 4px; border: 1px solid #333; }
-  .cmds { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .cmds { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .panel { margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: #10151c; }
+  .panel h4 { margin: 0 0 6px; font-size: 12px; color: var(--dim); font-weight: 600; }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 4px 0; }
+  .row label { font-size: 11px; color: var(--dim); min-width: 64px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .seg button { border: none; border-radius: 0; padding: 3px 10px; font-size: 11px; }
+  .seg button.on { background: var(--accent); color: #fff; }
+  .fanline { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--dim); flex: 1; min-width: 200px; }
+  .fanline input[type=range] { flex: 1; width: auto; }
+  .fanline .fval { min-width: 56px; text-align: right; }
+  .jog { display: grid; grid-template-columns: repeat(5, 44px); gap: 3px; margin: 4px 0; }
+  .jog button { padding: 3px 0; font-size: 11px; }
+  .gline { display: flex; gap: 6px; margin-top: 6px; }
+  .gline input { flex: 1; font-family: Consolas, monospace; font-size: 12px; }
+  .dangerNote { font-size: 11px; color: var(--bad); margin: 4px 0; }
   button { background: #232b37; color: var(--txt); border: 1px solid var(--line); border-radius: 6px; padding: 5px 12px; cursor: pointer; font-size: 12px; }
   button:hover { background: #2c3644; }
   button.bad { background: #4a2321; border-color: #6e332f; }
@@ -62,7 +78,7 @@
   <div class="head">
     <div>
       <h1>📺 打印机状态观察台</h1>
-      <div class="sub">拓竹（MQTT 推送）+ 闪铸（HTTP 轮询）双链路 · 画面经本服务内网代理 · 每 5s 刷新　<a href="/index.html">← 返回预约页</a></div>
+      <div class="sub">拓竹（MQTT 推送）+ 闪铸（HTTP 轮询）双链路 · 画面经本服务内网代理 · 全量远控面板 · 每 5s 刷新　<a href="/index.html">← 返回预约页</a></div>
     </div>
     <div class="userbox" id="userbox"></div>
   </div>
@@ -74,10 +90,11 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 let ME = null;
-let IS_ADMIN = false;
+let IS_REVIEWER = false; // reviewer 及以上：低危指令（暂停/恢复/灯/速度/风扇）
+let IS_ADMIN = false;    // admin：危险指令（停止/gcode/动机械）
 
-// 每台拓竹机的解码器现场（camera kind=p1stream）：ws / decoder / canvas 句柄
-const p1Sessions = new Map();
+// 每台拓竹机的解码器现场（camera kind=p1stream/rtsp 共用）：ws / decoder / canvas 句柄
+const h264Sessions = new Map();
 
 function toast(msg) {
   const t = $('toast');
@@ -85,9 +102,14 @@ function toast(msg) {
   clearTimeout(t._timer); t._timer = setTimeout(() => { t.style.display = 'none'; }, 3200);
 }
 
+function applyRole() {
+  IS_REVIEWER = ['reviewer', 'admin'].includes(ME.role);
+  IS_ADMIN = ME.role === 'admin';
+}
+
 async function loadMe() {
   const res = await fetch('/api/auth/me');
-  if (res.ok) { ME = await res.json(); IS_ADMIN = ['reviewer', 'admin'].includes(ME.role); return true; }
+  if (res.ok) { ME = await res.json(); applyRole(); return true; }
   return false;
 }
 
@@ -98,7 +120,7 @@ async function doLogin() {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) { $('loginHint').textContent = '❌ ' + (data.error || '登录失败'); return; }
-  ME = data; IS_ADMIN = ['reviewer', 'admin'].includes(ME.role);
+  ME = data; applyRole();
   enter();
 }
 
@@ -138,19 +160,92 @@ function camSection(p) {
   if (p.camera === 'mjpeg') {
     return `<div class="cam"><img src="/api/printers/${id}/camera/mjpeg?t=${Date.now()}" alt="画面"
       onerror="this.parentElement.innerHTML='<div class=ph>📷 画面不可用——机型无摄像头或打印机离线</div>'">
-      <span class="detail" style="position:absolute;left:8px;bottom:6px">MJPEG · 闪铸 8080</span></div>`;
+      <span class="camTag">MJPEG · 闪铸 8080</span></div>`;
   }
-  if (p.camera === 'p1stream') {
+  if (p.camera === 'p1stream' || p.camera === 'rtsp') {
+    const tag = p.camera === 'rtsp' ? 'RTSPS 322 · X1/H2D' : 'TCP 6000 · P1/A1';
     return `<div class="cam" id="cam${id}">
-      <div class="ph" id="camPh${id}">📷 拓竹本地流（TCP 6000 · H.264）——点「连接画面」经服务端中继拉流</div>
+      <div class="ph" id="camPh${id}">📷 拓竹本地流（${tag}，H.264）——点「连接画面」经服务端中继拉流</div>
       <canvas id="camCv${id}" style="display:none" width="640" height="360"></canvas>
-      <button class="camBtn" id="camBtn${id}" onclick="toggleP1Stream(${id}, this)">▶ 连接画面</button>
+      <button class="camBtn" id="camBtn${id}" onclick="toggleH264Stream(${id}, this)">▶ 连接画面</button>
+      <span class="camTag">${tag}</span>
     </div>`;
   }
-  if (p.camera === 'rtsp') {
-    return `<div class="cam"><div class="ph">📷 该机型为 RTSP 画面通道（X1/H2D 系）——代理通道待接，暂不支持网页观看</div></div>`;
-  }
   return '';
+}
+
+/** 「动机械」类指令的状态门（与服务端 canJogMachine 同口径） */
+function machineIdle(p) {
+  return ['IDLE', 'FINISH', 'FAILED'].includes(String(p.gcodeState || '').toUpperCase());
+}
+
+const SPEED_NAMES = { 1: '静默', 2: '标准', 3: '竞速', 4: '疯狂' };
+
+/** 风扇上报值（0-15 档或 0-255）→ 百分比 */
+function fanPct(v) {
+  if (v == null) return null;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  return Math.round((n <= 15 ? n / 15 : n / 255) * 100);
+}
+
+function controlPanelHtml(p) {
+  if (!IS_REVIEWER) return '<div class="meta">控制指令仅审批人及以上可用</div>';
+  const bambu = p.brand !== 'flashforge';
+  const idle = machineIdle(p) && !p.stateStale;
+  const lampPair = (lamp, label) => `
+    <button onclick="cmdPost(${p.id},'light',{on:true,lamp:'${lamp}'},'打开 ${esc(p.name)} ${label}？')">💡${label}开</button>
+    <button onclick="cmdPost(${p.id},'light',{on:false,lamp:'${lamp}'},'关闭${label}？')">🔅${label}关</button>`;
+  const speedSeg = bambu ? `<div class="row"><label>速度档</label><span class="seg">${[1, 2, 3, 4].map((n) =>
+    `<button class="${p.speedLevel === n ? 'on' : ''}" onclick="cmdPost(${p.id},'speed',{level:${n}},'切到${SPEED_NAMES[n]}档速度？')">${n} ${SPEED_NAMES[n]}</button>`).join('')}</span></div>` : '';
+  const fans = bambu ? (() => {
+    const cur = p.fans || {};
+    return ['aux', 'part', 'chamber'].map((k) => {
+      const names = { aux: '辅助扇', part: '模型扇', chamber: '腔室扇' };
+      const pct = fanPct(cur[k]);
+      return `<div class="fanline"><label>${names[k]}</label>
+        <input type="range" min="0" max="100" step="5" value="${pct != null ? pct : 0}"
+          onchange="cmdPost(${p.id},'fan',{kind:'${k}',speed:Math.round(this.value/100*255)},null,true)">
+        <span class="fval">现 ${pct != null ? pct + '%' : '—'}</span></div>`;
+    }).join('');
+  })() : '';
+  const reviewerBar = `<div class="cmds">
+      ${p.status === '打印中' ? `<button onclick="cmdPost(${p.id},'pause',null,'暂停打印？')">⏸ 暂停</button>` : ''}
+      ${p.status === '暂停' ? `<button class="ok" onclick="cmdPost(${p.id},'resume',null,'恢复打印？')">▶ 恢复</button>` : ''}
+      ${lampPair('chamber', '腔灯')}
+      ${bambu ? lampPair('work', '工作灯') : ''}
+      <button class="bad" onclick="cmdPost(${p.id},'stop',null,'⚠️ 停止打印？停机不可恢复，耗材作废')">⏹ 停止</button>
+    </div>`;
+  const adminPanel = !IS_ADMIN ? '' : `
+    <div class="panel">
+      <h4>⚠️ 危险操作区（admin）——动机械类仅空闲态可用</h4>
+      <div class="row">
+        <button ${idle ? '' : 'disabled'} onclick="cmdPost(${p.id},'home',null,'回原点（G28）？')">🏠 回原点</button>
+        <button ${idle ? '' : 'disabled'} onclick="cmdPost(${p.id},'calibrate',null,'执行校准？耗时较长')">🎯 校准</button>
+        <button ${idle ? '' : 'disabled'} onclick="cmdPost(${p.id},'unload',null,'退料？喷头会加热并抽丝')">⤴ 退料</button>
+        ${!idle ? '<span class="detail">（非空闲/失联，动机械锁定）</span>' : ''}
+      </div>
+      ${bambu ? `
+      <div class="row"><label>轴移动</label></div>
+      <div class="jog">
+        <button ${idle ? '' : 'disabled'} onclick="cmdPost(${p.id},'move',{axis:'x',distance:-10},null,true)">X−10</button>
+        <button ${idle ? '' : 'disabled'} onclick="cmdPost(${p.id},'move',{axis:'x',distance:-1},null,true)">X−1</button>
+        <button ${idle ? '' : 'disabled'} onclick="cmdPost(${p.id},'move',{axis:'x',distance:1},null,true)">X+1</button>
+        <button ${idle ? '' : 'disabled'} onclick="cmdPost(${p.id},'move',{axis:'x',distance:10},null,true)">X+10</button>
+        <button ${idle ? '' : 'disabled'} onclick="cmdPost(${p.id},'move',{axis:'y',distance:-10},null,true)">Y−10</button>
+        <button ${idle ? '' : 'disabled'} onclick="cmdPost(${p.id},'move',{axis:'y',distance:-1},null,true)">Y−1</button>
+        <button ${idle ? '' : 'disabled'} onclick="cmdPost(${p.id},'move',{axis:'y',distance:1},null,true)">Y+1</button>
+        <button ${idle ? '' : 'disabled'} onclick="cmdPost(${p.id},'move',{axis:'y',distance:10},null,true)">Y+10</button>
+        <button ${idle ? '' : 'disabled'} onclick="cmdPost(${p.id},'move',{axis:'z',distance:-5},null,true)">Z−5</button>
+        <button ${idle ? '' : 'disabled'} onclick="cmdPost(${p.id},'move',{axis:'z',distance:5},null,true)">Z+5</button>
+      </div>
+      <div class="dangerNote">⚠️ gcode 直控台：任意 G-code 直接下发（M104 S220 设温度 / M106 S255 风扇…），打错命令后果自负</div>
+      <div class="gline">
+        <input id="gcodeIn${p.id}" placeholder="G-code 行，如 M104 S220" onkeydown="if(event.key==='Enter')sendGcode(${p.id})">
+        <button class="bad" onclick="sendGcode(${p.id})">下发</button>
+      </div>` : ''}
+    </div>`;
+  return `${reviewerBar}${speedSeg}${fans}${adminPanel}`;
 }
 
 function cardHtml(p) {
@@ -164,15 +259,7 @@ function cardHtml(p) {
     : p.currentJob ? `<div class="detail">文件 ${esc(p.currentJob)}</div>` : '';
   const prog = (p.status === '打印中' || p.status === '暂停') && p.progress
     ? `<div class="pbar"><div style="width:${Math.min(100, p.progress)}%"></div></div><div class="detail">${p.progress}%${p.remainingMinutes ? ` · 剩余约 ${p.remainingMinutes} 分钟` : ''}</div>` : '';
-  const cmds = IS_ADMIN
-    ? `<div class="cmds">
-        ${p.status === '打印中' ? `<button onclick="ctl(${p.id},'pause','暂停打印？')">⏸ 暂停</button>` : ''}
-        ${p.status === '暂停' ? `<button class="ok" onclick="ctl(${p.id},'resume','恢复打印？')">▶ 恢复</button>` : ''}
-        <button onclick="ctl(${p.id},'light-on','打开 ${esc(p.name)} 腔灯？')">💡 开灯</button>
-        <button onclick="ctl(${p.id},'light-off','关闭腔灯？')">🔅 关灯</button>
-        <button class="bad" onclick="ctl(${p.id},'stop','⚠️ 停止打印？停机不可恢复，耗材作废')">⏹ 停止</button>
-      </div>`
-    : '<div class="meta">控制指令仅审批人及以上可用</div>';
+  const speedNote = p.brand !== 'flashforge' && p.speedLevel ? `<span class="detail">速度：${SPEED_NAMES[p.speedLevel] || p.speedLevel}档</span>` : '';
   return `<div class="pcard">
     <div class="top">
       <b>${esc(p.name)}</b>
@@ -186,37 +273,53 @@ function cardHtml(p) {
     <div class="temps">${temps || '<span class="detail">温度未上报</span>'}</div>
     ${amsSection(p)}
     ${p.stateStale ? '<div class="meta" style="color:var(--bad)">⚠️ 超过 3 分钟无状态报文——显示的是过期快照</div>' : ''}
-    ${cmds}
+    ${controlPanelHtml(p)}
+    ${speedNote}
   </div>`;
 }
 
 async function loadFleet() {
+  // 用户正在拖风扇滑条/输 gcode 时跳过本轮重渲染，防控件被打断
+  const ae = document.activeElement;
+  if (ae && ae.closest && ae.closest('.panel,.gline,.fanline')) return;
   const res = await fetch('/api/printers');
   if (res.status === 401) { location.reload(); return; }
   const printers = await res.json();
   if (!Array.isArray(printers) || !printers.length) { $('fleet').innerHTML = '<div class="detail">暂无登记打印机（.env PRINTER_HOSTS）</div>'; return; }
   $('fleet').innerHTML = printers.map(cardHtml).join('');
-  // p1stream 会话保持：卡片重渲染会重画 DOM，正在观看的流重连
-  for (const [id, ses] of p1Sessions) {
-    const alive = printers.find((p) => p.id === id && p.camera === 'p1stream');
-    if (!alive) { closeP1Stream(id); continue; }
-    if (ses.wantWatch) { p1Sessions.delete(id); startP1Stream(id, true); }
+  // h264 会话保持：卡片重渲染会重画 DOM，正在观看的流重连
+  for (const [id, ses] of h264Sessions) {
+    const alive = printers.find((p) => p.id === id && (p.camera === 'p1stream' || p.camera === 'rtsp'));
+    if (!alive) { closeH264Stream(id); continue; }
+    if (ses.wantWatch) { h264Sessions.delete(id); startH264Stream(id, true); }
   }
 }
 
 // ---------- 指令 ----------
 
-async function ctl(id, action, confirmText) {
-  if (!confirm(confirmText)) return;
-  const endpoint = action === 'light-on' ? 'light' : action === 'light-off' ? 'light' : action;
-  const opts = action.startsWith('light') ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on: action === 'light-on' }) } : { method: 'POST' };
-  const res = await fetch(`/api/printers/${id}/${endpoint}`, opts);
+async function cmdPost(id, path, body, confirmText, silentConfirm) {
+  if (confirmText && !confirm(confirmText)) return false;
+  const res = await fetch(`/api/printers/${id}/${path}`, {
+    method: 'POST',
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
   const data = await res.json().catch(() => ({}));
-  toast(res.ok ? '✅ 指令已下发' : '❌ ' + (data.error || '指令失败'));
-  setTimeout(loadFleet, 800);
+  if (res.status === 401) { location.reload(); return false; }
+  toast(res.ok ? '✅ 指令已下发' : '❌ ' + (data.error || (res.status === 403 ? '权限不足' : '指令失败')));
+  if (!silentConfirm) setTimeout(loadFleet, 800);
+  return res.ok;
 }
 
-// ---------- 拓竹 P1 系画面：WS 中继 + WebCodecs H.264 解码 ----------
+function sendGcode(id) {
+  const input = $(`gcodeIn${id}`);
+  const line = (input.value || '').trim();
+  if (!line) return;
+  if (!confirm(`⚠️ 向打印机下发 G-code：\n\n${line}\n\n确认执行？`)) return;
+  cmdPost(id, 'gcode', { line }, null, true).then((ok) => { if (ok) input.value = ''; });
+}
+
+// ---------- 拓竹画面：WS 中继 + WebCodecs H.264 解码（P1 裸流 / H2D RTSPS 通用） ----------
 
 /** 从 Annex-B 字节流拆 NALU（start code 00 00 01 前缀），返回 [NALU...] */
 function splitAnnexB(buf) {
@@ -241,13 +344,18 @@ function codecFromSps(sps) {
   return `avc1.${hex(sps[1])}${hex(sps[2])}${hex(sps[3])}`;
 }
 
-async function startP1Stream(id, auto = false) {
+function toggleH264Stream(id, btn) {
+  if (h264Sessions.has(id)) closeH264Stream(id);
+  else startH264Stream(id);
+}
+
+async function startH264Stream(id, auto = false) {
   const ph = $(`camPh${id}`), btn = $(`camBtn${id}`), cv = $(`camCv${id}`);
   if (!ph) return;
   const ses = { wantWatch: true, ws: null, decoder: null, pending: [], sps: null, pps: null, keySeen: false, ts: 0, frameCount: 0 };
-  p1Sessions.set(id, ses);
+  h264Sessions.set(id, ses);
   btn.textContent = '⏹ 断开';
-  btn.onclick = () => closeP1Stream(id);
+  btn.onclick = () => closeH264Stream(id);
   ph.textContent = '🔄 连接中继…';
 
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -261,15 +369,15 @@ async function startP1Stream(id, auto = false) {
   ses.ws = ws;
   ws.binaryType = 'arraybuffer';
 
-  ws.onopen = () => { ph.textContent = '📡 已连接中继，等待打印机推流…（若长期无数据：检查打印机 6000 端口/LAN 模式）'; };
+  ws.onopen = () => { ph.textContent = '📡 已连接中继，等待打印机推流…（若长期无数据：检查打印机 LAN 模式/画面端口）'; };
   ws.onerror = () => { ph.textContent = '❌ 中继连接失败（登录态失效或打印机不可达）'; };
   ws.onclose = () => {
-    if (p1Sessions.get(id) === ses) {
+    if (h264Sessions.get(id) === ses) {
       ph.textContent = '⏹ 画面已断开';
       try { ses.decoder && ses.decoder.close(); } catch { /* 已关 */ }
-      p1Sessions.delete(id);
+      h264Sessions.delete(id);
       const b = $(`camBtn${id}`);
-      if (b) { b.textContent = '▶ 连接画面'; b.onclick = () => startP1Stream(id); }
+      if (b) { b.textContent = '▶ 连接画面'; b.onclick = () => startH264Stream(id); }
     }
   };
 
@@ -348,16 +456,16 @@ async function startP1Stream(id, auto = false) {
 /** NALU 去头（start code 已被 splitAnnexB 剥掉，直接取 body） */
 function spsToBytes(sps) { return sps; }
 
-function closeP1Stream(id) {
-  const ses = p1Sessions.get(id);
+function closeH264Stream(id) {
+  const ses = h264Sessions.get(id);
   if (!ses) return;
   ses.wantWatch = false;
   try { ses.ws && ses.ws.close(); } catch { /* 已关 */ }
   try { ses.decoder && ses.decoder.close(); } catch { /* 已关 */ }
-  p1Sessions.delete(id);
+  h264Sessions.delete(id);
   const b = $(`camBtn${id}`), ph = $(`camPh${id}`), cv = $(`camCv${id}`);
-  if (b) { b.textContent = '▶ 连接画面'; b.onclick = () => startP1Stream(id); }
-  if (ph) { ph.style.display = ''; ph.textContent = '📷 拓竹本地流（TCP 6000 · H.264）——点「连接画面」经服务端中继拉流'; }
+  if (b) { b.textContent = '▶ 连接画面'; b.onclick = () => startH264Stream(id); }
+  if (ph) { ph.style.display = ''; ph.textContent = '📷 拓竹本地流——点「连接画面」经服务端中继拉流'; }
   if (cv) cv.style.display = 'none';
 }
 

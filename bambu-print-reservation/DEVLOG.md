@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次部署）。本项目 push.js 为纯 SFTP 直传、无 git 步骤，**版本锚点取顶层 monorepo 中触碰本路径的归档提交**——两次归档之间的个别部署可能无版本记录。v1~v14 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v54**（2026-10-14，随顶层归档提交落地，审查修复批：4 P1 + _aid 发号 + 训练样本损坏隔离 + 双品牌审批门对齐，测试 14 套全绿）。上一版 v53（2026-10-14，双品牌纯内网批：闪铸适配+状态观察台+分发品牌隔离，SFTP 已上线；v47 训练架构半成品与 v48~v52 修补随本批首次上线）。上一版 v52（2026-10-13，支撑标注交互修批）。上一版 v51（2026-10-13，面逻辑统一）。上一版 v50（2026-10-13，载荷箭头/录入工坊补丁批）。上一版 v47~v49（2026-10-10~13，P0 分发引擎接线批+录入工坊）。上一版 v46（2026-10-08，全链路优化批+收缩量标尺，锚点 51ef6b3）。上一版 v45（2026-10-07，FTPS 990 适配+4A 双机实测）。更早：v44 连接键改名 / v43 真机终审 / v42 运营债 / v41 双通道分流 / v40 全量审查 / v39 标签迭代 / v38 界面修复 / v37 路线 A / v36 二轮对抗审查。
+当前最新：**v55**（2026-10-15，观察台画面+全量远控批：H2D RTSPS 画面通道 + 分级远控面板 + v53 画面双 bug 修复，真机实测，测试 16 套全绿）。上一版 v54（2026-10-14，随顶层归档提交落地，审查修复批：4 P1 + _aid 发号 + 训练样本损坏隔离 + 双品牌审批门对齐，测试 14 套全绿）。上一版 v53（2026-10-14，双品牌纯内网批：闪铸适配+状态观察台+分发品牌隔离，SFTP 已上线；v47 训练架构半成品与 v48~v52 修补随本批首次上线）。上一版 v52（2026-10-13，支撑标注交互修批）。上一版 v51（2026-10-13，面逻辑统一）。上一版 v50（2026-10-13，载荷箭头/录入工坊补丁批）。上一版 v47~v49（2026-10-10~13，P0 分发引擎接线批+录入工坊）。上一版 v46（2026-10-08，全链路优化批+收缩量标尺，锚点 51ef6b3）。上一版 v45（2026-10-07，FTPS 990 适配+4A 双机实测）。更早：v44 连接键改名 / v43 真机终审 / v42 运营债 / v41 双通道分流 / v40 全量审查 / v39 标签迭代 / v38 界面修复 / v37 路线 A / v36 二轮对抗审查。
 
 ## 阶段五 · 审批事件字段对齐与分发健壮化（2026-09-05）
 
@@ -482,3 +482,17 @@
 ## v54 · 2026-10-14 · 随顶层归档提交落地 · fix
 
 迁移后全量审查修复批（6 路只读审查产出）：**4 P1**——①src/index.js:450 axis 分支半成品残片 `NOTE_OK` 裸标识符，受弯轴线标注自上线整链 ReferenceError→400，按兄弟分支模式补 return（FileExists 校验 a/b/dir）；②authStore.js:188 `/^[S]{6,}$/` 丢反斜杠致管理员重置密码自 10-12 上线恒失败，改 `/^\S{6,}$/`，同函数「清会话」原挂在无消费方的 user.sessions 上，改为遍历顶层 data.sessions 按 userId 摘除；③index.html:814 unsliced 门未跟 v53 双品牌口径（只认 3mf），闪铸 gcode/gx/g 单审批按钮恒禁用、直通链走不通，前端门与文案对齐 SLICED_EXT_RE；④train.html:552 syncLoadsToSelection() 错位顶层作用域（仅加载时 no-op 执行），归位 onAnnotationsChange 尾部，载荷箭头→隐藏工况勾选组联动恢复。**P2**——⑤annotator.js 六处标注创建漏发 _aid（选中光环/点选路由/编辑删除面板全拿 undefined），新增 pushAnnotation 统一 ++st.seq 发号；⑥trainingStore load 损坏仅 warn 按空启动、下次 save 静默覆盖，补 .corrupt-<ts> 隔离（对齐 reservationStore 口径）。**P3**——slice-with-engine.js Orca 路径两机探测（env 优先）；.env.example 两处文档陷阱修正（USAGE_REPORT_URL 3000→3010、ADVENTURER5 示例型号不命中 brandOf 换 AD5 并加注）。**测试**——ops-test 补 2 断言锁 v53 口径（gcode/gx/g 审批放行 ×3 + 双品牌未切片谓词 ×5）；npm test 14 套全绿。**未动项**：/api/chat/command 加鉴权需与 hub /print-* 转发两仓同批（单边加锁断产线），转待办。
+
+## v55 · 2026-10-15 · 锚点=顶层归档待补（本批 SFTP 直传） · feat
+
+**观察台 v55：H2D 画面通道 + 全量远控面板（真机 H2D 全链路实测，曼波令「所有远控的全部功能」）**
+
+- **H2D 画面通道**：src/printer/rtsps.js（新，零新依赖）自研 RTSPS 客户端——X1/H2D 系画面 = rtsps://bblp:<访问码>@<ip>:322/streaming/live/1（RTSP over TLS，LIVE555 digest 认证；**URI scheme 必须写 rtsps，写 rtsp 会 301**；端口 322，非 554 非 6000）。RTP interleaved 解包（**$ 分帧按位置解析：实测 PLAY 响应回来前 RTCP SR 先到**，二进制与 RTSP 文本混跑必须按首字节分流，跨类型跳字节会把响应文本当垃圾吃掉——首轮实现即栽在这）+ H.264 depacketization（单 NALU/STAP-A/FU-A 重组）→ Annex-B 字节流，与 P1 TCP6000 裸流同款，WS 中继与 WebCodecs 前端零改动复用。真机实测 ≈2.1Mbps，GOP ~5s。
+- **v53 遗留双 bug 修复（拓竹画面此前整链不可用）**：①index.js handleCameraUpgrade 把 cookies **对象**传 resolveSession（应传 .bambu_session token 字符串）→ WS 升级恒 401；②status.html toggleP1Stream 未定义（只有 startP1Stream）→「▶ 连接画面」点按 ReferenceError。播放器统一改名 startH264Stream/closeH264Stream/toggleH264Stream，rtsp/p1stream 共用。
+- **全量远控**（分级权限曼波拍板：低危 reviewer+ / 危险 admin；动机械仅空闲）：client.js 新增 setSpeed(1-4)/setFanSpeed(part|aux|chamber 0-255)/sendGcode/calibration/home/moveAxis(X|Y|Z，|d|≤100，Z 限速 1200)/unloadFilament（走 bambu-link 现成封装，**参数校验前置于连接检查**）；lightControl 扩展工作灯；manager.js `_bambuClient` 品牌闸 + canJogMachine 状态门（IDLE/FINISH/FAILED，端点 409 硬校验）；index.js 新端点 speed/fan/gcode/home/move/calibrate/unload + pause/resume/light 降档 reviewer+。
+- **ledctrl 序号类型修复**：组帧 sequence_id 用字符串致回包匹配器恒超时（bambu-link 自家 sendPrintCommand 全数字），改数字后灯控即回 200。
+- **printerStates 反馈字段**：nozzleTargetTemp/bedTargetTemp/fans(part,aux,chamber)/speedLevel(从 raw.spd_lvl)/lights(chamber,work)——增量报文缺省保持 null；前端速度档高亮/风扇现值/目标温度回显。
+- **status.html 控制面板**：reviewer 档=暂停/恢复/双灯/速度 4 档 segment/三风扇滑条；admin 档=停止（红确认）/退料/校准/回原点/轴 Jog 垫（XY±10/±1、Z±5）/gcode 直控台（红警示+逐条确认）；动机械按钮非空闲/失联置灰；拖滑条/输 gcode 时跳过 5s 重渲染防打断。
+- **WS 中继背压**：bufferedAmount>4MB 丢帧，防慢客户端撑爆服务端内存。
+- **测试**：新增 test/rtsps-test.js（13 断言：digest 回归向量/FU-A 重组与半片丢弃/STAP-A/interleaved 分帧「文本保护」回归/RTP 头 CSRC+扩展剥离）+ test/printer-control-test.js（11 断言：canJogMachine 门控表/速度风扇 gcode 轴动参数域/cameraKind 分型）；npm test 16 套全绿。
+- **真机联调（本地 H2D=0948BJ672900421@192.168.2.116）**：RTSPS 会话直连 2.1Mbps、WS 中继 7s 1.64MB STREAM PASS、灯控三连 200（修后）、速度/风扇/gcode 200、无凭据 401、坏参 400。生产随本批部署。

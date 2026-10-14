@@ -55,6 +55,15 @@ function resolveJobEvent(prevState, to, hasActiveTask) {
   return null;
 }
 
+/**
+ * 「动机械」类远控指令（回原点/轴移动/校准/退料）的状态门控（纯函数，单测覆盖）：
+ * 仅空闲/已完成/故障态可点——打印中、暂停、准备中一律拒绝，防手滑毁件毁喷头。
+ * 速度/风扇/灯/gcode 打印中可用（调参正是打印中的需求），不走此门。
+ */
+function canJogMachine(gcodeState) {
+  return ['IDLE', 'FINISH', 'FAILED'].includes(String(gcodeState || '').toUpperCase());
+}
+
 class PrinterManager {
   constructor() {
     this.clients = {};
@@ -81,6 +90,11 @@ class PrinterManager {
         nozzleTemp: null,
         bedTemp: null,
         chamberTemp: null,
+        nozzleTargetTemp: null,
+        bedTargetTemp: null,
+        fans: null,
+        speedLevel: null,
+        lights: null,
         ams: [],
         // 当前正在执行的任务（dispatcher 写入，用于播报与状态展示）
         activeTask: null,
@@ -171,6 +185,11 @@ class PrinterManager {
       nozzleTemp: status.nozzleTemp,
       bedTemp: status.bedTemp,
       chamberTemp: status.chamberTemp,
+      nozzleTargetTemp: status.nozzleTargetTemp,
+      bedTargetTemp: status.bedTargetTemp,
+      fans: status.fans,
+      speedLevel: status.speedLevel,
+      lights: status.lights,
       ams: client.getAmsTrays(),
     });
 
@@ -312,13 +331,55 @@ class PrinterManager {
     await client.startProjectFile(fileName, subtaskName, useAms);
   }
 
-  /** 腔灯控制（2026-10-14 观察台指令条；两品牌各走各的协议） */
-  async lightControlOnPrinter(printerId, on) {
+  /** 灯控制（观察台指令条；两品牌各走各的协议；lamp 仅拓竹区分腔灯/工作灯） */
+  async lightControlOnPrinter(printerId, on, lamp) {
     const client = this.clients[printerId];
     if (!client || !client.connected) {
       throw new Error('打印机未连接');
     }
-    return client.lightControl(on);
+    return client.lightControl(on, lamp);
+  }
+
+  // ============ 全量远控转发（2026-10-15 观察台 v55）============
+  // 通用闸门：连接在、品牌支持（新指令仅拓竹链路有实现）；状态门控在端点层用 canJogMachine
+
+  _bambuClient(printerId) {
+    const client = this.clients[printerId];
+    if (!client || !client.connected) {
+      throw new Error('打印机未连接');
+    }
+    if (this.printerStates[printerId].brand !== 'bambu') {
+      throw new Error('该机型品牌不支持此指令（仅拓竹链路）');
+    }
+    return client;
+  }
+
+  setSpeedOnPrinter(printerId, level) {
+    return this._bambuClient(printerId).setSpeed(level);
+  }
+
+  setFanSpeedOnPrinter(printerId, kind, speed) {
+    return this._bambuClient(printerId).setFanSpeed(kind, speed);
+  }
+
+  sendGcodeOnPrinter(printerId, line) {
+    return this._bambuClient(printerId).sendGcode(line);
+  }
+
+  calibrationOnPrinter(printerId) {
+    return this._bambuClient(printerId).calibration();
+  }
+
+  homeOnPrinter(printerId) {
+    return this._bambuClient(printerId).home();
+  }
+
+  moveAxisOnPrinter(printerId, axis, distance) {
+    return this._bambuClient(printerId).moveAxis(axis, distance);
+  }
+
+  unloadFilamentOnPrinter(printerId) {
+    return this._bambuClient(printerId).unloadFilament();
   }
 
   /** 摄像头上游流（拓竹 P1/A1 系 TCP6000；每个观看客户端独立 socket） */
@@ -444,3 +505,4 @@ module.exports = printerManager;
 module.exports.resolveJobEvent = resolveJobEvent;
 module.exports.brandOf = brandOf;
 module.exports.cameraKind = cameraKind;
+module.exports.canJogMachine = canJogMachine;

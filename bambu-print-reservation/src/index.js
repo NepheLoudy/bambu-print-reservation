@@ -893,11 +893,25 @@ app.get('/api/printers/:id', requireUser(), (req, res) => {
   }
 });
 
+// 打印机控制端点分级（2026-10-15 观察台 v55，曼波拍板）：
+//   低危（暂停/恢复/灯/速度/风扇）= reviewer+；危险（停止/gcode/动机械）= admin
+//   「动机械」（回原点/轴移动/校准/退料）另有状态门控：仅空闲/完成/故障态可发（canJogMachine）
+
+// 动机械门控前置校验：非空闲态 409（前端按钮置灰为第一道，这里硬校验兜底）
+function requireIdleForMachine(printerId, res) {
+  const st = printerManager.getPrinterState(printerId);
+  if (!printerManager.canJogMachine(st ? st.gcodeState : '')) {
+    res.status(409).json({ error: `打印机非空闲态（${st ? st.status : '未知'}），禁止动机械指令` });
+    return false;
+  }
+  return true;
+}
+
 app.post('/api/printers/:id/print', requireUser('admin'), async (req, res) => {
   try {
     const { id } = req.params;
     const { filePath } = req.body;
-    
+
     if (!filePath) {
       return res.status(400).json({ error: '文件路径不能为空' });
     }
@@ -910,7 +924,7 @@ app.post('/api/printers/:id/print', requireUser('admin'), async (req, res) => {
   }
 });
 
-app.post('/api/printers/:id/pause', requireUser('admin'), async (req, res) => {
+app.post('/api/printers/:id/pause', requireUser('reviewer'), async (req, res) => {
   try {
     const { id } = req.params;
     await printerManager.pausePrintOnPrinter(parseInt(id));
@@ -921,7 +935,7 @@ app.post('/api/printers/:id/pause', requireUser('admin'), async (req, res) => {
   }
 });
 
-app.post('/api/printers/:id/resume', requireUser('admin'), async (req, res) => {
+app.post('/api/printers/:id/resume', requireUser('reviewer'), async (req, res) => {
   try {
     const { id } = req.params;
     await printerManager.resumePrintOnPrinter(parseInt(id));
@@ -943,15 +957,104 @@ app.post('/api/printers/:id/stop', requireUser('admin'), async (req, res) => {
   }
 });
 
-// 腔灯控制（2026-10-14 观察台指令条；admin——灯不贵但深夜误开扰人）
-app.post('/api/printers/:id/light', requireUser('admin'), async (req, res) => {
+// 灯控（reviewer+）：body {on, lamp: 'chamber'|'work'}，缺省腔灯（闪铸忽略 lamp）
+app.post('/api/printers/:id/light', requireUser('reviewer'), async (req, res) => {
   try {
-    const on = Boolean((req.body || {}).on);
-    await printerManager.lightControlOnPrinter(parseInt(req.params.id), on);
-    res.json({ success: true, light: on ? 'on' : 'off' });
+    const body = req.body || {};
+    const on = Boolean(body.on);
+    const lamp = body.lamp === 'work' ? 'work_light' : 'chamber_light';
+    await printerManager.lightControlOnPrinter(parseInt(req.params.id), on, lamp);
+    res.json({ success: true, light: on ? 'on' : 'off', lamp });
   } catch (err) {
     console.error('灯控失败:', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// 速度档（reviewer+）：body {level: 1-4}
+app.post('/api/printers/:id/speed', requireUser('reviewer'), async (req, res) => {
+  try {
+    await printerManager.setSpeedOnPrinter(parseInt(req.params.id), (req.body || {}).level);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('速度档下发失败:', err);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// 风扇（reviewer+）：body {kind: part|aux|chamber, speed: 0-255}
+app.post('/api/printers/:id/fan', requireUser('reviewer'), async (req, res) => {
+  try {
+    const { kind, speed } = req.body || {};
+    await printerManager.setFanSpeedOnPrinter(parseInt(req.params.id), kind, speed);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('风扇下发失败:', err);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// gcode 直控（admin，危险面——页面有红色警示与确认）
+app.post('/api/printers/:id/gcode', requireUser('admin'), async (req, res) => {
+  try {
+    await printerManager.sendGcodeOnPrinter(parseInt(req.params.id), (req.body || {}).line);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('gcode 下发失败:', err);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// 回原点（admin + 仅空闲）
+app.post('/api/printers/:id/home', requireUser('admin'), async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (!requireIdleForMachine(id, res)) return;
+  try {
+    await printerManager.homeOnPrinter(id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('回原点失败:', err);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// 轴移动（admin + 仅空闲）：body {axis: x|y|z, distance: mm 带符号}
+app.post('/api/printers/:id/move', requireUser('admin'), async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (!requireIdleForMachine(id, res)) return;
+  try {
+    const { axis, distance } = req.body || {};
+    await printerManager.moveAxisOnPrinter(id, axis, distance);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('轴移动失败:', err);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// 校准（admin + 仅空闲）
+app.post('/api/printers/:id/calibrate', requireUser('admin'), async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (!requireIdleForMachine(id, res)) return;
+  try {
+    await printerManager.calibrationOnPrinter(id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('校准失败:', err);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// 退料（admin + 仅空闲）
+app.post('/api/printers/:id/unload', requireUser('admin'), async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (!requireIdleForMachine(id, res)) return;
+  try {
+    await printerManager.unloadFilamentOnPrinter(id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('退料失败:', err);
+    res.status(400).json({ error: err.message });
   }
 });
 
@@ -990,14 +1093,14 @@ const wssCamera = new WebSocketServer({ noServer: true });
 function handleCameraUpgrade(req, socket, head) {
   const m = /^\/api\/printers\/(\d+)\/camera\/h264(\?.*)?$/.exec(req.url || '');
   if (!m) { socket.destroy(); return; }
-  const user = authStore.resolveSession(parseCookies(req));
+  const user = authStore.resolveSession(parseCookies(req).bambu_session); // 传 token 字符串，传对象恒 401（v55 修复）
   if (!user) {
     socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
     socket.destroy();
     return;
   }
   const p = findApiPrinter(parseInt(m[1]));
-  if (!p || p.camera !== 'p1stream') {
+  if (!p || (p.camera !== 'p1stream' && p.camera !== 'rtsp')) {
     socket.write('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n');
     socket.destroy();
     return;
@@ -1005,7 +1108,10 @@ function handleCameraUpgrade(req, socket, head) {
   wssCamera.handleUpgrade(req, socket, head, (ws) => {
     const upstream = printerManager.openCameraStream(p.id);
     upstream.on('data', (chunk) => {
-      if (ws.readyState === ws.OPEN) ws.send(chunk, { binary: true });
+      // 背压保护：慢客户端（浏览器后台标签页）的缓冲超 4MB 就丢帧，防服务端内存被撑爆
+      if (ws.readyState !== ws.OPEN) return;
+      if (ws.bufferedAmount > 4 * 1024 * 1024) return;
+      ws.send(chunk, { binary: true });
     });
     upstream.on('error', (err) => {
       try { ws.close(1011, err.message.slice(0, 100)); } catch { /* 已关 */ }
