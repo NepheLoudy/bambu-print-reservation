@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次部署）。本项目 push.js 为纯 SFTP 直传、无 git 步骤，**版本锚点取顶层 monorepo 中触碰本路径的归档提交**——两次归档之间的个别部署可能无版本记录。v1~v14 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v53**（2026-10-14，双品牌纯内网批：闪铸适配+状态观察台+分发品牌隔离，SFTP 已上线；v47 训练架构半成品与 v48~v52 修补随本批首次上线）。上一版 v52（2026-10-13，支撑标注交互修批）。上一版 v51（2026-10-13，面逻辑统一）。上一版 v50（2026-10-13，载荷箭头/录入工坊补丁批）。上一版 v47~v49（2026-10-10~13，P0 分发引擎接线批+录入工坊）。上一版 v46（2026-10-08，全链路优化批+收缩量标尺，锚点 51ef6b3）。上一版 v45（2026-10-07，FTPS 990 适配+4A 双机实测）。更早：v44 连接键改名 / v43 真机终审 / v42 运营债 / v41 双通道分流 / v40 全量审查 / v39 标签迭代 / v38 界面修复 / v37 路线 A / v36 二轮对抗审查。
+当前最新：**v54**（2026-10-14，随顶层归档提交落地，审查修复批：4 P1 + _aid 发号 + 训练样本损坏隔离 + 双品牌审批门对齐，测试 14 套全绿）。上一版 v53（2026-10-14，双品牌纯内网批：闪铸适配+状态观察台+分发品牌隔离，SFTP 已上线；v47 训练架构半成品与 v48~v52 修补随本批首次上线）。上一版 v52（2026-10-13，支撑标注交互修批）。上一版 v51（2026-10-13，面逻辑统一）。上一版 v50（2026-10-13，载荷箭头/录入工坊补丁批）。上一版 v47~v49（2026-10-10~13，P0 分发引擎接线批+录入工坊）。上一版 v46（2026-10-08，全链路优化批+收缩量标尺，锚点 51ef6b3）。上一版 v45（2026-10-07，FTPS 990 适配+4A 双机实测）。更早：v44 连接键改名 / v43 真机终审 / v42 运营债 / v41 双通道分流 / v40 全量审查 / v39 标签迭代 / v38 界面修复 / v37 路线 A / v36 二轮对抗审查。
 
 ## 阶段五 · 审批事件字段对齐与分发健壮化（2026-09-05）
 
@@ -478,3 +478,7 @@
 - **端点（index.js）**：GET /api/printers/:id/camera/mjpeg（登录，HTTP 管道代理，主网设备免 31→2 路由即可看 2.x 画面）；WS /api/printers/:id/camera/h264（upgrade 手动 cookie 会话校验）；POST /api/printers/:id/light（admin）。依赖新增 ws@8.22。
 - **测试**：test/flashforge-client-test.js 新增 12 项（fetch 桩：报文形状/状态归一/AMS 双口与单口/上传头/失联/fail-closed；显式 process.exit 防 require 链常驻句柄挂闸门）；dispatcher-manual-race-test 桩补 brandOf；UNSLICED_HINT 文案扩双品牌（保留「切片为 3mf」兼容短语，ops-test 连带过）。全仓 15 套件全绿。
 - **部署状态**：本批 SFTP 直传；v47 训练架构半成品与 v48~v52 修补随本批首次上线。遗留：拓竹 Access Code 与闪铸 LAN 模式/序列号/检查码均待上屏抄录入 .env（未填前拓竹 MQTT 标「故障」、闪铸拒连，属预期，不碍服务起）。
+
+## v54 · 2026-10-14 · 随顶层归档提交落地 · fix
+
+迁移后全量审查修复批（6 路只读审查产出）：**4 P1**——①src/index.js:450 axis 分支半成品残片 `NOTE_OK` 裸标识符，受弯轴线标注自上线整链 ReferenceError→400，按兄弟分支模式补 return（FileExists 校验 a/b/dir）；②authStore.js:188 `/^[S]{6,}$/` 丢反斜杠致管理员重置密码自 10-12 上线恒失败，改 `/^\S{6,}$/`，同函数「清会话」原挂在无消费方的 user.sessions 上，改为遍历顶层 data.sessions 按 userId 摘除；③index.html:814 unsliced 门未跟 v53 双品牌口径（只认 3mf），闪铸 gcode/gx/g 单审批按钮恒禁用、直通链走不通，前端门与文案对齐 SLICED_EXT_RE；④train.html:552 syncLoadsToSelection() 错位顶层作用域（仅加载时 no-op 执行），归位 onAnnotationsChange 尾部，载荷箭头→隐藏工况勾选组联动恢复。**P2**——⑤annotator.js 六处标注创建漏发 _aid（选中光环/点选路由/编辑删除面板全拿 undefined），新增 pushAnnotation 统一 ++st.seq 发号；⑥trainingStore load 损坏仅 warn 按空启动、下次 save 静默覆盖，补 .corrupt-<ts> 隔离（对齐 reservationStore 口径）。**P3**——slice-with-engine.js Orca 路径两机探测（env 优先）；.env.example 两处文档陷阱修正（USAGE_REPORT_URL 3000→3010、ADVENTURER5 示例型号不命中 brandOf 换 AD5 并加注）。**测试**——ops-test 补 2 断言锁 v53 口径（gcode/gx/g 审批放行 ×3 + 双品牌未切片谓词 ×5）；npm test 14 套全绿。**未动项**：/api/chat/command 加鉴权需与 hub /print-* 转发两仓同批（单边加锁断产线），转待办。

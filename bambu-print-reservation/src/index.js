@@ -447,7 +447,7 @@ app.post('/api/training/samples', requireUser(), upload.fields([
       if (s.type === 'axis') {
         const a = cleanP3(s.a), b = cleanP3(s.b), dir = cleanP3(s.dir);
         const note = s.note ? String(s.note).slice(0, 200) : undefined;
-        NOTE_OK
+        return a && b && dir ? { ...base, type: 'axis', a, b, dir, ...(note ? { note } : {}) } : null;
       }
       if (s.type === 'survey' || s.type === 'region') {
         const faces = Array.isArray(s.faces) ? s.faces.slice(0, 200000).map((n) => Number(n) | 0).filter((n) => n >= 0) : [];

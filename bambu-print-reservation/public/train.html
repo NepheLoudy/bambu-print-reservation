@@ -548,8 +548,8 @@ function onAnnotationsChange(anns) {
   list.innerHTML = anns.length
     ? anns.map((a) => `• ${esc(spatialLabel(a))}`).join('<br>') + `<br><span class="sumClear" onclick="undoLast()">↩ 撤销</span> <span class="sumClear" onclick="redoLast()">↪ 重做</span> <span class="sumClear" onclick="clearAnnotations()">✕ 清空全部</span>`
     : '尚未标注——选工具后点击模型表面';
+  syncLoadsToSelection(); // 载荷箭头增删/翻转后，同步隐藏工况勾选组（v50 断链修复归位）
 }
-  syncLoadsToSelection();
 function clearAnnotations() { if (ANNOTATOR) { ANNOTATOR.clearAnnotations(); onAnnotationsChange([]); } }
 function undoLast() { if (ANNOTATOR) ANNOTATOR.undo(); }
 function redoLast() { if (ANNOTATOR) ANNOTATOR.redo(); }

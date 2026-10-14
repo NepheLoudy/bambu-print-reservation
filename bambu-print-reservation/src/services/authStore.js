@@ -185,11 +185,13 @@ const authStore = {
     const data = load();
     const user = data.users.find((u) => u.id === userId);
     if (!user) throw new Error('用户不存在');
-    if (!/^[S]{6,}$/.test(tempPassword)) throw new Error('临时密码至少 6 位');
+    if (!/^\S{6,}$/.test(tempPassword)) throw new Error('临时密码至少 6 位');
     const salt = crypto.randomBytes(16).toString('hex');
     user.salt = salt;
     user.passHash = hashPassword(tempPassword, salt);
-    user.sessions = {}; // 清会话：被重置者全部登录态失效
+    for (const [t, sess] of Object.entries(data.sessions)) { // 清会话：会话真身在顶层 data.sessions，按 userId 摘除
+      if (sess.userId === userId) delete data.sessions[t];
+    }
     save(data);
     return { username: user.username, tempPassword };
   },

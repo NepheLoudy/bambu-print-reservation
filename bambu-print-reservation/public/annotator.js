@@ -378,6 +378,7 @@
       st.redoStack.length = 0;
     }
     // 全文件 onChange 都用它导出标注快照——此前只有 API 属性上这一份，
+    function pushAnnotation(a) { a._aid = ++st.seq; st.annotations.push(a); return a; } // 标注唯一 id：选中/编辑/删除链路的钥匙（v49 漏发号，v154 修复）
     // 作用域内无函数，所有 opts.onChange(getAnnotations()) 必抛 ReferenceError
     function getAnnotations() { return st.annotations.map((a) => ({ ...a })); }
     function undo() {
@@ -597,7 +598,7 @@
         ring.title = '点击确认：通孔标注（r' + circ.r + 'mm）';
         ring.addEventListener('click', () => {
           snapshot();
-        st.annotations.push({ tool: 'hole_rim', type: 'circle', c: circ.c, n: circ.n, r: circ.r });
+        pushAnnotation({ tool: 'hole_rim', type: 'circle', c: circ.c, n: circ.n, r: circ.r });
           st.circleCandidates = st.circleCandidates.filter((x) => x !== circ);
           renderOverlay();
           if (opts.onChange) opts.onChange(getAnnotations());
@@ -1023,7 +1024,7 @@
           return;
         }
         snapshot();
-        st.annotations.push({
+        pushAnnotation({
           tool: st.tool, type: 'region', faces, supportFaces, seed: hit.face,
           normal: [N[hit.face * 3], N[hit.face * 3 + 1], N[hit.face * 3 + 2]].map((v) => +v.toFixed(3)),
           ...(e.shiftKey ? { shift: true } : {}),
@@ -1062,7 +1063,7 @@
           return;
         }
         snapshot();
-        st.annotations.push({ tool: st.tool, type: 'line', a: st.pendingLine.a, b: hit.pos });
+        pushAnnotation({ tool: st.tool, type: 'line', a: st.pendingLine.a, b: hit.pos });
         st.pendingLine = null;
         renderOverlay();
         if (opts.onChange) opts.onChange(getAnnotations());
@@ -1086,7 +1087,7 @@
           return;
         }
         snapshot();
-        st.annotations.push({
+        pushAnnotation({
           tool: st.tool, type: 'region', faces, seed: hit.face,
           normal: [faceGeom.n[hit.face * 3], faceGeom.n[hit.face * 3 + 1], faceGeom.n[hit.face * 3 + 2]].map((v) => +v.toFixed(3)),
         });
@@ -1112,7 +1113,7 @@
           }
         }
         snapshot();
-        st.annotations.push({ tool: 'load', type: 'load', loadType, pos: hit.pos, dir, face: hit.face, loadNature: (typeof opts.getLoadNature === 'function' ? opts.getLoadNature() : null), loadMagnitude: (typeof opts.getLoadMagnitude === 'function' ? opts.getLoadMagnitude() : null) });
+        pushAnnotation({ tool: 'load', type: 'load', loadType, pos: hit.pos, dir, face: hit.face, loadNature: (typeof opts.getLoadNature === 'function' ? opts.getLoadNature() : null), loadMagnitude: (typeof opts.getLoadMagnitude === 'function' ? opts.getLoadMagnitude() : null) });
         renderOverlay();
         if (opts.onChange) opts.onChange(getAnnotations());
         return;
@@ -1122,7 +1123,7 @@
       let note;
       if (st.tool === 'pin') note = prompt('自由标注备注（这条标注要说明什么？）') || '';
       snapshot();
-        st.annotations.push({ tool: st.tool, type: 'point', pos: hit.pos, face: hit.face, ...(note ? { note } : {}) });
+        pushAnnotation({ tool: st.tool, type: 'point', pos: hit.pos, face: hit.face, ...(note ? { note } : {}) });
       renderOverlay();
       if (opts.onChange) opts.onChange(getAnnotations());
     });

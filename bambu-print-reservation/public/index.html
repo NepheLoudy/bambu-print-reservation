@@ -811,12 +811,12 @@ async function loadList() {
     const liveProg = livePrinter && livePrinter.progress
       ? `<div class="pbar"><div style="width:${Math.min(100, livePrinter.progress)}%"></div></div><span class="detail">${livePrinter.progress}%${livePrinter.remainingMinutes ? '，剩余 ' + livePrinter.remainingMinutes + ' 分钟' : ''}</span>` : '';
     const pending = r.status === '待审批';
-    const unsliced = pending && !/\.3mf$/i.test(r.fileName || '');
+    const unsliced = pending && !/\.(3mf|gcode|gx|g)$/i.test(r.fileName || '');
     const reviewBtns = pending && isReviewer() ? `<div class="revbox">
-          <button class="ok" ${unsliced ? 'disabled title="未切片模型:请先用 Bambu Studio 切片为 3mf 后重新提交"' : ''} onclick="review('${r.id}','approve')">通过</button>
+          <button class="ok" ${unsliced ? 'disabled title="未切片模型：请先切片（拓竹 3mf / 闪铸 gcode）后重新提交"' : ''} onclick="review('${r.id}','approve')">通过</button>
           <button class="bad" onclick="review('${r.id}','reject')">驳回</button>
           <button class="mini" onclick="openCorrection('${r.id}')">建议修正</button>
-        </div>${unsliced ? '<div class="detail" style="color:var(--warn)">⚠️ 未切片模型——切片为 3mf 后重新提交才能分发</div>' : ''}` : '';
+        </div>${unsliced ? '<div class="detail" style="color:var(--warn)">⚠️ 未切片模型——切片后重新提交才能分发（3mf / gcode）</div>' : ''}` : '';
     const cancelBtn = !['已完成', '已取消', '已驳回'].includes(r.status) && (mine || isReviewer())
       ? `<button class="mini" onclick="cancelReservation('${r.id}')">取消</button>` : '';
     // 复刻：源文件仍在保留期的终态单一键带参重提（服务端复制文件免重传）

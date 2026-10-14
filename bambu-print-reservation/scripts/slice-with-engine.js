@@ -23,8 +23,14 @@ const path = require('path');
 const os = require('os');
 const { execFileSync } = require('child_process');
 
-const ORCA_EXE = process.env.ORCA_SLICER_EXE || 'C:/Users/0d00/AppData/Local/Programs/OrcaSlicer/orca-slicer.exe';
-const ORCA_PROFILES = process.env.ORCA_PROFILES_DIR || 'C:/Users/0d00/AppData/Local/Programs/OrcaSlicer/resources/profiles/BBL';
+// 本地切片桥：Orca 安装路径两机不同，环境变量优先；缺省按常见安装位置探测，探测不到在使用时报错并给指引
+const ORCA_CANDIDATES = [
+  process.env.ORCA_SLICER_EXE,
+  'D:/Programs/OrcaSlicer/orca-slicer.exe',
+  'C:/Program Files/OrcaSlicer/orca-slicer.exe',
+].filter(Boolean);
+const ORCA_EXE = ORCA_CANDIDATES.find((p) => { try { return fs.existsSync(p); } catch { return false; } }) || ORCA_CANDIDATES[0];
+const ORCA_PROFILES = process.env.ORCA_PROFILES_DIR || (ORCA_EXE ? ORCA_EXE.replace(/orca-slicer\.exe$/i, 'resources/profiles/BBL') : 'resources/profiles/BBL');
 
 // 引擎参数名 → Orca/Bambu 配置键（与 slicerExtract 的 BAMBU_PARAM_MAP 同源反向；
 // 速度档 speedProfile 是档位语义不直接映射，基座档自带速度族键）。

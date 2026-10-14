@@ -23,7 +23,10 @@ function load() {
     const data = JSON.parse(fs.readFileSync(FILE, 'utf-8'));
     return Array.isArray(data.samples) ? data.samples : [];
   } catch (err) {
-    console.warn('[训练集] 样本库加载失败（按空启动）:', err.message);
+    // 样本是资产：损坏隔离另存，防下一次 save 静默覆盖（对齐 reservationStore 的 .corrupt-<ts> 口径）
+    const quarantine = `${FILE}.corrupt-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+    try { fs.renameSync(FILE, quarantine); console.error(`[训练集] 样本库损坏已隔离 → ${quarantine}`); }
+    catch (mv) { console.error('[训练集] 样本库损坏且隔离失败（下次 save 将覆盖！）:', err.message, '|', mv.message); }
     return [];
   }
 }

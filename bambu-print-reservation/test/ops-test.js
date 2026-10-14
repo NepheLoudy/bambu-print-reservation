@@ -73,12 +73,22 @@ check('审批通过 stl/step 被拦截(带切片指引),3mf 放行', async () =>
   assert.equal(after.status, '排队中', '3mf 正常通过');
 });
 
-check('人工恢复(manualDispatch 口径)未切片判定同口径', () => {
-  // dispatcher 侧谓词与 reservationService 一致(直接验证文件名逻辑)
-  const { execSync } = require('child_process');
-  const isUn = (n) => !/\.3mf$/i.test(String(n || ''));
-  assert.equal(isUn('a.stl'), true);
-  assert.equal(isUn('b.3mf'), false);
+check('审批通过 gcode 系放行(v53 双品牌:闪铸直通链)', async () => {
+  for (const name of ['bracket.gcode', 'bracelet.gx', 'gear.g']) {
+    const r = submitFile(name);
+    const after = await reservationService.approveReservation(r.id, 'A', '');
+    assert.equal(after.status, '排队中', `${name} 应放行入队`);
+  }
+});
+
+check('未切片判定口径与后端 SLICED_EXT_RE 同步(3mf|gcode|gx|g)', () => {
+  // 前端 index.html 的 unsliced 门与后端 SLICED_EXT_RE 必须同口径(v154 修复前前端只认 3mf,闪铸直通被审批 UI 卡死)
+  const isUn = (n) => !/\.(3mf|gcode|gx|g)$/i.test(String(n || ''));
+  assert.equal(isUn('a.stl'), true, 'stl 仍未切片');
+  assert.equal(isUn('a.3mf'), false);
+  assert.equal(isUn('b.gcode'), false, '闪铸 gcode 已是切片件');
+  assert.equal(isUn('c.gx'), false);
+  assert.equal(isUn('d.g'), false);
 });
 
 // ---------- 3mf 内嵌参数 ----------
