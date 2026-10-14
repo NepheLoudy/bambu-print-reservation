@@ -20,11 +20,16 @@
 
 ## 打印机支持
 
-| 机型 | 接入方式 | 自动分发 |
-| --- | --- | --- |
-| X1C / H2D | MQTT 8883 + SFTP 22（bblp + Access Code），AMS 完整 | ✅ |
-| P1 / A1 | MQTT 8883 + FTPS 990（FTP 21 回退；2026-10-07 实测新固件 21 明文口已关） | ✅（AMS 有则匹配） |
-| 闪铸等非 Bambu | 仅 .env 登记 | ❌ 人工通道（页面/运维台指定后提示手动上传） |
+| 机型 | 接入方式 | 自动分发 | 画面 |
+| --- | --- | --- | --- |
+| X1C / H2D | MQTT 8883 + SFTP 22（bblp + Access Code），AMS 完整 | ✅（3mf） | RTSP（代理待接） |
+| P1 / A1 | MQTT 8883 + FTPS 990（FTP 21 回退；2026-10-07 实测新固件 21 明文口已关） | ✅（3mf） | TCP 6000 H.264（WS 中继 + WebCodecs，v53） |
+| 闪铸 5M/5M Pro（AD5M 系） | HTTP REST 8898（LAN Only 模式；serialNumber+checkCode 认证，复用 PRINTER_SERIALS/PRINTER_ACCESS_CODES） | ✅（gcode/g/gx） | 8080 MJPEG 代理（v53） |
+| 闪铸 Creator 5 Pro（四喷头） | 按 5M 兼容实现，协议社区未覆盖——真机以 /debug rawState 校后修 | ✅（gcode，待真机验证） | 同上 |
+
+- **文件格式↔品牌隔离（v53）**：拓竹吃 Bambu Studio 3mf、闪铸吃 FlashPrint/Orca（闪铸 profile）gcode——切片格式互不兼容，分发匹配按源文件扩展名隔离，跨品牌机不可见；提交时 gcode 与 3mf 同走审批直通。
+- **纯内网形态（2026-10-14，4A 拔线批）**：打印机区 192.168.2.x 经 4A 上行主网（wan 拔线=无云），机器人（31.57）经静态路由 192.168.2.0/24→192.168.31.98 直连打印机 LAN 端口；拓竹本地端口（8883/990/6000）云模式/LAN 模式均常开（10-07 实测），闪铸需在屏幕开「LAN Only 模式」。主网设备看画面/观察台走本服务代理（/status.html），无需自身加路由。
+- **状态观察台（v53）**：`/status.html`——机队卡片（状态/进度/温度/AMS 槽位盘）+ 画面（闪铸 MJPEG、拓竹 WebCodecs）+ 指令条（暂停/恢复/腔灯/停止，admin）。
 
 ## 指令（群内 @对话型机器人 或经网关转发）
 

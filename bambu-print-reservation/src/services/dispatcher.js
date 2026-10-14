@@ -9,9 +9,20 @@ const printerManager = require('../printer/manager');
 const reservationService = require('./reservation');
 const reservationStore = require('./reservationStore');
 
-/** 未切片文件判定（与 reservationService 同口径：stl/step/obj 不能直接驱动真机） */
-const isUnslicedFile = (r) => !!r && !/\.3mf$/i.test(String(r.fileName || ''));
+/** 未切片文件判定（与 reservationService 同口径：stl/step/obj 不能直接驱动真机；
+ *  切片产物=拓竹 3mf + 闪铸 gcode 系，2026-10-14 双品牌批扩） */
+const SLICED_EXT_RE = /\.(3mf|gcode|gx|g)$/i;
+const isUnslicedFile = (r) => !!r && !SLICED_EXT_RE.test(String(r.fileName || ''));
 const plaza = require('./plaza');
+
+/**
+ * 文件格式 → 品牌适配（2026-10-14 双品牌纯内网批，纯函数单测覆盖）：
+ * gcode/g/gx（FlashPrint/Orca 闪铸 profile 产物）→ 闪铸；其余（Bambu Studio 3mf
+ * 切片、需求链路模型文件）→ 拓竹。两品牌切片格式互不兼容，跨品牌喂文件=废件。
+ */
+function brandForFile(fileName) {
+  return /\.(gcode|gx|g)$/i.test(String(fileName || '')) ? 'flashforge' : 'bambu';
+}
 
 /**
  * printing 幽灵巡检阈值（纯函数，单测覆盖）：有打印机上报的预估时长（expectedMinutes，
@@ -500,9 +511,13 @@ class Dispatcher {
 
   /** 为单个任务选机：指定打印机 → 多色覆盖 → AMS 精确 → AMS 家族 */
   matchPrinter(task, available) {
-    // 双保险：只考虑真正空闲且支持自动分发的打印机（调用方列表未过滤时也不误选）
+    // 双保险：只考虑真正空闲且支持自动分发的打印机（调用方列表未过滤时也不误选）；
+    // 文件格式↔品牌隔离（2026-10-14 双品牌批）：拓竹 3mf 与闪铸 gcode 切片格式互不
+    // 兼容，跨品牌分发=打出废件，匹配层直接不可见
     const candidates = (available || []).filter(
-      (p) => p.autoDispatch && ['空闲', '已完成'].includes(p.status)
+      (p) => p.autoDispatch
+        && ['空闲', '已完成'].includes(p.status)
+        && brandForFile(task.fileName) === (printerManager.brandOf(p.model) || 'bambu')
     );
 
     // 1. 指定打印机
@@ -652,8 +667,11 @@ class Dispatcher {
         mirrorWritten = true;
       }
 
-      // 远端文件名用 recordId，避免中文名/空格在 FTP URL 里出编码问题
-      const remoteName = `print_${task.recordId}.3mf`;
+      // 远端文件名用 recordId，避免中文名/空格在 FTP URL 里出编码问题；
+      // 扩展名跟源文件走（拓竹 3mf / 闪铸 gcode 系——闪铸 printGcode 按文件名识别格式）
+      const srcExtMatch = String(task.fileName || '').match(/\.(3mf|gcode|gx|g)$/i);
+      const srcExt = srcExtMatch ? srcExtMatch[1].toLowerCase() : '3mf';
+      const remoteName = `print_${task.recordId}.${srcExt}`;
       if (await checkCancelled('上传')) return;
       const buffer = await loadTaskFile(task);
       await printerManager.uploadFileToPrinter(printer.id, buffer, remoteName);
@@ -1039,3 +1057,4 @@ module.exports.colorDistance = colorDistance;
 module.exports.materialMatch = materialMatch;
 module.exports.buildLocalTask = buildLocalTask;
 module.exports.staleThresholdMs = staleThresholdMs;
+module.exports.brandForFile = brandForFile;

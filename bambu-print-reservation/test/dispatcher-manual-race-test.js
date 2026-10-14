@@ -50,6 +50,7 @@ const stubs = {
     getAvailablePrinters: () => availablePrinters,
     getAllPrinterStates: () => availablePrinters,
     getPrinterState: () => PRINTER,
+    brandOf: () => 'bambu', // 2026-10-14 双品牌批：分发匹配按文件格式↔品牌隔离（桩固定拓竹）
     uploadFileToPrinter: async (id, buffer, remoteName) => { calls.uploads.push({ id, remoteName }); },
     startProjectOnPrinter: async (id, remoteName) => { calls.starts.push({ id, remoteName }); },
     updateState: () => {},

@@ -2,6 +2,7 @@ const { BambuLink } = require('bambu-link');
 const { Client: SSHClient } = require('ssh2');
 const ftp = require('ftp');
 const { Client: FTPSClient } = require('basic-ftp');
+const net = require('net');
 
 // gcodeState（打印机上报的 gcode_state）→ 统一中文状态
 const GCODE_STATE_MAP = {
@@ -276,6 +277,37 @@ class PrinterClient {
       throw new Error('打印机未连接');
     }
     return this.client.stopPrint();
+  }
+
+  /**
+   * 腔灯控制（2026-10-14 观察台指令条）：标准 LAN 协议 ledctrl 命令。
+   * bambu-link 未封装，直接走底层 MQTT sendCommand（序号沿用 projectSeq 高段位防撞车）
+   */
+  async lightControl(on) {
+    if (!this.client || !this.connected) {
+      throw new Error('打印机未连接');
+    }
+    const sequenceId = ++this.projectSeq;
+    const payload = {
+      system: {
+        sequence_id: String(sequenceId),
+        command: 'ledctrl',
+        led_node: 'chamber_light',
+        led_mode: on ? 'on' : 'off',
+        led_time: 600,
+      },
+    };
+    return this.client.getMqttClient().sendCommand(JSON.stringify(payload), sequenceId, true);
+  }
+
+  /**
+   * 本地摄像头流（P1/A1 系：TCP 6000 直推 H.264 Annex-B，LAN 模式/云模式下端口均开；
+   * X1/H2D 系为 RTSP:554 不走此通道）。观察台经 WebSocket 中继消费——每个观看客户端
+   * 独立一条 socket，断开即销毁，不在 client 内长驻
+   */
+  openCameraStream() {
+    const socket = net.connect({ host: this.config.host, port: 6000, timeout: 8000 });
+    return socket;
   }
 
   // ============ 文件传输（SFTP 优先，FTPS/FTP 兜底） ============

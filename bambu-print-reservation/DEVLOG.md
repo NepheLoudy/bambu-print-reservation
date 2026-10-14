@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 `npm run push`（= 一次部署）。本项目 push.js 为纯 SFTP 直传、无 git 步骤，**版本锚点取顶层 monorepo 中触碰本路径的归档提交**——两次归档之间的个别部署可能无版本记录。v1~v14 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v47**（2026-10-10，P0 分发引擎接线批，锚点=顶层 v145 归档提交；SFTP 部署待小电脑上线补跑）。上一版 v46（2026-10-08，全链路优化批+收缩量标尺，锚点 51ef6b3，已上线）。上一版 v45（2026-10-07，已上线，FTPS 990 适配+4A 双机实测）。上一版 v44（2026-10-07，NAS_*→DEPLOY_* 连接键改名批）。上一版 v43（2026-10-07，真机接入前终审）。上一版 v42（2026-10-06，运营债清偿批）。上一版 v41（2026-10-05，双通道分流）。上一版 v40（2026-10-05，全量审查批+多色打印）。上一版 v39（2026-10-05，标签体系迭代批）。上一版 v38（2026-10-05，界面修复/参数细化/标签反馈批）。上一版 v37（2026-10-05，路线 A 大版本）。上一版 v36（2026-09-27，第二轮全量对抗审查修复批）。
+当前最新：**v53**（2026-10-14，双品牌纯内网批：闪铸适配+状态观察台+分发品牌隔离，SFTP 已上线；v47 训练架构半成品与 v48~v52 修补随本批首次上线）。上一版 v52（2026-10-13，支撑标注交互修批）。上一版 v51（2026-10-13，面逻辑统一）。上一版 v50（2026-10-13，载荷箭头/录入工坊补丁批）。上一版 v47~v49（2026-10-10~13，P0 分发引擎接线批+录入工坊）。上一版 v46（2026-10-08，全链路优化批+收缩量标尺，锚点 51ef6b3）。上一版 v45（2026-10-07，FTPS 990 适配+4A 双机实测）。更早：v44 连接键改名 / v43 真机终审 / v42 运营债 / v41 双通道分流 / v40 全量审查 / v39 标签迭代 / v38 界面修复 / v37 路线 A / v36 二轮对抗审查。
 
 ## 阶段五 · 审批事件字段对齐与分发健壮化（2026-09-05）
 
@@ -464,3 +464,17 @@
 - **区内任意面取消**：同工具点击染色区内任意面即取消该标注（原只认恰好点中种子三角，点区内其他面无反应——「取消选中点击还是没有用」）；两条区域分支（support/axis）统一该手势，取消时同步清 selectedId。
 - **重做栈**：新增 redo（Ctrl+Y / Ctrl+Shift+Z / 列表「↪ 重做」按钮），snapshot 时截断重做分支；undo/redo 后清失配的 selectedId。
 - **回归实测（双隧道 harness，验后即删）**：底块+两条 ∩ 形半圆隧道（洞顶悬垂带 15°/段平滑可爬）。普通点击 A 洞顶=16 面 60° 锥+8 面红带；Shift 点 B 洞顶=两洞顶红带共 16 面、faces==supportFaces（零淡蓝）、A 带被同特征并选；点区内另一面=整条标注取消；undo 恢复/redo 再取消 ✓。
+
+## v53 · 2026-10-14 · 锚点=顶层归档待补（本批 SFTP 直传） · feat
+
+**双品牌纯内网批（曼波令：4A 拔线打印机区转纯内网前把链路做好）——闪铸局域网适配 + 状态观察台 + 文件分发品牌分流**
+
+- **闪铸适配层 `src/printer/flashforge.js`（新）**：LAN Only 模式下 TCP 8898 HTTP REST（社区逆向文档 Parallel-7/flashforge-api-docs，AD5M/5M Pro 固件 3.2.7 校准）——/detail 轮询（5s，FLASHFORGE_POLL_MS 可调）状态归一为拓竹口径 gcodeState（manager.resolveJobEvent 直接复用；取消中归 IDLE 走既有幽灵收尾=失败重排）；/control jobCtl_cmd（pause/continue/cancel，payload JSON 字符串化）；/uploadGcode multipart（serialNumber/checkCode/fileSize/printNow 头）+ /printGcode 两步式分发（先传后打，失败重试不重传）；/gcodeList；8080 MJPEG 摄像头。认证复用 .env 五件套（PRINTER_SERIALS=serialNumber、PRINTER_ACCESS_CODES=checkCode），无凭据 fail-closed 拒连。Creator 5 Pro（四喷头）协议社区未覆盖，按 5M 兼容实现，真机以 /debug rawState 校后再修。
+- **manager 品牌分派**：brandOf/cameraKind 纯函数（导出供测试）；拓竹=bambu-link MQTT、闪铸=HTTP 轮询，同一状态机/jobEvent/分发引擎；getAvailablePrinters 拓竹闪铸均自动可分发（原「闪铸走人工通道」退役）；/api/printers 增 brand/camera/cameraUrl 字段。
+- **拓竹侧增补**：腔灯 ledctrl 指令（lightControl，MQTT 直发）；TCP 6000 本地 H.264 流中继通道（openCameraStream，每观看客户端独立 socket）。
+- **文件分发品牌隔离（dispatcher）**：brandForFile 纯函数——gcode/g/gx→闪铸、其余→拓竹，matchPrinter 匹配层不可见跨品牌机（切片格式互不兼容，跨喂=废件）；远端文件名扩展名跟源文件走；isUnslicedFile 口径同步扩（3mf+gcode 系=切片产物，reservation.js 同批）。
+- **提交链路**：上传白名单扩 .gcode/.g/.gx，与 3mf 同走审批直通（参数已定不定档）；3mf 参数提取仅对 3mf 触发（gcode 跳过）；前端 accept/提示/直通横幅同步。
+- **状态观察台 `public/status.html`（新）**：机队卡片网格（品牌徽标/状态+失联标注/进度条/三路温度含目标值/当前任务/AMS 或进料口彩色槽位盘）；画面区双通道——闪铸 MJPEG `<img>` 直连服务端代理、拓竹 P1 系「▶ 连接画面」经 WS 中继 + WebCodecs H.264 解码（Annex-B 拆 NALU、SPS/PPS 缓存配 codec、IDR 随机接入，Chrome/Edge 94+）；X1/H2D RTSP 通道占位待接。指令条（admin）：暂停/恢复/腔灯开/关/停止。5s 轮询。预约页页头加入口。
+- **端点（index.js）**：GET /api/printers/:id/camera/mjpeg（登录，HTTP 管道代理，主网设备免 31→2 路由即可看 2.x 画面）；WS /api/printers/:id/camera/h264（upgrade 手动 cookie 会话校验）；POST /api/printers/:id/light（admin）。依赖新增 ws@8.22。
+- **测试**：test/flashforge-client-test.js 新增 12 项（fetch 桩：报文形状/状态归一/AMS 双口与单口/上传头/失联/fail-closed；显式 process.exit 防 require 链常驻句柄挂闸门）；dispatcher-manual-race-test 桩补 brandOf；UNSLICED_HINT 文案扩双品牌（保留「切片为 3mf」兼容短语，ops-test 连带过）。全仓 15 套件全绿。
+- **部署状态**：本批 SFTP 直传；v47 训练架构半成品与 v48~v52 修补随本批首次上线。遗留：拓竹 Access Code 与闪铸 LAN 模式/序列号/检查码均待上屏抄录入 .env（未填前拓竹 MQTT 标「故障」、闪铸拒连，属预期，不碍服务起）。

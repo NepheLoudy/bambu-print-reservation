@@ -1,4 +1,6 @@
 const express = require('express');
+const http = require('http');
+const { WebSocketServer } = require('ws');
 // dotenv 必须最先加载（config 内 require('dotenv').config）：authStore/processRules/
 // trainingStore 等服务模块在顶层读 process.env.XXXX 决定存储路径——晚于它们加载
 // 会让 .env 的存储路径静默失效、退回项目根默认（2026-10-12 审查发现，账号库
@@ -38,7 +40,9 @@ app.use(express.static(path.join(__dirname, '..', 'public'), {
 
 // 上传目录预建
 fs.mkdirSync(reservationStore.UPLOAD_DIR, { recursive: true });
-const MODEL_EXT_RE = /\.(stl|step|stp|3mf|obj)$/i; // 模型/切片扩展名白名单（审查批：拒任意文件）
+// 模型/切片扩展名白名单（审查批：拒任意文件）。gcode 系=闪铸切片产物（2026-10-14
+// 双品牌批）：与 3mf 同走「审批直通」（参数已定，引擎不定档），分发时按品牌分流
+const MODEL_EXT_RE = /\.(stl|step|stp|3mf|obj|gcode|gx|g)$/i;
 const upload = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => cb(null, reservationStore.UPLOAD_DIR),
@@ -176,7 +180,7 @@ app.get('/api/print/policy', (req, res) => {
     bot: { name: config.bot?.name || 'bambu-print-reservation', port: config.port },
     printers: {
       configured: config.printers.length,
-      list: config.printers.map((p) => ({ id: p.id, name: p.name, model: p.model })),
+      list: config.printers.map((p) => ({ id: p.id, name: p.name, model: p.model, brand: require('./printer/manager').brandOf(p.model) })),
       available: (() => { try { return printerManager.getAvailablePrinters().length; } catch { return null; } })(),
     },
     approval: {
@@ -595,7 +599,10 @@ app.post('/api/reservations', requireUser(), upload.single('file'), async (req, 
     if (!req.file) return res.status(400).json({ error: '缺少文件（multipart 字段名 file）' });
     const body = req.body || {};
     const fileName = Buffer.from(req.file.originalname || 'unnamed', 'latin1').toString('utf8');
-    const isSliced = /\.3mf$/i.test(fileName); // 3mf = 已切片产物 → 审批直通
+    // 已切片产物=审批直通（2026-10-14 扩：闪铸 gcode 系与 3mf 同语义——参数已定，
+    // 引擎不定档不越俎代庖；分发引擎按品牌分流：3mf→拓竹 / gcode→闪铸）
+    const isSliced = /\.(3mf|gcode|gx|g)$/i.test(fileName);
+    const is3mf = /\.3mf$/i.test(fileName);
 
     let selection = {};
     if (!isSliced) {
@@ -621,7 +628,7 @@ app.post('/api/reservations', requireUser(), upload.single('file'), async (req, 
     // 大于 50MB 跳过提取（adm-zip 需整文件进内存，大文件会拖垮提交请求）
     let embeddedParams = null;
     let estMinutes = null;
-    if (isSliced) {
+    if (isSliced && is3mf) {
       if (req.file.size > 50 * 1024 * 1024) {
         console.log(`[提交] 3mf 过大（${Math.round(req.file.size / 1048576)}MB），跳过参数提取`);
       } else {
@@ -936,6 +943,79 @@ app.post('/api/printers/:id/stop', requireUser('admin'), async (req, res) => {
   }
 });
 
+// 腔灯控制（2026-10-14 观察台指令条；admin——灯不贵但深夜误开扰人）
+app.post('/api/printers/:id/light', requireUser('admin'), async (req, res) => {
+  try {
+    const on = Boolean((req.body || {}).on);
+    await printerManager.lightControlOnPrinter(parseInt(req.params.id), on);
+    res.json({ success: true, light: on ? 'on' : 'off' });
+  } catch (err) {
+    console.error('灯控失败:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------- 打印机画面通道（2026-10-14 纯内网批：观察台画面区） ----------
+// 4A 拔线后打印机在 192.168.2.x，主网设备没有 31→2 静态路由的（手机等）看不了
+// 直连流——统一走本服务代理，任何 31.x 设备都能看。登录可见（不放匿名面）。
+
+function findApiPrinter(id) {
+  return printerManager.getApiStates().find((p) => p.id === id) || null;
+}
+
+// 闪铸 MJPEG 代理：打印机 8080 multipart 流原样管道转发（每客户端独立上游，
+// 客户端断开即销毁上游连接；上游失败 502——基础款 5M 无摄像头属预期）
+app.get('/api/printers/:id/camera/mjpeg', requireUser(), (req, res) => {
+  const p = findApiPrinter(parseInt(req.params.id));
+  if (!p) return res.status(404).json({ error: '打印机不存在' });
+  if (p.camera !== 'mjpeg') return res.status(400).json({ error: `该机型画面通道为「${p.camera || '无'}」，不走 MJPEG` });
+  const upstream = http.request(p.cameraUrl, { timeout: 30000 }, (up) => {
+    res.setHeader('Content-Type', up.headers['content-type'] || 'multipart/x-mixed-replace; boundary=frame');
+    res.setHeader('Cache-Control', 'no-cache');
+    up.pipe(res);
+    up.on('error', () => res.end());
+  });
+  upstream.on('timeout', () => upstream.destroy(new Error('上游空闲超时')));
+  upstream.on('error', (err) => {
+    if (!res.headersSent) res.status(502).json({ error: `画面拉流失败（${p.name}）: ${err.message}` });
+    else res.end();
+  });
+  req.on('close', () => upstream.destroy());
+  upstream.end();
+});
+
+// 拓竹 P1/A1 系 H.264 中继：TCP 6000 裸流 → WebSocket 二进制（前端 WebCodecs 解码）。
+// upgrade 不走 express 中间件，cookie 会话在此手动校验（requireUser 同源逻辑）
+const wssCamera = new WebSocketServer({ noServer: true });
+function handleCameraUpgrade(req, socket, head) {
+  const m = /^\/api\/printers\/(\d+)\/camera\/h264(\?.*)?$/.exec(req.url || '');
+  if (!m) { socket.destroy(); return; }
+  const user = authStore.resolveSession(parseCookies(req));
+  if (!user) {
+    socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
+    socket.destroy();
+    return;
+  }
+  const p = findApiPrinter(parseInt(m[1]));
+  if (!p || p.camera !== 'p1stream') {
+    socket.write('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n');
+    socket.destroy();
+    return;
+  }
+  wssCamera.handleUpgrade(req, socket, head, (ws) => {
+    const upstream = printerManager.openCameraStream(p.id);
+    upstream.on('data', (chunk) => {
+      if (ws.readyState === ws.OPEN) ws.send(chunk, { binary: true });
+    });
+    upstream.on('error', (err) => {
+      try { ws.close(1011, err.message.slice(0, 100)); } catch { /* 已关 */ }
+    });
+    upstream.on('close', () => { try { ws.close(1000); } catch { /* 已关 */ } });
+    ws.on('close', () => { try { upstream.destroy(); } catch { /* 已销毁 */ } });
+    ws.on('error', () => { try { upstream.destroy(); } catch { /* 已销毁 */ } });
+  });
+}
+
 // /api/feishu/event 端点已随 2026-10-05 路线 A 退役（审批实例/任务/表格事件不再消费）；
 // url_verification 握手随事件订阅一并成为历史。
 
@@ -993,6 +1073,10 @@ function startServer() {
     console.log(`🖨️ 打印机数量: ${config.printers.length}`);
     if (!config.bitable.appToken) console.log('ℹ️ 未配置 BITABLE_APP_TOKEN（路线 A 已不依赖表格，保持空即可）');
   });
+
+  // 打印机画面 WS 中继（拓竹 P1 系 6000 H.264 → 浏览器 WebCodecs；升级请求绕过
+  // express 路由，鉴权在 handleCameraUpgrade 内做 cookie 会话校验）
+  server.on('upgrade', handleCameraUpgrade);
 
   // 2026-10-05 路线 A：startEventSubscription()（审批/表格事件订阅 + 审批对账）已退役；
   // 2026-10-10 修复：当时把 dispatcher.start() 一并弄丢（原挂在事件订阅启动里），

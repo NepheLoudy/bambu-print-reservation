@@ -130,7 +130,7 @@
   <div class="head">
     <div>
       <h1>🖨️ 拓竹打印预约</h1>
-      <div class="sub">上传模型 → 勾选工况需求 → 规则引擎定参数 → 审批 → 自动分发打印</div>
+      <div class="sub">上传模型 → 勾选工况需求 → 规则引擎定参数 → 审批 → 自动分发打印　<a href="/status.html" style="color:var(--accent,#5b6ee1)">📺 状态观察台 →</a></div>
     </div>
     <div class="userbox" id="userbox"></div>
   </div>
@@ -167,9 +167,9 @@
         <div><label>指定打印机（可空，默认自动匹配）</label><input type="text" id="assignedPrinter" list="printerNameList" placeholder="如 X1C-01，留空自动"><datalist id="printerNameList"></datalist></div>
       </div>
       <div class="row">
-        <div><label>模型 / 切片文件 *（.stl/.step 走需求链路：勾选工况自动定档；.3mf 走审批直通：切片参数已内嵌）</label><input type="file" id="file" accept=".stl,.step,.stp,.3mf,.obj"></div>
+        <div><label>模型 / 切片文件 *（.stl/.step 走需求链路：勾选工况自动定档；.3mf=拓竹直通 / .gcode=闪铸直通：切片参数已内嵌）</label><input type="file" id="file" accept=".stl,.step,.stp,.3mf,.obj,.gcode,.gx,.g"></div>
       </div>
-      <div class="preview" id="slicedNotice" style="display:none">📦 <b>3mf 审批直通模式</b>——切片参数与 AMS 颜色映射已内嵌文件，无需工况勾选；材料/颜色栏仅用于选机匹配</div>
+      <div class="preview" id="slicedNotice" style="display:none">📦 <b>切片产物审批直通模式</b>——3mf（拓竹）/ gcode（闪铸）的切片参数已内嵌文件，无需工况勾选；材料/颜色栏仅用于选机匹配。注意：3mf 只能去拓竹机、gcode 只能去闪铸机，选错品牌会被自动匹配忽略</div>
       <div class="preview" id="modelPanel" style="display:none"></div>
       <div id="taxonomy"></div>
       <div class="hint" id="conflictHint"></div>
@@ -591,10 +591,11 @@ function clearSelection() {
   preflight(); schedulePreview(); saveSelMemory(); renderSelSummary();
 }
 
-/** 双通道模式感知（2026-10-05 曼波定）：3mf=审批直通（隐藏勾选区），stl/step=需求链路 */
+/** 双通道模式感知（2026-10-05 曼波定）：3mf=审批直通（隐藏勾选区），stl/step=需求链路；
+ *  2026-10-14 双品牌批：闪铸 gcode 系切片产物与 3mf 同走直通 */
 function isSlicedFile() {
   const f = $('file').files[0];
-  return !!f && /\.3mf$/i.test(f.name);
+  return !!f && /\.(3mf|gcode|gx|g)$/i.test(f.name);
 }
 function updateSlicedMode() {
   const sliced = isSlicedFile();
@@ -977,6 +978,7 @@ async function loadPrinters() {
         </div>` : '';
     return `<div class="pcard"${staleIdle ? ' style="opacity:.75"' : ''}>
       <b>${esc(p.name)}</b> <span class="detail">${esc(p.model)}</span><span class="st badge" style="background:${color}">${statusHtml}</span>
+      ${p.brand === 'flashforge' ? '<span class="st badge" style="background:#e07b39">闪铸</span>' : ''}
       ${job}${prog}
       ${staleIdle ? '<div class="detail" style="color:var(--bad)">⚠️ 超过 3 分钟无状态报文——分发不可选，请检查打印机电源/网络</div>' : ''}
       <div class="detail" style="margin-top:4px">AMS: ${ams}${p.autoDispatch ? '' : '｜⚙️ 人工机型'}</div>

@@ -1,11 +1,37 @@
 const config = require('../config');
 const PrinterClient = require('./client');
+const FlashforgeClient = require('./flashforge');
 const bitableApi = require('../feishu/bitable');
 
-// 判断打印机是否支持自动分发（Bambu 系 MQTT+文件上传；闪铸等异构机型走人工通道）
+/**
+ * 机型 → 品牌适配层分派（2026-10-14 纯内网批）：拓竹走 MQTT(bambu-link)，闪铸走
+ * HTTP REST 轮询（flashforge.js）。未知型号默认按拓竹处理（保持老 .env 兼容）。
+ */
+function brandOf(model) {
+  const m = String(model || '').toUpperCase();
+  if (m.includes('AD5') || m.includes('AD5X') || m.includes('5M') || m.includes('CREATOR')) return 'flashforge';
+  return 'bambu';
+}
+
+// 判断打印机是否支持自动分发：两条链路就绪后拓竹与闪铸均可（gcode/3mf 文件类型
+// 由 dispatcher 按品牌校验）
 function isAutoDispatchable(printer) {
-  const model = String(printer.model || '').toUpperCase();
-  return model.includes('X1') || model.includes('H2D') || model.includes('P1') || model.includes('A1');
+  return brandOf(printer.model) !== 'unknown';
+}
+
+/**
+ * 摄像头通道类型（观察台画面区按此选渲染器，2026-10-14）：
+ *   p1stream = 拓竹 P1/A1 系 TCP6000 H.264（服务端 WS 中继 + 前端 WebCodecs 解码）
+ *   mjpeg    = 闪铸 8080 MJPEG（服务端 HTTP 代理，<img> 直显；无摄像头机型代理 502）
+ *   rtsp     = 拓竹 X1/H2D 系 RTSP:554（暂不代理，前端标注「画面通道待接」）
+ *   null     = 未知机型
+ */
+function cameraKind(printer) {
+  const m = String(printer.model || '').toUpperCase();
+  if (brandOf(m) === 'flashforge') return 'mjpeg';
+  if (m.includes('P1') || m.includes('A1')) return 'p1stream';
+  if (m.includes('X1') || m.includes('H2D')) return 'rtsp';
+  return null;
 }
 
 /**
@@ -45,6 +71,7 @@ class PrinterManager {
     for (const printer of config.printers) {
       this.printerStates[printer.id] = {
         ...printer,
+        brand: brandOf(printer.model),
         autoDispatch: isAutoDispatchable(printer),
         status: '未连接',
         gcodeState: '',
@@ -61,11 +88,14 @@ class PrinterManager {
       };
 
       if (!this.printerStates[printer.id].autoDispatch) {
-        console.log(`[打印机管理] ${printer.name}(${printer.model}) 为非 Bambu 机型，仅登记不参与自动分发`);
+        console.log(`[打印机管理] ${printer.name}(${printer.model}) 为未知品牌机型，仅登记不参与自动分发`);
         continue;
       }
 
-      const client = new PrinterClient(printer);
+      // 品牌分派：拓竹=MQTT 长连（bambu-link），闪铸=HTTP 轮询（flashforge）
+      const client = this.printerStates[printer.id].brand === 'flashforge'
+        ? new FlashforgeClient(printer)
+        : new PrinterClient(printer);
       this.clients[printer.id] = client;
 
       client.on('connect', () => this.handleConnect(printer.id));
@@ -201,10 +231,17 @@ class PrinterManager {
    * 「空闲」而报文早已过期（幽灵空闲）时，页面能看到「失联」警示而非误信空闲
    */
   getApiStates() {
-    return Object.values(this.printerStates).map((p) => ({
-      ...p,
-      stateStale: this.clients[p.id] ? this.clients[p.id].isStateStale() : true,
-    }));
+    return Object.values(this.printerStates).map((p) => {
+      const client = this.clients[p.id];
+      return {
+        ...p,
+        stateStale: client ? client.isStateStale() : true,
+        // 摄像头能力（观察台画面区消费）：拓竹 P1/A1 系=TCP6000 H.264（经 WS 中继）；
+        // X1/H2D 系=RTSP 暂不代理；闪铸=HTTP MJPEG 代理。机型不带摄像头则 false
+        camera: cameraKind(p),
+        cameraUrl: client && typeof client.getCameraUrl === 'function' ? client.getCameraUrl() : null,
+      };
+    });
   }
 
   /**
@@ -234,6 +271,8 @@ class PrinterManager {
       id: state.id,
       name: state.name,
       model: state.model,
+      brand: state.brand || brandOf(state.model),
+      camera: cameraKind(state),
       host: state.host,
       autoDispatch: state.autoDispatch,
       connected: Boolean(client && client.connected),
@@ -251,7 +290,12 @@ class PrinterManager {
     if (!client || !client.connected) {
       throw new Error('打印机未连接');
     }
-
+    // 品牌分派：拓竹推到 /sdcard/（返回远端路径，随后的 project_file 引用它）；
+    // 闪铸传 /data（printNow=false 两步式——上传与开打解耦，失败重试不重传文件）
+    if (this.printerStates[printerId].brand === 'flashforge') {
+      await client.uploadBuffer(Buffer.from(buffer), fileName, { printNow: false });
+      return `/data/${fileName}`;
+    }
     const remotePath = `/sdcard/${fileName}`;
     await client.uploadBuffer(Buffer.from(buffer), remotePath);
     return remotePath;
@@ -262,7 +306,28 @@ class PrinterManager {
     if (!client || !client.connected) {
       throw new Error('打印机未连接');
     }
+    if (this.printerStates[printerId].brand === 'flashforge') {
+      return client.startFile(fileName);
+    }
     await client.startProjectFile(fileName, subtaskName, useAms);
+  }
+
+  /** 腔灯控制（2026-10-14 观察台指令条；两品牌各走各的协议） */
+  async lightControlOnPrinter(printerId, on) {
+    const client = this.clients[printerId];
+    if (!client || !client.connected) {
+      throw new Error('打印机未连接');
+    }
+    return client.lightControl(on);
+  }
+
+  /** 摄像头上游流（拓竹 P1/A1 系 TCP6000；每个观看客户端独立 socket） */
+  openCameraStream(printerId) {
+    const client = this.clients[printerId];
+    if (!client || typeof client.openCameraStream !== 'function') {
+      throw new Error('该机型不支持此画面通道');
+    }
+    return client.openCameraStream();
   }
 
   async startPrintOnPrinter(printerId, filePath) {
@@ -359,7 +424,10 @@ class PrinterManager {
 
   async cleanupFileSessions() {
     for (const client of Object.values(this.clients)) {
-      await client.disconnectFileSession();
+      // 闪铸 client 无文件长会话（每轮 HTTP 独立），方法缺席即跳过
+      if (typeof client.disconnectFileSession === 'function') {
+        await client.disconnectFileSession();
+      }
     }
   }
 }
@@ -374,3 +442,5 @@ const printerManager = new PrinterManager();
 
 module.exports = printerManager;
 module.exports.resolveJobEvent = resolveJobEvent;
+module.exports.brandOf = brandOf;
+module.exports.cameraKind = cameraKind;

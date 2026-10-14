@@ -7,11 +7,13 @@ const { sendMessage, buildReservationAlertCard, buildReviewResultCard } = requir
 const quietHours = require('../utils/quietHours');
 
 /** 未切片文件判定（2026-10-06 审查批）：需求链路单（stl/step/obj）不能直接驱动真机——
- *  打印机只认切片产物（gcode.3mf），裸模型分发必然失败。审批与人工恢复双闸拦截 */
+ *  打印机只认切片产物，裸模型分发必然失败。审批与人工恢复双闸拦截。
+ *  切片产物口径（2026-10-14 双品牌批扩）=拓竹 3mf + 闪铸 gcode 系（g/gcode/gx） */
+const SLICED_EXT_RE = /\.(3mf|gcode|gx|g)$/i;
 function isUnslicedFile(reservation) {
-  return !!reservation && !/\.3mf$/i.test(String(reservation.fileName || ''));
+  return !!reservation && !SLICED_EXT_RE.test(String(reservation.fileName || ''));
 }
-const UNSLICED_HINT = '该单是未切片模型（stl/step）——请先用 Bambu Studio 切片为 3mf 后重新提交（服务端自动切片上线前，需求链路单暂不支持直接分发）';
+const UNSLICED_HINT = '该单是未切片模型（stl/step）——请先切片后重新提交：拓竹机请用 Bambu Studio 切片为 3mf，闪铸机请用 FlashPrint/Orca（闪铸 profile）切片为 gcode（服务端自动切片上线前，需求链路单暂不支持直接分发）';
 
 // ============================================================
 // 预约服务（2026-10-05 路线 A 本地化改造）：
