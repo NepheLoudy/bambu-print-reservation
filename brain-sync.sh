@@ -8,7 +8,10 @@
 #                              #   若真冲突按「updated 新者胜」人工核对，勿盲覆盖）
 # ============================================================
 set -e
-MEM_DIR="$(cd "$(dirname "$0")" && pwd)/memory"
+# 纯 bash 内建定位脚本目录（裸 bash.exe 调用时无 dirname/PATH，禁用外部命令）
+SRC="${BASH_SOURCE[0]}"
+[[ "$SRC" == */* ]] || SRC="./$SRC"
+MEM_DIR="$(cd "${SRC%/*}" && pwd)/memory"
 cd "$MEM_DIR"
 if [ ! -d .git ]; then
   echo "[brain-sync] memory/ 还不是 git 仓——首次接入：git init && git remote add origin https://github.com/NepheLoudy/qianli-brain.git && brain-sync.sh pull"
