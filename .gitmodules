@@ -13,3 +13,6 @@
 [submodule "tools/rm-battlescope"]
 	path = tools/rm-battlescope
 	url = https://github.com/ezthor/rm-battlescope.git
+[submodule "ticket-pm/ticket-bot"]
+	path = ticket-pm/ticket-bot
+	url = https://github.com/NepheLoudy/ticket-bot.git
