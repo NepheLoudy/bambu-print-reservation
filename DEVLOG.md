@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v154**（2026-10-14，随本提交落地，dashboard keepalive.vbs 双机路径探测批——保活脚本硬编码笔记本路径改两机探测，修台式机每 10 分钟 WSH 弹窗）。上一版 v153（2026-10-14，迁移基础设施批——顶层仓正名 NepheLoudy/qianli+ticket-bot 转正第 6 子模块+大脑记忆链路 qianli-brain/brain-sync 落地，两机一致性达成）。上一版 v152（2026-10-14，e62ce67，bambu v53 双品牌纯内网批归档，已上线小电脑）。上一版 v151（2026-10-13，f9fac9d，bambu v48+v49 归档批+5 个 gitlink 注册前置）。
+当前最新：**v156**（2026-10-15，随本提交落地，ticket-bot v92 + pm-robot v132 联动批——DDL 播报「📨 已指派待确认」分栏）。上一版 v155（2026-10-14，34af792，迁移后全量审查修复批——bambu v54/gateway v38/duty v55/hub v131 等六仓，头部指针本批补正）。上一版 v154（2026-10-14，575d84a，dashboard keepalive.vbs 双机路径探测批——保活脚本硬编码笔记本路径改两机探测，修台式机每 10 分钟 WSH 弹窗）。上一版 v153（2026-10-14，迁移基础设施批——顶层仓正名 NepheLoudy/qianli+ticket-bot 转正第 6 子模块+大脑记忆链路 qianli-brain/brain-sync 落地，两机一致性达成）。上一版 v152（2026-10-14，e62ce67，bambu v53 双品牌纯内网批归档，已上线小电脑）。上一版 v151（2026-10-13，f9fac9d，bambu v48+v49 归档批+5 个 gitlink 注册前置）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -1322,3 +1322,12 @@ dashboard keepalive.vbs 双机路径探测批：保活脚本硬编码笔记本�
 ## v155 · 2026-10-14 · 34af792 · fix
 
 迁移后全量审查修复批（6 路只读审查产出，v154 时点）：**bambu v54**（4 P1：axis NOTE_OK 半成品/重置密码正则丢反斜杠/gcode 审批门未跟双品牌/载荷勾选联动断链；P2：_aid 发号/清会话真身/训练样本损坏隔离；测试 14 套全绿+gcode 审批断言锁）——e8f608d；**gateway v38**（connecting 恒挂兜底落地：死常量 WS_START_WATCHDOG_MS 本来语义实现，超 5 分钟自退交 pm2 重建；command 投递附共享 X-API-Token——approval 已挂鉴权裸转发 403；cors 死依赖清理）——cf2e12c；**duty-bot v55**（独立仓：隐私 dump .tmp-kaoqin-roster.json 清理三处+gitignore 补 .tmp-*（历史清洗待裁决）、README NAS 字样、ZKLink 模板 17 键、push.js PATH 精简、zklink 原子写，17 套全绿）——f4b1a4a；**hub v131**（独立仓：兜底策略补「确认全部已取」两处词形，11 套全绿）——7664ff0；**ticket-bot**（独立仓：DEVLOG 指针校正 v91+.env.example 补 ACCEPT_TRACE_FIELD）——8e14329；**netlog**（本机 .env 账号池路径改 D:/dev 种子；v19 补部署实际成功——pm2 online+health 全绿，push.js 末步健康检查连接被 sshd 频率保护 ECONNRESET 误报失败，人工 SSH 验证为准）；**approval-bot**（.env 补 OCR_FIELDS_FILE 到项目外；detached HEAD 归位 main）；**dashboard**（台式机 Startup 补开机自启 vbs）；顶层 AGENTS.md 使用指南 HTML 双机落点。未动待办：bambu /api/chat/command 鉴权需与 hub /print-* 两仓同批；duty git 历史清洗待裁决。测试总账：全群 9 组套件全绿。
+
+## v156 · 2026-10-15 · <本提交哈希> · feat
+
+**工单×项目管理联动批：DDL 播报新增「📨 已指派待确认」分栏（曼波需求：未接单/指定负责人未确认要次日曝光并引导完成）**
+
+- **ticket-bot v92**（9eaa001）：`unclosedService` 拆分出第三类工单 `unconfirmed`——指定负责人公示即绑定后滞留「负责人确认消息后通过」超 24h 未确认（与确认追问同口径），此前该状态两头不进、DDL 完全不可见；`/api/tickets/unclosed-by-group` additive 扩展同名桶（assigneeName/elapsedHours/groups，面向组别直分、滞留降序、不计负载）；五套测试全绿（125 断言）。部署后 dry-run 实测已命中真实滞留单（202610130002，徐进，42h）。
+- **pm-robot v132**（59dac78）：DDL 卡新增「📨 已指派待确认」分栏（负责人姓名/滞留时长，头部带确认引导「@工单机器人 发接单N / 私聊回接单」，只列名字不 @）；「🆘 无人接单」分栏头部补接单引导；降级直读链路同口径加桶（`TICKET_ASSIGN_*`/`TICKET_ASSIGN_NUDGE_HOURS` 可调，默认对齐 ticket-bot 现网）；新增 stub-test-ticket-buckets 14 断言，13 套全绿。
+- 文档同批：两仓 README、ticket-pm/LOGIC-MAP（§1.6/§2.2）、ticket-pm/AGENTS.md 契约第 1 条（五桶口径+两仓同步义务）、桌面使用指南 HTML 双副本（台式机桌面+大脑仓库权威副本）。
+- 部署：按联动顺序先 ticket-bot 后 pm-robot（knowledge-tracker），两进程 pm2 online + health 200 + 启动关键行全绿；push.js 末步「SSH 连接失败 read ECONNRESET」复现 v155 已定性误报（sshd 频率保护），人工 SSH 验证为准。本机备注：pm-robot 仓根 node_modules 缺 ssh2 致 push 首跑 MODULE_NOT_FOUND，`npm install` 后重推成功（推送机环境问题，非代码问题）；头部指针补正（v155 批漏更，本高频复发项第 5 次）。

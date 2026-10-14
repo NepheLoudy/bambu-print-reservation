@@ -15,7 +15,7 @@
 
 ## 两项目联动契约（本目录存在的理由，改接口前逐条核对）
 
-1. **DDL 卡"未结单工单分栏"是两项目间唯一的直接调用**：pm-robot 的 DDL 卡调 ticket-bot `GET /api/tickets/unclosed-by-group` 取数（pm-robot 侧带 10s 超时降级）。**数据口径、负责人取值、分桶规则 → ticket-bot**（`src/services/unclosedService.js`）；**分栏展示样式、卡片其它栏目 → pm-robot**。改 API 出入参必须两边同批动。
+1. **DDL 卡"未结单工单分栏"是两项目间唯一的直接调用**：pm-robot 的 DDL 卡调 ticket-bot `GET /api/tickets/unclosed-by-group` 取数（pm-robot 侧带 10s 超时降级）。**数据口径、负责人取值、分桶规则 → ticket-bot**（`src/services/unclosedService.js`：urgent/week/unclaimed/**unconfirmed**/waiting 五桶）；**分栏展示样式、卡片其它栏目 → pm-robot**。改 API 出入参必须两边同批动——pm-robot 降级直读链路（`ticketCloseService.getUnclosedBuckets`）的分桶口径（含 unconfirmed 桶的 `TICKET_ASSIGN_*` 字段名与 24h 阈值）与主链路保持一致，漂移时两仓 .env/默认值同步。
 2. **网关路由分工互斥**：ticket-bot 只做工单域例外（`/ticket-*` 指令、@机器人+「接单」、p2p+接单私聊确认）；hub（pm-robot）接其余全部消息并转发 `/approval-*`、`/print-*`。改路由时，两项目 chatService 的群门禁/`IGNORE_CHAT_IDS` 要与网关路由表一起核对，别只改一头。
 3. **指令门禁同套规则**：指令仅群内触发、私聊白名单（`P2P_COMMAND_OPEN_IDS`/`P2P_COMMAND_CHAT_IDS`）两项目同款，改门禁逻辑两边同步。
 4. **播报卡互不越界**：工单播报卡 → ticket-bot；DDL 卡 → pm-robot；"播报对象/@谁"跟着卡片走。
