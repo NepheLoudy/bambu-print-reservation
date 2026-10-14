@@ -95,6 +95,7 @@ class PrinterManager {
         fans: null,
         speedLevel: null,
         lights: null,
+        deviceInfo: null,
         ams: [],
         // 当前正在执行的任务（dispatcher 写入，用于播报与状态展示）
         activeTask: null,
@@ -190,6 +191,7 @@ class PrinterManager {
       fans: status.fans,
       speedLevel: status.speedLevel,
       lights: status.lights,
+      deviceInfo: client.getDeviceInfo(),
       ams: client.getAmsTrays(),
     });
 
@@ -366,8 +368,29 @@ class PrinterManager {
     return this._bambuClient(printerId).sendGcode(line);
   }
 
-  calibrationOnPrinter(printerId) {
-    return this._bambuClient(printerId).calibration();
+  calibrationOnPrinter(printerId, option) {
+    return this._bambuClient(printerId).calibration(option);
+  }
+
+  // 温度/AMS/文件管理（v56 设备化）：温度与 AMS 切槽仅拓竹链路有实现
+  setNozzleTempOnPrinter(printerId, deg) {
+    return this._bambuClient(printerId).setNozzleTemp(deg);
+  }
+
+  setBedTempOnPrinter(printerId, deg) {
+    return this._bambuClient(printerId).setBedTemp(deg);
+  }
+
+  amsChangeFilamentOnPrinter(printerId, amsId, trayId) {
+    return this._bambuClient(printerId).amsChangeFilament(amsId, trayId);
+  }
+
+  listSdcardFilesOnPrinter(printerId) {
+    return this._bambuClient(printerId).listSdcardFiles();
+  }
+
+  deleteSdcardFileOnPrinter(printerId, name) {
+    return this._bambuClient(printerId).deleteSdcardFile(name);
   }
 
   homeOnPrinter(printerId) {

@@ -216,6 +216,7 @@ class PrinterClient {
           colorHex: tray.colorHex ? String(tray.colorHex).slice(0, 6) : '',
           active: trayNow === tray.id,
           external: false,
+          remain: tray.remain ?? null, // 剩余料量（百分比，AMS UI 显示）
         });
       }
     }
@@ -380,6 +381,124 @@ class PrinterClient {
     return this.client.unloadFilament();
   }
 
+  // ============ 设备化扩展（2026-10-15 观察台 v56：温度/AMS/文件管理/校准细分）============
+
+  /** 喷嘴目标温度（M104，不等待升温）。H2D 高温喷嘴上限 350，保守取同值 */
+  async setNozzleTemp(deg) {
+    const d = Number(deg);
+    if (!Number.isInteger(d) || d < 0 || d > 350) {
+      throw new Error('喷嘴温度必须是 0-350 的整数');
+    }
+    if (!this.client || !this.connected) throw new Error('打印机未连接');
+    return this.sendGcode(`M104 S${d}`);
+  }
+
+  /** 热床目标温度（M140，不等待升温） */
+  async setBedTemp(deg) {
+    const d = Number(deg);
+    if (!Number.isInteger(d) || d < 0 || d > 120) {
+      throw new Error('热床温度必须是 0-120 的整数');
+    }
+    if (!this.client || !this.connected) throw new Error('打印机未连接');
+    return this.sendGcode(`M140 S${d}`);
+  }
+
+  /**
+   * AMS 切槽进料（空闲态换料）：ams_change_filament，目标槽先退旧料再进新料。
+   * 帧格式为社区口径（OpenBambuAPI），v56 真机 H2D 校准
+   */
+  async amsChangeFilament(amsId, trayId) {
+    const a = Number(amsId);
+    const t = Number(trayId);
+    if (!Number.isInteger(a) || a < 0 || a > 3) {
+      throw new Error('AMS 单元号必须是 0-3');
+    }
+    if (!Number.isInteger(t) || t < 0 || (t > 3 && t !== 254)) {
+      throw new Error('AMS 槽位必须是 0-3（254=外部料架）');
+    }
+    if (!this.client || !this.connected) throw new Error('打印机未连接');
+    const sequenceId = ++this.projectSeq;
+    const payload = {
+      print: {
+        sequence_id: sequenceId,
+        command: 'ams_change_filament',
+        ams_id: a,
+        tray_id: t,
+      },
+    };
+    return this.client.getMqttClient().sendCommand(JSON.stringify(payload), sequenceId, true);
+  }
+
+  /**
+   * 校准：full=全量（bambu-link 封装）；level=自动调平、vib=振动补偿（社区 option 位
+   * 口径：1=调平 2=振动补偿，v56 真机校准，异常回退全量）
+   */
+  async calibration(option) {
+    if (!this.client || !this.connected) throw new Error('打印机未连接');
+    if (option === undefined || option === null || option === 'full') {
+      return this.client.calibration();
+    }
+    const OPT = { level: 1, vib: 2 };
+    const v = OPT[option];
+    if (!v) throw new Error('校准类型必须是 full/level/vib');
+    const sequenceId = ++this.projectSeq;
+    const payload = {
+      print: { sequence_id: sequenceId, command: 'calibration', option: v },
+    };
+    return this.client.getMqttClient().sendCommand(JSON.stringify(payload), sequenceId, true);
+  }
+
+  /** 设备全景（raw 补充字段）：喷嘴规格/WiFi 信号/固件版本/AMS 湿度 */
+  getDeviceInfo() {
+    const state = this.getState();
+    if (!state) return null;
+    const amsRaw = state.raw && state.raw.print ? state.raw.print.ams : null;
+    return {
+      nozzleDiameter: state.nozzleDiameter ?? null,
+      nozzleType: state.nozzleType || null,
+      wifiDbm: state.wifiSignalDbm ?? null,
+      fwVersion: state.upgrade ? (state.upgrade.currentVersion || null) : null,
+      amsHumidity: amsRaw && amsRaw.humidity != null ? (Number(amsRaw.humidity) || null) : null,
+    };
+  }
+
+  /** FTPS 会话（990 implicit TLS，懒建 + 复用，出错置空强制重连） */
+  async withFtps(fn) {
+    let client = this.ftpsClient || (await this.connectFTPS());
+    try {
+      return await fn(client);
+    } catch (err) {
+      // 出错视为连接已坏：关闭置空强制下轮重连
+      this.disconnectFTPS();
+      throw err;
+    }
+  }
+
+  /** /sdcard 文件清单（仅切片产物后缀，按修改时间倒序）——FTPS 990 通道 */
+  async listSdcardFiles() {
+    return this.withFtps(async (client) => {
+      const list = await client.list('/sdcard');
+      return list
+        .filter((e) => !e.isDirectory)
+        .filter((e) => /\.(3mf|gcode|gx|g)$/i.test(e.name))
+        .map((e) => ({ name: e.name, size: e.size, mtime: e.modifiedAt ? new Date(e.modifiedAt).getTime() : 0 }))
+        .sort((a, b) => b.mtime - a.mtime)
+        .slice(0, 200);
+    });
+  }
+
+  /** 删除 /sdcard 文件（文件名白名单校验，禁路径穿越）——FTPS 990 通道 */
+  async deleteSdcardFile(name) {
+    const n = String(name || '');
+    if (!n || /[\\/]/.test(n) || n.includes('..') || !/\.(3mf|gcode|gx|g)$/i.test(n)) {
+      throw new Error('非法文件名');
+    }
+    return this.withFtps(async (client) => {
+      await client.remove(`/sdcard/${n}`);
+      return { deleted: n };
+    });
+  }
+
   /**
    * 本地摄像头流，按机型分通道（观察台 WS 中继消费——每个观看客户端独立一路，
    * 断开即销毁，不在 client 内长驻）：
@@ -399,14 +518,11 @@ class PrinterClient {
 
   /**
    * 上传 Buffer 到打印机 /sdcard/。
-   * X1C/H2D 只有 SFTP(22)；P1/A1 新固件只开官方 FTPS(990)（2026-10-07 实测 21 明文口已关），
-   * FTPS 失败回退 FTP(21) 兼容老固件。按配置 model 决定传输方式。
+   * 2026-10-15 真机 H2D 实测：22/21 全关（ECONNREFUSED），FTPS 990 为唯一通道——
+   * 与 P1 系 2026-10-07 实测一致，「X1/H2D 走 SFTP:22」系老假设已废，全系统一
+   * FTPS 990（implicit TLS）优先、FTP 21 回退兼容老固件
    */
   async uploadBuffer(buffer, remotePath) {
-    const model = String(this.config.model || '').toUpperCase();
-    if (model.includes('X1') || model.includes('H2D')) {
-      return this.sftpPut(buffer, remotePath);
-    }
     let ftpsErr = null;
     try {
       return await this.ftpsPut(buffer, remotePath);

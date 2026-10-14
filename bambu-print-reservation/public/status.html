@@ -41,6 +41,15 @@
   .cmds { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
   .panel { margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: #10151c; }
   .panel h4 { margin: 0 0 6px; font-size: 12px; color: var(--dim); font-weight: 600; }
+  .dtabs { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 10px; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+  .dtabs button { background: transparent; border: none; border-bottom: 2px solid transparent; border-radius: 0; padding: 4px 10px; font-size: 12px; color: var(--dim); }
+  .dtabs button.on { color: var(--txt); border-bottom-color: var(--accent); }
+  .dtabBody { padding: 6px 2px; }
+  .devLine { display: flex; gap: 10px; flex-wrap: wrap; font-size: 11px; color: var(--dim); margin-top: 6px; }
+  .fileRow { display: flex; gap: 6px; align-items: center; font-size: 12px; padding: 3px 0; border-bottom: 1px dashed #1d2530; }
+  .fileRow .fname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tempRow { display: flex; align-items: center; gap: 8px; font-size: 12px; margin: 6px 0; }
+  .tempRow input[type=number] { width: 90px; background: #0a0d11; border: 1px solid var(--line); color: var(--txt); border-radius: 6px; padding: 4px 8px; }
   .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 4px 0; }
   .row label { font-size: 11px; color: var(--dim); min-width: 64px; }
   .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
@@ -142,7 +151,8 @@ function statusBadge(p) {
 
 function trayHtml(t) {
   const sw = t.colorHex ? `<span class="swatch" style="background:#${esc(t.colorHex)}"></span>` : '';
-  return `<div class="tray${t.active ? ' active' : ''}" title="${t.active ? '当前供料槽' : ''}">${sw}<b>${esc(t.slot)}</b><br>${esc(t.type || '—')}</div>`;
+  const remain = t.remain != null && t.remain > 0 ? ` · 余 ${Math.round(t.remain)}%` : '';
+  return `<div class="tray${t.active ? ' active' : ''}" title="${t.active ? '当前供料槽' : ''}">${sw}<b>${esc(t.slot)}</b>${remain}<br>${esc(t.type || '—')}</div>`;
 }
 
 function amsSection(p) {
@@ -179,6 +189,11 @@ function machineIdle(p) {
   return ['IDLE', 'FINISH', 'FAILED'].includes(String(p.gcodeState || '').toUpperCase());
 }
 
+/** 设备页签状态（跨 5s 重渲染保留）：printerId → tab key */
+const deviceTabs = new Map();
+/** /sdcard 文件列表缓存（点「加载」才拉，不随 5s 轮询刷） */
+const filesCache = new Map();
+
 const SPEED_NAMES = { 1: '静默', 2: '标准', 3: '竞速', 4: '疯狂' };
 
 /** 风扇上报值（0-15 档或 0-255）→ 百分比 */
@@ -189,6 +204,15 @@ function fanPct(v) {
   return Math.round((n <= 15 ? n / 15 : n / 255) * 100);
 }
 
+const DEVICE_TABS = [
+  { key: 'temp', label: '🌡 温度', role: 'reviewer' },
+  { key: 'fanspeed', label: '🌀 风扇速度', role: 'reviewer' },
+  { key: 'ams', label: '📦 AMS', role: 'reviewer' },
+  { key: 'motion', label: '🕹 运动', role: 'admin' },
+  { key: 'maint', label: '🛠 维护校准', role: 'admin' },
+  { key: 'gcode', label: '⌨️ gcode 台', role: 'admin' },
+];
+
 function controlPanelHtml(p) {
   if (!IS_REVIEWER) return '<div class="meta">控制指令仅审批人及以上可用</div>';
   const bambu = p.brand !== 'flashforge';
@@ -196,56 +220,152 @@ function controlPanelHtml(p) {
   const lampPair = (lamp, label) => `
     <button onclick="cmdPost(${p.id},'light',{on:true,lamp:'${lamp}'},'打开 ${esc(p.name)} ${label}？')">💡${label}开</button>
     <button onclick="cmdPost(${p.id},'light',{on:false,lamp:'${lamp}'},'关闭${label}？')">🔅${label}关</button>`;
-  const speedSeg = bambu ? `<div class="row"><label>速度档</label><span class="seg">${[1, 2, 3, 4].map((n) =>
-    `<button class="${p.speedLevel === n ? 'on' : ''}" onclick="cmdPost(${p.id},'speed',{level:${n}},'切到${SPEED_NAMES[n]}档速度？')">${n} ${SPEED_NAMES[n]}</button>`).join('')}</span></div>` : '';
-  const fans = bambu ? (() => {
-    const cur = p.fans || {};
-    return ['aux', 'part', 'chamber'].map((k) => {
+  const quickBar = `<div class="cmds">
+      ${p.status === '打印中' ? `<button onclick="cmdPost(${p.id},'pause',null,'暂停打印？')">⏸ 暂停</button>` : ''}
+      ${p.status === '暂停' ? `<button class="ok" onclick="cmdPost(${p.id},'resume',null,'恢复打印？')">▶ 恢复</button>` : ''}
+      ${lampPair('chamber', '腔灯')}
+      ${bambu ? lampPair('work', '工作灯') : ''}
+      ${IS_ADMIN ? `<button class="bad" onclick="cmdPost(${p.id},'stop',null,'⚠️ 停止打印？停机不可恢复，耗材作废')">⏹ 停止</button>` : ''}
+    </div>`;
+  if (!bambu) {
+    // 闪铸：仅低危指令（暂停/恢复/灯/停止），无页签
+    return quickBar + '<div class="meta">闪铸机型：控制面暂限暂停/恢复/灯/停止</div>';
+  }
+
+  const cur = deviceTabs.get(p.id) || 'temp';
+  const avail = DEVICE_TABS.filter((t) => (t.role === 'admin' ? IS_ADMIN : true));
+  const tabsHtml = `<div class="dtabs">${avail.map((t) =>
+    `<button class="${cur === t.key ? 'on' : ''}" onclick="setDeviceTab(${p.id},'${t.key}')">${t.label}</button>`).join('')}</div>`;
+
+  let body = '';
+  if (cur === 'temp') {
+    body = `
+      <div class="tempRow"><label style="min-width:96px">喷嘴目标°</label>
+        <input type="number" id="ntIn${p.id}" min="0" max="350" value="${p.nozzleTargetTemp != null ? p.nozzleTargetTemp : 0}">
+        <button class="ok" onclick="setTemp(${p.id},'nozzle')">下发</button>
+        <span class="detail">现 ${p.nozzleTemp ?? '—'}°${p.nozzleTargetTemp != null ? ' / 目标 ' + p.nozzleTargetTemp + '°' : ''}</span>
+        <button class="mini" onclick="cmdPost(${p.id},'temp',{kind:'nozzle',deg:0},null,true)">归零</button></div>
+      <div class="tempRow"><label style="min-width:96px">热床目标°</label>
+        <input type="number" id="btIn${p.id}" min="0" max="120" value="${p.bedTargetTemp != null ? p.bedTargetTemp : 0}">
+        <button class="ok" onclick="setTemp(${p.id},'bed')">下发</button>
+        <span class="detail">现 ${p.bedTemp ?? '—'}°${p.bedTargetTemp != null ? ' / 目标 ' + p.bedTargetTemp + '°' : ''}</span>
+        <button class="mini" onclick="cmdPost(${p.id},'temp',{kind:'bed',deg:0},null,true)">归零</button></div>
+      <div class="detail" style="margin-top:4px">打印中可调（M104/M140 即时生效，不等待升温）</div>`;
+  } else if (cur === 'fanspeed') {
+    const fanRows = ['aux', 'part', 'chamber'].map((k) => {
       const names = { aux: '辅助扇', part: '模型扇', chamber: '腔室扇' };
-      const pct = fanPct(cur[k]);
+      const pct = fanPct((p.fans || {})[k]);
       return `<div class="fanline"><label>${names[k]}</label>
         <input type="range" min="0" max="100" step="5" value="${pct != null ? pct : 0}"
           onchange="cmdPost(${p.id},'fan',{kind:'${k}',speed:Math.round(this.value/100*255)},null,true)">
         <span class="fval">现 ${pct != null ? pct + '%' : '—'}</span></div>`;
     }).join('');
-  })() : '';
-  const reviewerBar = `<div class="cmds">
-      ${p.status === '打印中' ? `<button onclick="cmdPost(${p.id},'pause',null,'暂停打印？')">⏸ 暂停</button>` : ''}
-      ${p.status === '暂停' ? `<button class="ok" onclick="cmdPost(${p.id},'resume',null,'恢复打印？')">▶ 恢复</button>` : ''}
-      ${lampPair('chamber', '腔灯')}
-      ${bambu ? lampPair('work', '工作灯') : ''}
-      <button class="bad" onclick="cmdPost(${p.id},'stop',null,'⚠️ 停止打印？停机不可恢复，耗材作废')">⏹ 停止</button>
-    </div>`;
-  const adminPanel = !IS_ADMIN ? '' : `
-    <div class="panel">
-      <h4>⚠️ 危险操作区（admin）——动机械类仅空闲态可用</h4>
-      <div class="row">
-        <button ${idle ? '' : 'disabled'} onclick="cmdPost(${p.id},'home',null,'回原点（G28）？')">🏠 回原点</button>
-        <button ${idle ? '' : 'disabled'} onclick="cmdPost(${p.id},'calibrate',null,'执行校准？耗时较长')">🎯 校准</button>
-        <button ${idle ? '' : 'disabled'} onclick="cmdPost(${p.id},'unload',null,'退料？喷头会加热并抽丝')">⤴ 退料</button>
-        ${!idle ? '<span class="detail">（非空闲/失联，动机械锁定）</span>' : ''}
-      </div>
-      ${bambu ? `
-      <div class="row"><label>轴移动</label></div>
+    body = `<div class="row"><label>速度档</label><span class="seg">${[1, 2, 3, 4].map((n) =>
+      `<button class="${p.speedLevel === n ? 'on' : ''}" onclick="cmdPost(${p.id},'speed',{level:${n}},'切到${SPEED_NAMES[n]}档速度？')">${n} ${SPEED_NAMES[n]}</button>`).join('')}</span>
+      <span class="detail">当前：${SPEED_NAMES[p.speedLevel] || '—'}</span></div>${fanRows}`;
+  } else if (cur === 'ams') {
+    const trays = p.ams || [];
+    const hum = p.deviceInfo && p.deviceInfo.amsHumidity;
+    const trayCards = trays.length ? trays.map((t) => {
+      const m = /AMS (\d+)/.exec(t.slot || '');
+      const trayId = t.external ? 254 : (m ? Number(m[1]) : null);
+      const remain = t.remain != null && t.remain > 0 ? Math.round(t.remain) + '%' : '';
+      return `<div class="tray${t.active ? ' active' : ''}" style="min-width:130px">
+        <b>${esc(t.slot)}</b>${t.active ? ' ◀ 当前' : ''}<br>${esc(t.type || '—')}${remain ? ' · 余 ' + remain : ''}
+        <div style="margin-top:4px"><button class="mini" ${idle && !t.active ? '' : 'disabled'} title="${idle ? '切到此槽进料' : '非空闲态/当前槽不可切'}"
+          onclick="cmdPost(${p.id},'ams/switch',{amsId:0,trayId:${trayId}},'切到 ${esc(t.slot)} 进料？（先退旧料再进新料）')">切此槽</button></div></div>`;
+    }).join('') : '<span class="detail">无料站信息</span>';
+    body = `<div class="opts" style="display:flex;gap:6px;flex-wrap:wrap">${trayCards}</div>
+      <div class="detail" style="margin-top:6px">AMS 湿度档：${hum != null ? hum + ' / 5' : '—'}｜切槽 = 先退旧料再进新料（仅空闲态可发）</div>`;
+  } else if (cur === 'motion') {
+    body = `
+      <div class="row"><button ${idle ? '' : 'disabled'} onclick="cmdPost(${p.id},'home',null,'回原点（G28）？')">🏠 回原点</button>
+        <span class="detail">单步位移：XY ±10/±1mm（Z ±5mm），相对移动</span></div>
       <div class="jog">
         <button ${idle ? '' : 'disabled'} onclick="cmdPost(${p.id},'move',{axis:'x',distance:-10},null,true)">X−10</button>
         <button ${idle ? '' : 'disabled'} onclick="cmdPost(${p.id},'move',{axis:'x',distance:-1},null,true)">X−1</button>
         <button ${idle ? '' : 'disabled'} onclick="cmdPost(${p.id},'move',{axis:'x',distance:1},null,true)">X+1</button>
         <button ${idle ? '' : 'disabled'} onclick="cmdPost(${p.id},'move',{axis:'x',distance:10},null,true)">X+10</button>
+        <span></span>
         <button ${idle ? '' : 'disabled'} onclick="cmdPost(${p.id},'move',{axis:'y',distance:-10},null,true)">Y−10</button>
         <button ${idle ? '' : 'disabled'} onclick="cmdPost(${p.id},'move',{axis:'y',distance:-1},null,true)">Y−1</button>
         <button ${idle ? '' : 'disabled'} onclick="cmdPost(${p.id},'move',{axis:'y',distance:1},null,true)">Y+1</button>
         <button ${idle ? '' : 'disabled'} onclick="cmdPost(${p.id},'move',{axis:'y',distance:10},null,true)">Y+10</button>
+        <span></span>
         <button ${idle ? '' : 'disabled'} onclick="cmdPost(${p.id},'move',{axis:'z',distance:-5},null,true)">Z−5</button>
+        <button ${idle ? '' : 'disabled'} onclick="cmdPost(${p.id},'move',{axis:'z',distance:-1},null,true)">Z−1</button>
+        <button ${idle ? '' : 'disabled'} onclick="cmdPost(${p.id},'move',{axis:'z',distance:1},null,true)">Z+1</button>
         <button ${idle ? '' : 'disabled'} onclick="cmdPost(${p.id},'move',{axis:'z',distance:5},null,true)">Z+5</button>
       </div>
+      ${!idle ? '<div class="detail" style="color:var(--warn)">非空闲/失联态，动机械锁定</div>' : ''}`;
+  } else if (cur === 'maint') {
+    const files = filesCache.get(p.id);
+    body = `
+      <div class="row">
+        <button ${idle ? '' : 'disabled'} onclick="cmdPost(${p.id},'calibrate',{type:'full'},'全量校准？耗时较长')">🎯 全量校准</button>
+        <button ${idle ? '' : 'disabled'} onclick="cmdPost(${p.id},'calibrate',{type:'level'},'自动调平？')">📏 自动调平</button>
+        <button ${idle ? '' : 'disabled'} onclick="cmdPost(${p.id},'calibrate',{type:'vib'},'振动补偿校准？')">〰 振动补偿</button>
+        <button ${idle ? '' : 'disabled'} class="bad" onclick="cmdPost(${p.id},'unload',null,'退料？喷头会加热并抽丝')">⤴ 退料</button>
+      </div>
+      <div class="row" style="margin-top:8px"><label>📂 /sdcard 文件</label>
+        <button class="mini" onclick="loadSdcardFiles(${p.id})">${files ? '刷新' : '加载列表'}</button>
+        <span class="detail">选中 3mf 可直接开打（切片参数随文件）</span></div>
+      <div id="filesBox${p.id}">${files ? renderFiles(p, files) : '<div class="detail">未加载</div>'}</div>
+      ${!idle ? '<div class="detail" style="color:var(--warn)">非空闲/失联态，校准/退料/开打锁定</div>' : ''}`;
+  } else if (cur === 'gcode') {
+    body = `
       <div class="dangerNote">⚠️ gcode 直控台：任意 G-code 直接下发（M104 S220 设温度 / M106 S255 风扇…），打错命令后果自负</div>
       <div class="gline">
         <input id="gcodeIn${p.id}" placeholder="G-code 行，如 M104 S220" onkeydown="if(event.key==='Enter')sendGcode(${p.id})">
         <button class="bad" onclick="sendGcode(${p.id})">下发</button>
-      </div>` : ''}
-    </div>`;
-  return `${reviewerBar}${speedSeg}${fans}${adminPanel}`;
+      </div>`;
+  }
+  return quickBar + `<div class="panel">${tabsHtml}<div class="dtabBody">${body}</div></div>`;
+}
+
+function setDeviceTab(id, key) { deviceTabs.set(id, key); loadFleet(); }
+
+function renderFiles(p, files) {
+  if (!files.length) return '<div class="detail">/sdcard 无切片文件</div>';
+  return files.map((f) => `<div class="fileRow">
+    <span class="fname" title="${esc(f.name)}">${esc(f.name)}</span>
+    <span class="detail">${(f.size / 1048576).toFixed(1)}MB</span>
+    <button class="mini" ${machineIdle(p) ? '' : 'disabled'} onclick="printSdcardFile(${p.id},'${esc(f.name).replace(/'/g, '\\&#39;')}')">▶ 开打</button>
+    <button class="mini bad" onclick="delSdcardFile(${p.id},'${esc(f.name).replace(/'/g, '\\&#39;')}')">删</button>
+  </div>`).join('');
+}
+
+async function loadSdcardFiles(id) {
+  const res = await fetch(`/api/printers/${id}/files`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return toast('❌ ' + (data.error || '列表失败'));
+  filesCache.set(id, data);
+  const box = $(`filesBox${id}`);
+  if (box) box.innerHTML = renderFiles({ gcodeState: '' }, data);
+  toast(`✅ 已加载 ${data.length} 个文件`);
+}
+
+async function printSdcardFile(id, name) {
+  if (!confirm(`⚠️ 直接开打 /sdcard/${name}？（切片参数随文件，立即分发）`)) return;
+  await cmdPost(id, 'print-sdcard', { fileName: name }, null, true);
+  setTimeout(loadFleet, 1200);
+}
+
+async function delSdcardFile(id, name) {
+  if (!confirm(`删除 /sdcard/${name}？不可恢复`)) return;
+  await cmdPost(id, 'files/delete', { name }, null, true);
+  const files = (filesCache.get(id) || []).filter((f) => f.name !== name);
+  filesCache.set(id, files);
+  const box = $(`filesBox${id}`);
+  if (box) box.innerHTML = renderFiles({ gcodeState: '' }, files);
+}
+
+async function setTemp(id, kind) {
+  const input = $(kind === 'nozzle' ? `ntIn${id}` : `btIn${id}`);
+  const deg = Number(input && input.value);
+  if (!Number.isInteger(deg) || deg < 0) return toast('温度必须是 ≥0 的整数');
+  await cmdPost(id, 'temp', { kind, deg }, null, true);
+  setTimeout(loadFleet, 1000);
 }
 
 function cardHtml(p) {
@@ -260,6 +380,13 @@ function cardHtml(p) {
   const prog = (p.status === '打印中' || p.status === '暂停') && p.progress
     ? `<div class="pbar"><div style="width:${Math.min(100, p.progress)}%"></div></div><div class="detail">${p.progress}%${p.remainingMinutes ? ` · 剩余约 ${p.remainingMinutes} 分钟` : ''}</div>` : '';
   const speedNote = p.brand !== 'flashforge' && p.speedLevel ? `<span class="detail">速度：${SPEED_NAMES[p.speedLevel] || p.speedLevel}档</span>` : '';
+  const dev = p.deviceInfo || {};
+  const devParts = [
+    dev.nozzleDiameter != null ? `喷嘴 ${dev.nozzleDiameter}${dev.nozzleType ? ' ' + dev.nozzleType : ''}` : '',
+    dev.fwVersion ? `固件 ${dev.fwVersion}` : '',
+    dev.wifiDbm != null ? `WiFi ${dev.wifiDbm}dBm` : '',
+    dev.amsHumidity != null ? `AMS 湿度 ${dev.amsHumidity}/5` : '',
+  ].filter(Boolean).join(' · ');
   return `<div class="pcard">
     <div class="top">
       <b>${esc(p.name)}</b>
@@ -272,6 +399,7 @@ function cardHtml(p) {
     ${job}${prog}
     <div class="temps">${temps || '<span class="detail">温度未上报</span>'}</div>
     ${amsSection(p)}
+    ${devParts ? `<div class="devLine"><span>${devParts}</span></div>` : ''}
     ${p.stateStale ? '<div class="meta" style="color:var(--bad)">⚠️ 超过 3 分钟无状态报文——显示的是过期快照</div>' : ''}
     ${controlPanelHtml(p)}
     ${speedNote}
@@ -279,9 +407,9 @@ function cardHtml(p) {
 }
 
 async function loadFleet() {
-  // 用户正在拖风扇滑条/输 gcode 时跳过本轮重渲染，防控件被打断
+  // 用户正在拖风扇滑条/输 gcode/操作页签输入框时跳过本轮重渲染，防控件被打断
   const ae = document.activeElement;
-  if (ae && ae.closest && ae.closest('.panel,.gline,.fanline')) return;
+  if (ae && ae.closest && ae.closest('.panel,.gline,.fanline,.dtabBody,.tempRow')) return;
   const res = await fetch('/api/printers');
   if (res.status === 401) { location.reload(); return; }
   const printers = await res.json();

@@ -5,13 +5,13 @@ const store = require('./reservationStore');
 const processRules = require('./processRules');
 const { sendMessage, buildReservationAlertCard, buildReviewResultCard } = require('../feishu/bot');
 const quietHours = require('../utils/quietHours');
+const { isUnslicedFileName } = require('../utils/fileTypes');
 
-/** 未切片文件判定（2026-10-06 审查批）：需求链路单（stl/step/obj）不能直接驱动真机——
- *  打印机只认切片产物，裸模型分发必然失败。审批与人工恢复双闸拦截。
+/** 未切片文件判定（2026-10-06 审查批；v56 起正则唯一权威在 utils/fileTypes）：
+ *  需求链路单（stl/step/obj）不能直接驱动真机——打印机只认切片产物。
  *  切片产物口径（2026-10-14 双品牌批扩）=拓竹 3mf + 闪铸 gcode 系（g/gcode/gx） */
-const SLICED_EXT_RE = /\.(3mf|gcode|gx|g)$/i;
 function isUnslicedFile(reservation) {
-  return !!reservation && !SLICED_EXT_RE.test(String(reservation.fileName || ''));
+  return !!reservation && isUnslicedFileName(reservation.fileName);
 }
 const UNSLICED_HINT = '该单是未切片模型（stl/step）——请先切片后重新提交：拓竹机请用 Bambu Studio 切片为 3mf，闪铸机请用 FlashPrint/Orca（闪铸 profile）切片为 gcode（服务端自动切片上线前，需求链路单暂不支持直接分发）';
 
@@ -99,13 +99,21 @@ class ReservationService {
 
     store.updateStatus(id, config.status.REVIEW_APPROVED, `审批人：${reviewer || '未署名'}${comment ? `｜意见：${comment}` : ''}`);
     store.setReview(id, { reviewer: reviewer || '', comment: comment || '', result: config.reviewResult.APPROVED });
-    await this.notifyReviewResult(store.get(id), config.reviewResult.APPROVED, comment);
 
-    // 入队（幂等；重复审批被状态机挡在上一行）
+    // 入队关键路径内不得有 await（v56 竞态修复）：JS 单线程，无 await 即无取消插窗。
+    // 此前 await 群播卡在「已通过落库」与「入队」之间开了窗口——用户取消可合法插队
+    // （已通过→已取消），恢复执行后照常入队+写排队中失败，最终「已取消单真机开打」。
     const dispatcher = require('./dispatcher');
     const fresh = store.get(id);
     const enqueued = dispatcher.enqueue(dispatcher.buildLocalTask(fresh));
-    if (enqueued) store.updateStatus(id, config.status.QUEUED, '已进入打印队列');
+    if (!enqueued) {
+      // 幂等命中（known/queue 已有该单）——不再静默滞留「已通过」
+      throw new Error('该任务已在分发队列中（幂等拦截），请刷新列表核对单据状态');
+    }
+    store.updateStatus(id, config.status.QUEUED, '已进入打印队列');
+
+    // 群播移出入队关键路径：notifyReviewResult 自带 try/catch 永不 reject，此处仅触发不等待
+    this.notifyReviewResult(store.get(id), config.reviewResult.APPROVED, comment);
 
     return store.get(id);
   }
@@ -207,6 +215,7 @@ class ReservationService {
         quantity: pick('quantity', src.quantity),
         estMinutes: src.estMinutes,
         selection: src.selection || {},
+        spatial: src.spatial || null, // 3D 标注随复刻单携带（同几何同工况）
         processParams: applied ? applied.params : null,
         appliedRules: applied ? applied.applied : [],
         embeddedParams: src.embeddedParams, // 3mf 直通单参数摘要随单携带

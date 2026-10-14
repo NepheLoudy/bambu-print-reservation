@@ -427,42 +427,9 @@ app.post('/api/training/samples', requireUser(), upload.fields([
     } catch {
       return res.status(400).json({ error: 'selection/spatial 不是合法 JSON' });
     }
-    // spatial 字段净化 v5（客户端数据不信任）：point（点）/ axis（两面交线受弯轴线）/
-    // survey（悬垂面普查）/ circle（识别孔口环）/ region（面区域染色的面索引集）/
-    // load（载荷标注：力方向 + 受力类型）。只收白名单字段；faces 封顶 20 万
-    const cleanP3 = (arr) => Array.isArray(arr) ? arr.slice(0, 3).map((n) => { const v = Number(n); return Number.isFinite(v) ? +v.toFixed(2) : 0; }) : null;
-    const LOAD_TYPES = ['compression', 'tension', 'shear', 'bending', 'torsion', 'contact'];
-    spatial = (Array.isArray(spatial) ? spatial : []).slice(0, 200).map((s) => {
-      if (!s || !String(s.tool || '').slice(0, 40)) return null;
-      const base = { tool: String(s.tool).slice(0, 40) };
-      if (s.type === 'load') {
-        const pos = cleanP3(s.pos), dir = cleanP3(s.dir);
-        const NATURES = ['static', 'fatigue', 'impact', 'vibration'];
-        const MAGS = ['light', 'medium', 'heavy'];
-        const natureOk = !s.loadNature || NATURES.includes(s.loadNature);
-        const magOk = !s.loadMagnitude || MAGS.includes(s.loadMagnitude);
-        return pos && dir && LOAD_TYPES.includes(s.loadType) && natureOk && magOk
-          ? { ...base, type: 'load', loadType: s.loadType, pos, dir, ...(natureOk && s.loadNature ? { loadNature: s.loadNature } : {}), ...(magOk && s.loadMagnitude ? { loadMagnitude: s.loadMagnitude } : {}) } : null;
-      }
-      if (s.type === 'axis') {
-        const a = cleanP3(s.a), b = cleanP3(s.b), dir = cleanP3(s.dir);
-        const note = s.note ? String(s.note).slice(0, 200) : undefined;
-        return a && b && dir ? { ...base, type: 'axis', a, b, dir, ...(note ? { note } : {}) } : null;
-      }
-      if (s.type === 'survey' || s.type === 'region') {
-        const faces = Array.isArray(s.faces) ? s.faces.slice(0, 200000).map((n) => Number(n) | 0).filter((n) => n >= 0) : [];
-        const supportFaces = Array.isArray(s.supportFaces) ? s.supportFaces.slice(0, 200000).map((n) => Number(n) | 0).filter((n) => n >= 0) : undefined;
-        const normal = cleanP3(s.normal) || [0, 0, 0];
-        return faces.length > 0 ? { ...base, type: s.type, faces, ...(supportFaces && supportFaces.length ? { supportFaces } : {}), normal, ...(s.seed !== undefined ? { seed: Number(s.seed) || 0 } : {}) } : null;
-      }
-      if (s.type === 'circle') {
-        const c = cleanP3(s.c), n = cleanP3(s.n);
-        const r = Number(s.r);
-        return c && n && Number.isFinite(r) && r > 0 ? { ...base, type: 'circle', c, n, r: +r.toFixed(2), ...(s.note ? { note: String(s.note).slice(0, 200) } : {}) } : null;
-      }
-      const pos = cleanP3(s.pos);
-      return pos ? { ...base, type: 'point', pos, face: Number(s.face) || 0, ...(s.note ? { note: String(s.note).slice(0, 200) } : {}) } : null;
-    }).filter(Boolean);
+    // spatial 字段净化（v56 抽取为 utils/spatialSanitize 唯一权威实现，预约提交共用）：
+    // point/axis/survey/circle/region/load 白名单；faces 封顶 20 万
+    spatial = require('./utils/spatialSanitize').sanitizeSpatial(spatial);
     const modelFile = (req.files && req.files.model && req.files.model[0]) || null;
     const sliceFile = (req.files && req.files.slice && req.files.slice[0]) || null;
     if (!modelFile) return res.status(400).json({ error: '缺少模型文件（multipart 字段名 model）' });
@@ -605,11 +572,16 @@ app.post('/api/reservations', requireUser(), upload.single('file'), async (req, 
     const is3mf = /\.3mf$/i.test(fileName);
 
     let selection = {};
+    let spatial = [];
     if (!isSliced) {
       try {
         selection = body.selection ? JSON.parse(body.selection) : {};
+        // 3D 标注随单存档（v56）：载荷工况由标注驱动，标注底料与训练样本同构入库
+        spatial = require('./utils/spatialSanitize').sanitizeSpatial(
+          body.spatial ? JSON.parse(body.spatial) : []
+        );
       } catch {
-        return res.status(400).json({ error: 'selection 不是合法 JSON' });
+        return res.status(400).json({ error: 'selection/spatial 不是合法 JSON' });
       }
     }
 
@@ -693,6 +665,7 @@ app.post('/api/reservations', requireUser(), upload.single('file'), async (req, 
       isUrgent: body.isUrgent === 'true' || body.isUrgent === '1' || selection.fast_mode === true,
       quantity: body.quantity,
       selection,
+      spatial,        // 3D 标注随单存档（v56：载荷工况由标注驱动，底料与训练样本同构）
       processParams: applied ? applied.params : null,
       appliedRules: applied ? applied.applied : [],
       embeddedParams, // 3mf 内嵌参数摘要（审批透明化；需求链路单为 null）
@@ -1032,13 +1005,17 @@ app.post('/api/printers/:id/move', requireUser('admin'), async (req, res) => {
   }
 });
 
-// 校准（admin + 仅空闲）
+// 校准（admin + 仅空闲）：body {type: 'full'|'level'|'vib'}，缺省全量
 app.post('/api/printers/:id/calibrate', requireUser('admin'), async (req, res) => {
   const id = parseInt(req.params.id);
   if (!requireIdleForMachine(id, res)) return;
   try {
-    await printerManager.calibrationOnPrinter(id);
-    res.json({ success: true });
+    const type = (req.body || {}).type;
+    if (type !== undefined && !['full', 'level', 'vib'].includes(type)) {
+      return res.status(400).json({ error: '校准类型必须是 full/level/vib' });
+    }
+    await printerManager.calibrationOnPrinter(id, type);
+    res.json({ success: true, type: type || 'full' });
   } catch (err) {
     console.error('校准失败:', err);
     res.status(400).json({ error: err.message });
@@ -1054,6 +1031,76 @@ app.post('/api/printers/:id/unload', requireUser('admin'), async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('退料失败:', err);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ---------- 设备化扩展（v56）：温度 / AMS / 文件管理 ----------
+
+// 目标温度（reviewer+，打印中可调）：body {kind: 'nozzle'|'bed', deg}
+app.post('/api/printers/:id/temp', requireUser('reviewer'), async (req, res) => {
+  try {
+    const { kind, deg } = req.body || {};
+    if (kind === 'nozzle') await printerManager.setNozzleTempOnPrinter(parseInt(req.params.id), deg);
+    else if (kind === 'bed') await printerManager.setBedTempOnPrinter(parseInt(req.params.id), deg);
+    else return res.status(400).json({ error: 'kind 必须是 nozzle/bed' });
+    res.json({ success: true, kind, deg: Number(deg) });
+  } catch (err) {
+    console.error('温度下发失败:', err);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// AMS 切槽进料（reviewer+ + 仅空闲——进退料动机械）：body {amsId, trayId}
+app.post('/api/printers/:id/ams/switch', requireUser('reviewer'), async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (!requireIdleForMachine(id, res)) return;
+  try {
+    const { amsId, trayId } = req.body || {};
+    await printerManager.amsChangeFilamentOnPrinter(id, amsId, trayId);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('AMS 切槽失败:', err);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// /sdcard 文件清单（admin，拓竹 X1/H2D SFTP 通道）
+app.get('/api/printers/:id/files', requireUser('admin'), async (req, res) => {
+  try {
+    const files = await printerManager.listSdcardFilesOnPrinter(parseInt(req.params.id));
+    res.json(files);
+  } catch (err) {
+    console.error('文件列表失败:', err);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// 删除 /sdcard 文件（admin，危险面）
+app.post('/api/printers/:id/files/delete', requireUser('admin'), async (req, res) => {
+  try {
+    const result = await printerManager.deleteSdcardFileOnPrinter(parseInt(req.params.id), (req.body || {}).name);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('文件删除失败:', err);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// /sdcard 文件直接开打（admin + 仅空闲）：body {fileName}——project_file 帧切片参数随文件
+app.post('/api/printers/:id/print-sdcard', requireUser('admin'), async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (!requireIdleForMachine(id, res)) return;
+  try {
+    const { fileName } = req.body || {};
+    const name = String(fileName || '');
+    if (!name || /[\\/]/.test(name) || !/\.(3mf|gcode|gx|g)$/i.test(name)) {
+      return res.status(400).json({ error: '非法文件名' });
+    }
+    await printerManager.startProjectOnPrinter(id, name, name);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('sdcard 开打失败:', err);
     res.status(400).json({ error: err.message });
   }
 });

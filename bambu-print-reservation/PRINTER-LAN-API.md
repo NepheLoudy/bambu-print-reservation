@@ -67,6 +67,7 @@
 ### 1.4 文件上传通道（本系统现状 + 与官方表差异注记）
 
 - 官方端口表将局域网 FTP 记为 **990 + 50000~50100**（FTPS，TLS 加密数据口），未区分机型。
+- **2026-10-15 真机 H2D 勘误（v56 批）**：X1/H2D 新固件 **22/21 同样全关（ECONNREFUSED）、990 为唯一文件通道**——与 P1 系 10-07 实测一致，「X1/H2D → SFTP:22」系老假设作废；uploadBuffer 全系统一 FTPS 990 优先、21 回退。本系统 SFTP 代码保留但不再是任何机型的主通道。
 - 本系统按机型走（`src/printer/client.js` `uploadBuffer`）：**X1/H2D → SFTP:22**；**P1/A1 → FTPS:990 优先（implicit TLS），失败回退 FTP:21 兼容老固件**；凭证同为 `bblp` + Access Code，远端目录 `/sdcard/`。
 - **2026-10-07 实测批（4A 隔离区两台 P1 系真机，云模式+局域网端口集并开）**：两台 990/8883/6000 常开、**21/22 明文/SSH 口全部 REFUSED**——新固件已砍社区明文通道，官方 990 FTPS（vsFTPd 3.0.5，TLSv1.2）为唯一文件通道；本系统同批从 node-ftp（无 TLS）引入 `basic-ftp` 实现 `ftpsPut`，21 回退保留。**历史注记**：此前版本仅走 22/21 社区通道（当时实机可用）；22/21 不在官方端口表内属社区实现事实，官方 990 通道现为首选。
 
@@ -305,7 +306,7 @@
 | TLS | mqtts 自签、跳过校验 | 未公开细节 | 通用 | 固件若升级（社区注记：2025-01 后部分固件要求 X.509 证书/认证演进），连不上先查固件与库版本 |
 | MQTT topic | 订阅与发布同一 `device/{sn}/report` | 未公开 | 另有 request/report 分流写法 | 当前库实机可用；换库/换固件需回归验证 |
 | 拉全量 | `pushall`（`version:1, push_target:1`） | 未公开 | 通用 | — |
-| 文件上传 | X1/H2D SFTP:22；P1/A1 FTPS:990（implicit TLS）→回退 FTP:21 | ✔ 官方表记 LAN FTP 990+50000~50100（FTPS） | 多通道并存，按机型 | 2026-10-07 实测：新固件 21/22 全关、990 为唯一通道（vsFTPd 3.0.5）；本系统 basic-ftp 走 990，21 回退兼容老固件 |
+| 文件上传 | **全系统一 FTPS:990（implicit TLS）→回退 FTP:21**（v56 起；旧「X1/H2D SFTP:22」假设作废） | ✔ 官方表记 LAN FTP 990+50000~50100（FTPS） | 多通道并存 | 2026-10-07 P1 实测 + **2026-10-15 H2D 实测：两代机型 21/22 全关、990 唯一通道**；本系统 basic-ftp 走 990，21 回退兼容老固件；SFTP 代码保留备查 |
 | 命令帧 | `project_file`（`url: ftp:///sdcard/…`）/ print / pause / resume / stop | 未公开 | 通用 | `url` 用 `ftp:///` 字面量是社区标准写法（`client.js:214` 注释） |
 | 画面 | X1/H2D RTSPS :322 digest 认证（v55 rtsps.js 自研）；P1/A1 TCP6000 裸 H.264 | 未公开（官方表记 LAN 视频 6000，未提 322） | `rtsps://bblp:<码>@ip:322/streaming/live/1`（SimplyPrint / BambuStudio#1536 口径） | 2026-10-15 真机 H2D 实测全通；见 §1.5 |
 | 控制面 | MQTT 帧全集：pause/resume/stop/ledctrl/speed/setFanSpeed(M106)/gcode_line/calibration/home/move/unload_filament/project_file | 未公开 | OpenBambuAPI 等 | v55 起全量暴露为 HTTP 端点（分级权限+状态门控），观察台控制面板消费 |

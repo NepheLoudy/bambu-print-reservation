@@ -95,7 +95,9 @@ function makeClient(model) {
     );
   });
 
-  await test('X1C：仍走 SFTP(22)，不触发 FTPS/FTP', async () => {
+  // v56 勘误（2026-10-15 真机 H2D 实测 22/21 全关）：全机型统一 FTPS(990) 优先、FTP(21) 回退，
+  // 「X1C/H2D 走 SFTP(22)」旧假设作废——uploadBuffer 不再按机型分流
+  await test('X1C：统一走 FTPS(990) 优先，不碰 SFTP', async () => {
     reset();
     const c = makeClient('X1C');
     let sftpCalled = 0;
@@ -103,18 +105,20 @@ function makeClient(model) {
     c.sftpPut = async () => { sftpCalled++; };
     c.ftpsPut = async () => { ftpsCalled++; };
     await c.uploadBuffer(Buffer.from('x'), '/sdcard/d.3mf');
-    assert.strictEqual(sftpCalled, 1);
-    assert.strictEqual(ftpsCalled, 0);
-    assert.strictEqual(MockFTPSClient.accessCalls.length, 0);
+    assert.strictEqual(ftpsCalled, 1);
+    assert.strictEqual(sftpCalled, 0);
   });
 
-  await test('H2D：仍走 SFTP(22)', async () => {
+  await test('H2D：统一走 FTPS(990) 优先（22/21 真机全关）', async () => {
     reset();
     const c = makeClient('H2D');
     let sftpCalled = 0;
+    let ftpsCalled = 0;
     c.sftpPut = async () => { sftpCalled++; };
+    c.ftpsPut = async () => { ftpsCalled++; };
     await c.uploadBuffer(Buffer.from('x'), '/sdcard/e.3mf');
-    assert.strictEqual(sftpCalled, 1);
+    assert.strictEqual(ftpsCalled, 1);
+    assert.strictEqual(sftpCalled, 0);
   });
 
   console.log('== connectFTPS 连接参数 ==');

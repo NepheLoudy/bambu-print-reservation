@@ -130,7 +130,7 @@
   <div class="head">
     <div>
       <h1>🖨️ 拓竹打印预约</h1>
-      <div class="sub">上传模型 → 勾选工况需求 → 规则引擎定参数 → 审批 → 自动分发打印　<a href="/status.html" style="color:var(--accent,#5b6ee1)">📺 状态观察台 →</a></div>
+      <div class="sub">上传模型 → 3D 标注工况（载荷/支撑/受弯…）→ 规则引擎定参数 → 审批 → 自动分发打印　<a href="/status.html" style="color:var(--accent,#5b6ee1)">📺 状态观察台 →</a></div>
     </div>
     <div class="userbox" id="userbox"></div>
   </div>
@@ -159,7 +159,7 @@
     <div class="card">
       <h2>📝 提交预约</h2>
       <div class="row">
-        <div><label>材料类型（可空——留空则按需求标签自动反推可用材料）</label><input type="text" id="materialType" list="materialList" placeholder="如 PLA / PETG / PLA-CF，不知道就留空" oninput="preflight(); schedulePreview()"><datalist id="materialList">
+        <div><label>材料类型（可空——留空则按需求标签自动反推可用材料）</label><input type="text" id="materialType" list="materialList" placeholder="如 PLA / PETG / PLA-CF，不知道就留空" oninput="preflight()"><datalist id="materialList">
           <option>PLA</option><option>PLA-CF</option><option>PLA-Aero</option><option>PETG</option><option>PETG-CF</option><option>ABS</option><option>ASA</option><option>PA</option><option>PA-CF</option><option>PC</option><option>TPU</option><option>PVA</option>
         </datalist></div>
         <div><label>颜色（多色件用 + 列全，如 白色+黑色，需勾选「多色打印」）</label><input type="text" id="color" list="colorList" placeholder="点选或输入，如 黑色 或 白色+黑色" oninput="colorHintCheck()"><datalist id="colorList"></datalist><div class="hint" id="colorHint"></div></div>
@@ -172,9 +172,46 @@
       <div class="preview" id="slicedNotice" style="display:none">📦 <b>切片产物审批直通模式</b>——3mf（拓竹）/ gcode（闪铸）的切片参数已内嵌文件，无需工况勾选；材料/颜色栏仅用于选机匹配。注意：3mf 只能去拓竹机、gcode 只能去闪铸机，选错品牌会被自动匹配忽略</div>
       <div class="preview" id="modelPanel" style="display:none"></div>
       <div id="taxonomy"></div>
+      <div class="preview" id="anno3dBox" style="display:none">
+        <b>🖱 3D 工况标注</b>——选中工具后点击模型表面落点：标注几何链路看不出来、只有人知道的复杂特征（受弯位置、接触面、外观面、载荷…）。拖拽旋转 / 滚轮缩放，点标注点可编辑删除。
+        <div id="toolRow" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px"></div>        <button class="mini" onclick="clearSel()" title="取消选中标注，恢复放置模式">✕ 取消选中</button>        <div id="loadTypeRow" style="display:none;margin-top:6px;font-size:12px;color:var(--muted)">载荷工况标注——受力类型：
+          <select id="loadTypeSel" onchange="updateLoadBtnColor()" style="padding:3px 6px">
+            <option value="compression">受压</option>
+            <option value="tension">受拉</option>
+            <option value="shear">剪切</option>
+            <option value="bending">弯曲</option>
+            <option value="torsion">扭转</option>
+            <option value="contact">滚压/点接触</option>
+          </select>
+          方向：<select id="loadDirSel" style="padding:3px 6px">
+            <option value="">按面自动（压入）</option>
+            <option value="X">+X</option><option value="-X">−X</option>
+            <option value="Y">+Y</option><option value="-Y">−Y</option>
+            <option value="Z">+Z</option><option value="-Z">−Z</option>
+          </select>
+          载荷性质：<select id="loadNatureSel" style="padding:3px 6px">
+            <option value="static">静载</option>
+            <option value="fatigue">动载疲劳</option>
+            <option value="impact">冲击</option>
+            <option value="vibration">振动</option>
+          </select>
+          载荷量级：<select id="loadMagnitudeSel" style="padding:3px 6px">
+            <option value="light">轻载</option>
+            <option value="medium" selected>中载</option>
+            <option value="heavy">重载</option>
+          </select>
+          <button class="mini" onclick="flipLastLoad()">⇆ 翻转上一箭头</button>（箭头即力方向，自动换算工况勾选）
+        </div>
+        <div style="position:relative;margin-top:8px">
+          <canvas id="annoCanvas" style="width:100%;height:400px;display:block;background:#fafbfd;border:1px solid var(--line);border-radius:8px;cursor:crosshair"></canvas>
+          <div id="annoOverlay" style="position:absolute;inset:0;pointer-events:none"></div>
+        </div>
+        <div class="mfNotes" id="annoList"></div>
+        <div id="selPanel" style="display:none;margin-top:8px;padding:8px;background:#fbfcfe;border:1px solid var(--line);border-radius:6px;font-size:12px"></div>
+      </div>
+      <div class="hint" id="loadSummary"></div>
       <div class="hint" id="conflictHint"></div>
       <div class="convention" id="convention"></div>
-      <div class="preview" id="paramPreview" style="display:none"></div>
       <div class="selSummary" id="selSummary"></div>
       <div class="actions">
         <button class="primary" id="submitBtn" onclick="submitReservation()">提交预约</button>
@@ -182,17 +219,11 @@
       </div>
     </div>
 
-    <div class="card" id="reviewCard" style="display:none">
-      <h2>🎓 学习链路 <span class="sub" style="display:inline">(审批人)——建议待审池 / 专家作品导入</span></h2>
-      <div class="row" style="margin-bottom:8px">
-        <div style="flex:2">
-          <label>导入专家手工切片 3mf（提取参数 → 与当前勾选组合生成候选规则，经待审池确认后生效）</label>
-          <input type="file" id="expert3mf" accept=".3mf">
-        </div>
-        <div style="flex:0; align-self:flex-end"><button class="mini" onclick="importExpert3mf()">提取并生成候选</button></div>
-      </div>
-      <div class="hint" id="extractHint"></div>
-      <div id="sugList"></div>
+    <div class="card" id="sampleCard" style="display:none">
+      <h2>📚 训练样本库 <span class="sub" style="display:inline">(审批人)——打印结果回标是将来训练的奖励信号</span></h2>
+      <div id="sampleStats" class="detail" style="margin-bottom:8px"></div>
+      <div style="margin-bottom:8px"><a class="mini" style="text-decoration:none;padding:4px 10px" href="/api/training/export" download>⬇ 导出 JSONL</a> <button class="mini" onclick="loadSamples()">刷新</button></div>
+      <div id="sampleList"></div>
     </div>
 
     <div class="card" id="adminCard" style="display:none">
@@ -212,7 +243,7 @@
   </div>
 </div>
 <div id="toast"></div>
-
+<script src="/annotator.js"></script>
 <script>
 let TAXONOMY = null;
 let ME = null;
@@ -288,147 +319,273 @@ function renderIdentity() {
   $('authCard').style.display = 'none';
   $('appBody').style.display = 'block';
   box.innerHTML = `你好，<b>${esc(ME.displayName)}</b><span class="role r-${ME.role}">${ME.role}</span>
-    ${isReviewer() ? '<a href="/train.html" style="font-size:12px;margin-right:4px">🎓 训练录入</a>' : ''}
     <button onclick="changePassword()">改密码</button>
     <button onclick="logout()">退出</button>`;
   $('adminCard').style.display = isAdmin() ? 'block' : 'none';
-  $('reviewCard').style.display = isReviewer() ? 'block' : 'none';
+  $('sampleCard').style.display = isReviewer() ? 'block' : 'none';
   loadUsers();
-  if (isReviewer()) loadSuggestions();
+  if (isReviewer()) loadSamples();
 }
 
-// ---------- 学习链路 ----------
+// ---------- 参数中文名表（列表参数快照渲染用；学习链路 UI 已于 v56 退役） ----------
 
 const PARAM_LABELS = { layerHeight: '层高', wallLoops: '墙数', topShellLayers: '顶面层', bottomShellLayers: '底面层', infillDensity: '填充%', infillPattern: '填充图案', speedProfile: '速度档', supportType: '支撑', supportThresholdAngle: '支撑阈值°', supportDensity: '支撑密度%', seamPosition: '接缝', directionStrategy: '朝向策略', ironing: '熨烫', brim: '裙边', brimWidth: '裙边mm', xyHoleComp: '孔补偿', xyContourComp: '轮廓补偿', temperatureDelta: '热床Δ°', nozzleTempDelta: '喷嘴Δ°' };
 
-/** 参数实时预览：提交前看到「本单会怎么切」（使用效率核心） */
-let previewTimer = null;
-function schedulePreview() {
-  clearTimeout(previewTimer);
-  previewTimer = setTimeout(applyPreview, 250);
-}
-async function applyPreview() {
-  if (isSlicedFile()) return; // 3mf 直通:不定档不预览
-  const material = $('materialType').value.trim();
-  const sel = collectSelection();
-  if (!material && Object.keys(sel).length === 0) { $('paramPreview').style.display = 'none'; return; }
-  try {
-    const res = await fetch('/api/print/process-rules/preview', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ selection: sel, material }),
-    });
-    const data = await res.json();
-    if (data.blocked) {
-      $('paramPreview').style.display = 'block';
-      $('paramPreview').innerHTML = `<b>⛔ 该勾选组合存在硬冲突，无法定档</b>（提交会被打回）`;
-      return;
-    }
-    const p = data.params;
-    const items = ['directionStrategy', 'layerHeight', 'wallLoops', 'topShellLayers', 'bottomShellLayers', 'infillDensity', 'infillPattern', 'speedProfile', 'supportType', 'supportThresholdAngle', 'supportDensity', 'seamPosition', 'xyHoleComp', 'xyContourComp', 'ironing', 'brim', 'brimWidth', 'temperatureDelta', 'nozzleTempDelta']
-      .map((k) => p[k] !== undefined && `<span class="pv">${PARAM_LABELS[k]}=<b>${p[k]}</b></span>`).filter(Boolean).join('');
-    const mat = data.materialVerdict ? `<span class="pv">材料裁定=<b>${data.materialVerdict.excluded ? '⛔排除' : data.materialVerdict.preferred ? '✅优先' : '—'}</b></span>`
-      : (p.materialExclude?.length || p.materialPrefer?.length)
-        ? `<span class="pv">材料反推=<b>${p.materialExclude?.length ? '排除 ' + p.materialExclude.join('/') + ' ' : ''}${p.materialPrefer?.length ? '优先 ' + p.materialPrefer.join('/') : ''}</b>（分发时按 AMS 实装自动选）</span>` : '';
-    $('paramPreview').style.display = 'block';
-    $('paramPreview').innerHTML = `<b>⚙️ 本单参数预览</b>（命中 ${data.applied.length} 条规则）<br>${items}${mat}`;
-  } catch { /* 预览失败不打扰提交 */ }
-}
+// ---------- 3D 工况标注（v56 自训练工坊迁入：载荷/支撑/受弯/接触面/外观面） ----------
+// shape: point=点标注 / axis2=两面交线受弯轴线 / support_region=支撑标注（悬垂检出）/
+//        axis_region=面区域统一逻辑（受压区/接触面/外观面）/ circle=识别孔口环确认
+const SPATIAL_TOOLS = [
+  { id: 'support_need', label: '🔴 悬空需支撑', color: '#e74c3c', shape: 'support_region' },
+  { id: 'bending_zone', label: '🟠 受弯轴线', color: '#e67e22', shape: 'axis2' },
+  { id: 'hole_rim', label: '🟡 通孔标注', color: '#f1c40f', shape: 'circle' },
+  { id: 'load', label: '📥 载荷标注', color: '#2980b9', shape: 'load' },
+  { id: 'compression_zone', label: '🔵 受压区', color: '#3b7dd8', shape: 'axis_region' },
+  { id: 'contact_surface', label: '🟣 接触面', color: '#8e44ad', shape: 'axis_region' },
+  { id: 'appearance_face', label: '🟢 外观面', color: '#27ae60', shape: 'axis_region' },
+  { id: 'pin', label: '⚪ 自由标注', color: '#7f8c8d', shape: 'point' },
+];
+let ANNOTATOR = null;
+let currentTool = SPATIAL_TOOLS[0].id;
 
-/** 修正建议：审批人看到参数不合适时，从该单发起（自动带标签组合与单号）。
- *  单据从缓存取（window.__records）——onclick 属性里内联 JSON 会因双引号截断，禁止 */
-function openCorrection(id) {
-  const record = (window.__records || []).find((r) => r.id === id);
-  if (!record) return toast('记录已过期，刷新后重试');
-  const processParams = record.processParams || {};
-  const dlg = document.createElement('dialog');
-  const editable = {};
-  for (const k of ['layerHeight', 'wallLoops', 'topShellLayers', 'bottomShellLayers', 'infillDensity', 'infillPattern', 'speedProfile', 'supportType', 'supportThresholdAngle', 'supportDensity', 'seamPosition', 'ironing', 'brim', 'brimWidth', 'temperatureDelta', 'nozzleTempDelta']) {
-    if (processParams && k in processParams) editable[k] = processParams[k];
-  }
-  dlg.innerHTML = `<h3 style="font-size:14px;margin-bottom:8px">📝 修正建议（${id}）</h3>
-    <div class="detail" style="margin-bottom:6px">编辑参数后提交——生成候选规则进待审池（自动携带本单勾选组合），审核通过后生效</div>
-    <textarea class="paramEdit" id="corrEdit">${JSON.stringify(editable, null, 1)}</textarea>
-    <div style="margin-top:8px"><label>修正理由（必填，将随规则可审计）</label><input type="text" id="corrReason" placeholder="如：这个件壁太薄 2 墙不够"></div>
-    <div class="actions" style="margin-top:10px">
-      <button class="ok" onclick="submitCorrection('${id}', this.closest('dialog'))">提交建议</button>
-      <button class="mini" onclick="this.closest('dialog').close()">取消</button>
-    </div>`;
-  document.body.appendChild(dlg);
-  dlg.showModal();
+function initAnnotatorTools() {
+  const row = $('toolRow');
+  row.innerHTML = SPATIAL_TOOLS.filter((t) => t.shape !== 'circle').map((t) => {
+    const suffix = t.shape === 'axis2' ? '（两面交线）' : t.shape === 'support_region' ? '（点面染悬垂）' : t.shape === 'axis_region' ? '（选面染实体）' : '';
+    return `<button class="mini toolBtn" data-tool="${t.id}" data-color="${t.color}" style="border-color:${t.color};color:${t.color}" onclick="pickTool('${t.id}')">${t.label}${suffix}</button>`;
+  }).join('');
+  pickTool(SPATIAL_TOOLS[0].id);
 }
-
-async function submitCorrection(id, dlg) {
-  let set;
-  try { set = JSON.parse(dlg.querySelector('#corrEdit').value); } catch { return toast('参数不是合法 JSON'); }
-  const reason = dlg.querySelector('#corrReason').value.trim();
-  if (!reason) return toast('请填写修正理由');
-  const record = (window.__records || []).find((r) => r.id === id);
-  const res = await fetch('/api/print/rule-suggestions', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ when: record?.selection || {}, set, reason, source: 'correction', sourceRef: id }),
+function pickTool(id) {
+  currentTool = id;
+  if (ANNOTATOR) ANNOTATOR.setTool(id);
+  const ltr = document.getElementById('loadTypeRow');
+  if (ltr) ltr.style.display = id === 'load' ? 'block' : 'none'; // 载荷工况选择器仅载荷工具激活时展开
+  document.querySelectorAll('.toolBtn').forEach((b) => {
+    const on = b.dataset.tool === id;
+    b.style.background = on ? b.dataset.color : '#eef2f6';
+    b.style.color = on ? '#fff' : b.dataset.color;
   });
-  const data = await res.json();
-  if (!res.ok) return toast('❌ ' + data.error);
-  toast(data.merged ? `✅ 已合并到既有建议（累计 ${data.suggestion.count} 次）` : '✅ 建议已入待审池');
-  dlg.close();
-  loadSuggestions();
 }
-
-async function loadSuggestions() {
-  if (!isReviewer()) return;
-  const res = await fetch('/api/print/rule-suggestions?status=pending');
-  if (!res.ok) return;
-  const list = await res.json();
-  const box = $('sugList');
-  if (!list.length) { box.innerHTML = '<div class="empty">待审池为空——修正建议与专家导入会出现在这里</div>'; return; }
-  box.innerHTML = list.sort((a, b) => b.count - a.count).map(s => `<div class="sugbox">
-    <b>${s.source === 'extraction' ? '🎓 专家导入' : '🔧 修正'}</b>${s.count > 1 ? `<span class="cnt">×${s.count}</span>` : ''}
-    <span class="detail">｜${esc((s.sourceRefs || []).map(x => '#' + x).join(' ')) || '—'}｜${esc(s.suggestedBy || '')}｜${esc((s.createdAt || '').slice(5, 16))}</span>
-    <br><span class="detail">当：</span>${esc(JSON.stringify(s.when))}
-    <br><span class="detail">设：</span><b>${esc(JSON.stringify(s.set))}</b>
-    <br><span class="detail">${esc(s.reason)}</span>
-    <div class="revbox">
-      <button class="ok" onclick="decide('${s.id}','adopt')">采纳生效</button>
-      <button class="bad" onclick="decide('${s.id}','reject')">拒绝</button>
-    </div>
-  </div>`).join('');
+const LOAD_TYPE_LABEL = { compression: '受压', tension: '受拉', shear: '剪切', bending: '弯曲', torsion: '扭转', contact: '滚压接触' };
+const NATURE_LABEL = { static: '静载', fatigue: '动载疲劳', impact: '冲击', vibration: '振动' };
+const MAG_LABEL = { light: '轻载', medium: '中载', heavy: '重载' };
+function dominantAxis(dir) {
+  const abs = dir.map((v) => Math.abs(v));
+  const i = abs[0] >= abs[1] && abs[0] >= abs[2] ? 0 : abs[1] >= abs[2] ? 1 : 2;
+  return ['X', 'Y', 'Z'][i];
 }
-
-async function decide(id, action) {
-  const res = await fetch(`/api/print/rule-suggestions/${id}/${action}`, { method: 'POST' });
-  const data = await res.json();
-  if (!res.ok) return toast('❌ ' + data.error);
-  toast(action === 'adopt' ? `✅ 已转正为生效规则 ${data.ruleId}` : '✅ 已拒绝');
-  loadSuggestions();
+function spatialLabel(a) {
+  const t = SPATIAL_TOOLS.find((x) => x.id === a.tool) || { label: a.tool };
+  if (a.type === 'load') return `${t.label}·${LOAD_TYPE_LABEL[a.loadType] || a.loadType}载荷` +
+    `${a.loadNature && NATURE_LABEL[a.loadNature] ? '·' + NATURE_LABEL[a.loadNature] : ''}` +
+    `${a.loadMagnitude && MAG_LABEL[a.loadMagnitude] ? '·' + MAG_LABEL[a.loadMagnitude] : ''}` +
+    ` @ (${a.pos.join(', ')})（${dominantAxis([-a.dir[0], -a.dir[1], -a.dir[2]])} 向）`;
+  if (a.type === 'survey') return `${t.label}：全模型悬垂 ${a.faces.length} 面`;
+  if (a.type === 'axis') return `${t.label}：(${a.a.join(', ')}) → (${a.b.join(', ')})`;
+  if (a.type === 'circle') return `${t.label}：r${a.r}mm @ (${a.c.join(', ')})`;
+  if (a.type === 'region' && a.supportFaces) return `${t.label}：悬垂 ${a.supportFaces.length} / 共 ${a.faces.length} 面染色${a.shift ? '（含同特征）' : ''}`;
+  if (a.type === 'region') return `${t.label}：${a.faces.length} 面染色`;
+  return `${t.label} @ (${a.pos.join(', ')})${a.note ? ' — ' + a.note : ''}`;
 }
-
-/** 专家 3mf 导入：提取参数 diff → 以当前勾选组合为条件生成候选 */
-async function importExpert3mf() {
-  const file = $('expert3mf').files[0];
-  if (!file) return toast('选择专家切片的 3mf');
-  const sel = collectSelection();
-  if (!Object.keys(sel).length) return toast('请先在上方勾选该作品的工况需求（将作为候选规则的条件）');
-  const fd = new FormData();
-  fd.append('file', file);
-  $('extractHint').textContent = '解析中…';
-  const res = await fetch('/api/print/slicer-extract', { method: 'POST', body: fd });
-  const data = await res.json();
-  if (!res.ok) { $('extractHint').className = 'hint bad'; $('extractHint').textContent = data.error; return; }
-  const diffKeys = Object.keys(data.diff || {});
-  if (!diffKeys.length) {
-    $('extractHint').className = 'hint';
-    $('extractHint').textContent = '提取成功但与出厂基线无差异，无需生成候选';
+function updateLoadBtnColor() {
+  const btn = document.querySelector('.toolBtn[data-tool=load]');
+  if (!btn) return;
+  const c = { compression: '#3b7dd8', tension: '#e74c3c', shear: '#e67e22', bending: '#8e44ad', torsion: '#27ae60', contact: '#f39c12' }[$('loadTypeSel').value] || '#2980b9';
+  btn.style.background = c;
+  btn.style.borderColor = c;
+}
+/** 载荷箭头 → 隐藏工况勾选组（load_*）联动：载荷工况不再手勾，由 3D 标注驱动，
+ *  与训练工坊同一套折算口径（同一条拟合链进 applyRules） */
+function syncLoadsToSelection() {
+  const anns = ANNOTATOR ? ANNOTATOR.getAnnotations() : [];
+  const loads = anns.filter((a) => a.type === 'load');
+  const dirs = new Set(), types = new Set();
+  for (const L of loads) {
+    dirs.add(dominantAxis([-L.dir[0], -L.dir[1], -L.dir[2]])); // 力压入面 = -法向 → 受力方向取主轴
+    types.add(L.loadType);
+  }
+  const sync = (fieldId, values) => {
+    document.querySelectorAll('.opt[data-field=' + fieldId + ']').forEach((label) => {
+      const on = values.includes(label.dataset.opt);
+      label.querySelector('input').checked = on;
+      label.classList.toggle('on', on);
+    });
+  };
+  sync('load_direction', [...dirs]);
+  sync('load_type', [...types]);
+  if (loads.length) {
+    sync('load_nature', [...new Set(loads.map((L) => L.loadNature).filter(Boolean))]);
+    const mags = loads.map((L) => L.loadMagnitude).filter(Boolean);
+    sync('load_magnitude', mags.length ? [mags[0]] : []);
+  }
+  renderLoadSummary(loads);
+}
+/** 载荷工况只读摘要（手勾区已退役） */
+function renderLoadSummary(loads) {
+  const el = $('loadSummary');
+  if (!el) return;
+  if (!loads.length) {
+    el.className = 'hint';
+    el.textContent = '📥 载荷工况：尚未标注——3D 视图选「📥 载荷标注」点击受力面（无载荷要求可不标）';
     return;
   }
-  const res2 = await fetch('/api/print/rule-suggestions', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ when: sel, set: data.diff, reason: `专家作品提取（${data.source}）：${file.name}`, source: 'extraction', sourceRef: file.name }),
-  });
-  const data2 = await res2.json();
-  if (!res2.ok) { $('extractHint').className = 'hint bad'; $('extractHint').textContent = '候选提交失败: ' + data2.error; return; }
-  $('extractHint').className = 'hint';
-  $('extractHint').textContent = `✅ 已生成候选：${diffKeys.map(k => (PARAM_LABELS[k] || k) + '=' + data.diff[k]).join('、')}——待审池确认后生效`;
-  loadSuggestions();
+  const parts = loads.map((L) => `${LOAD_TYPE_LABEL[L.loadType] || L.loadType}（${dominantAxis([-L.dir[0], -L.dir[1], -L.dir[2]])} 向${L.loadNature ? '，' + (NATURE_LABEL[L.loadNature] || L.loadNature) : ''}${L.loadMagnitude ? '，' + (MAG_LABEL[L.loadMagnitude] || L.loadMagnitude) : ''}）`);
+  el.className = 'hint';
+  el.style.color = 'var(--accent)';
+  el.textContent = `📥 载荷工况（由 3D 标注自动确定 ${loads.length} 项）：` + parts.join('；');
+}
+function onAnnotationsChange(anns) {
+  const list = $('annoList');
+  list.innerHTML = anns.length
+    ? anns.map((a) => `• ${esc(spatialLabel(a))}`).join('<br>') + `<br><span class="sumClear" onclick="undoLast()">↩ 撤销</span> <span class="sumClear" onclick="redoLast()">↪ 重做</span> <span class="sumClear" onclick="clearAnnotations()">✕ 清空全部</span>`
+    : '尚未标注——选工具后点击模型表面';
+  syncLoadsToSelection();
+}
+function clearAnnotations() { if (ANNOTATOR) { ANNOTATOR.clearAnnotations(); onAnnotationsChange([]); } }
+function undoLast() { if (ANNOTATOR) ANNOTATOR.undo(); }
+function redoLast() { if (ANNOTATOR) ANNOTATOR.redo(); }
+function flipLastLoad() { if (ANNOTATOR && ANNOTATOR.flipLastLoad()) { syncLoadsToSelection(); toast('⇆ 最后一支载荷箭头已翻转'); } else toast('没有可翻转的载荷箭头'); }
+function clearSel() { if (ANNOTATOR) ANNOTATOR.selectNone(); }
+let SEL_AID = null;
+function renderSelPanelPage(a) {
+  SEL_AID = a && a._aid ? a._aid : null;
+  const panel = $('selPanel');
+  if (!SEL_AID) { panel.style.display = 'none'; return; }
+  const t = SPATIAL_TOOLS.find((x) => x.id === a.tool) || { label: a.tool };
+  let ctrl = '';
+  if (a.type === 'load') {
+    const opts = [['compression', '受压'], ['tension', '受拉'], ['shear', '剪切'], ['bending', '弯曲'], ['torsion', '扭转'], ['contact', '滚压接触']];
+    ctrl = '受力类型：<select onchange="updateSelField(\'loadType\', this.value)">' +
+      opts.map((o) => '<option value="' + o[0] + '"' + (a.loadType === o[0] ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select>' +
+      ' <button class="mini" onclick="flipSelDir()">⇆ 翻转方向</button>';
+  }
+  $('selPanel').innerHTML = '<b>✎ ' + esc(t.label) + '</b>' +
+    (ctrl ? '<div style="margin-top:4px">' + ctrl + '</div>' : '') +
+    '<div style="margin-top:4px">备注：<input onchange="updateSelNote(this.value)" value="' + esc(a.note || '') + '" style="width:55%"> <button class="bad" onclick="deleteSel()">删除此标注</button></div>';
+  panel.style.display = 'block';
+}
+function updateSelField(field, value) {
+  if (!SEL_AID || !ANNOTATOR) return;
+  const updated = ANNOTATOR.updateAnnotation(SEL_AID, setObj(field, value));
+  if (updated) { toast('✅ 已更新'); renderSelPanelPage(updated); }
+}
+function updateSelNote(v) {
+  if (!SEL_AID || !ANNOTATOR) return;
+  const updated = ANNOTATOR.updateAnnotation(SEL_AID, { note: v });
+  if (updated) toast('✅ 备注已更新');
+}
+function setObj(k, v) { const o = {}; o[k] = v; return o; }
+function flipSelDir() {
+  if (!SEL_AID || !ANNOTATOR) return;
+  const updated = ANNOTATOR.updateAnnotation(SEL_AID, { dirFlip: true });
+  if (updated) { toast('⇆ 方向已翻转'); renderSelPanelPage(updated); }
+}
+function deleteSel() {
+  if (!SEL_AID || !ANNOTATOR) return;
+  if (!confirm('删除这条标注？')) return;
+  ANNOTATOR.deleteAnnotation(SEL_AID);
+  SEL_AID = null;
+  renderSelPanelPage(null);
+  toast('已删除');
+}
+
+/** STL 选定后装载 3D 标注视图：体检（model-features）+ 抽稀网格（training/mesh）。
+ *  step/obj 等不可解析格式不显示 3D 区（载荷手勾组自动回退可见） */
+async function loadAnnotator() {
+  const file = $('file').files[0];
+  const box = $('anno3dBox');
+  const meshCapable = !!file && /\.stl$/i.test(file.name) && !isSlicedFile();
+  box.style.display = meshCapable ? 'block' : 'none';
+  updateLoadGroupMode();
+  if (!meshCapable) { syncLoadsToSelection(); return; }
+  initAnnotatorTools();
+  // 画布尺寸要在容器可见后量（隐藏容器 clientWidth=0），否则 WebGL 视口错
+  const canvas = $('annoCanvas');
+  const w = canvas.clientWidth || 600, h = canvas.clientHeight || 380;
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+  try {
+    const fd = new FormData(); fd.append('file', file);
+    const res = await fetch('/api/training/mesh', { method: 'POST', body: fd });
+    const mesh = await res.json();
+    if (!res.ok) { $('toolRow').innerHTML = '<span class="hint">网格下发失败：' + esc(mesh.error || '') + '</span>'; return; }
+    if (!ANNOTATOR) {
+      ANNOTATOR = MeshAnnotator($('annoCanvas'), $('annoOverlay'), {
+        tools: SPATIAL_TOOLS.filter((t) => t.shape !== 'circle'),
+        onChange: onAnnotationsChange,
+        onSelect: (a) => renderSelPanelPage(a),
+        getLoadType: () => $('loadTypeSel').value,
+        getLoadDir: () => $('loadDirSel').value,
+        getLoadNature: () => $('loadNatureSel').value,
+        getLoadMagnitude: () => $('loadMagnitudeSel').value,
+        onHint: (t) => toast(t),
+      });
+    }
+    // 识别→标注直通：几何体检的孔口圆投给 3D 视图做候选环（单零件文件）
+    let circleCandidates = [];
+    if (MODEL_FEATURES && MODEL_FEATURES.ok && !MODEL_FEATURES.objects && MODEL_FEATURES.holes.circles) {
+      circleCandidates = MODEL_FEATURES.holes.circles;
+    } else if (MODEL_FEATURES && MODEL_FEATURES.ok && MODEL_FEATURES.objects && MODEL_FEATURES.objects.length === 1) {
+      circleCandidates = (MODEL_FEATURES.objects[0].holes && MODEL_FEATURES.objects[0].holes.circles) || [];
+    }
+    ANNOTATOR.loadMesh(mesh);
+    ANNOTATOR.setCircleCandidates(circleCandidates);
+    onAnnotationsChange(ANNOTATOR.getAnnotations());
+    if (mesh.decimated) toast(`模型 ${mesh.originalFaceCount} 面，标注视图抽稀至 ${mesh.faceCount} 面`);
+    if (circleCandidates.length) toast(`🔍 识别到 ${circleCandidates.length} 个孔口——点击黄色虚线环即可确认为通孔标注`);
+  } catch (err) { $('toolRow').innerHTML = '<span class="hint">3D 标注初始化失败：' + esc(err.message) + '</span>'; }
+}
+
+/** 载荷手勾组可见性：STL（可 3D 标注）时隐藏（由标注驱动）；step/obj 等不可标注格式回退手勾 */
+function updateLoadGroupMode() {
+  const g = document.getElementById('group_load');
+  if (!g) return;
+  const file = $('file').files[0];
+  const meshCapable = !!file && /\.stl$/i.test(file.name) && !isSlicedFile();
+  g.style.display = meshCapable ? 'none' : 'block';
+}
+
+// ---------- 训练样本库（v56 自训练工坊迁入，reviewer+） ----------
+
+async function loadSamples() {
+  if (!isReviewer()) return;
+  const res = await fetch('/api/training/samples');
+  if (!res.ok) { $('sampleList').innerHTML = '<div class="empty">样本库不可用</div>'; return; }
+  const list = await res.json();
+  const done = list.filter((s) => s.outcome && s.outcome.result).length;
+  $('sampleStats').textContent = `共 ${list.length} 条样本，已回标 ${done} 条`;
+  const box = $('sampleList');
+  if (!list.length) { box.innerHTML = '<div class="empty">样本库为空——预约提交时的 3D 标注不再单独入库，历史样本仍在此管理</div>'; return; }
+  box.innerHTML = `<table><thead><tr><th>样本号</th><th>模型</th><th>工况（要点）</th><th>录入</th><th>打印结果</th><th></th></tr></thead><tbody>` +
+    list.slice().reverse().map((s) => {
+      const selBrief = Object.entries(s.selection || {}).slice(0, 4).map(([k, v]) => Array.isArray(v) ? v.join('/') : v).join('，');
+      const outcome = s.outcome && s.outcome.result;
+      return `<tr>
+        <td><b>${esc(s.id)}</b><br><span class="detail">${esc((s.createdAt || '').slice(5, 16))}</span></td>
+        <td class="detail">${esc((s.model && s.model.originalName) || '—')}</td>
+        <td class="detail">${esc(selBrief || '—')}${(s.spatial || []).length ? `<br>📍 空间标注 ${(s.spatial).length} 条` : ''}</td>
+        <td class="detail">${esc(s.createdBy || '—')}</td>
+        <td><select class="roleSel" onchange="setOutcome('${s.id}', this.value)">
+          ${['', 'success', 'failed'].map((r) => `<option value="${r}" ${outcome === r ? 'selected' : ''}>${r === 'success' ? '成功' : r === 'failed' ? '失败' : '未回标'}</option>`).join('')}
+        </select></td>
+        <td><button class="mini" onclick="delSample('${s.id}')">删除</button></td>
+      </tr>`;
+    }).join('') + '</tbody></table>';
+}
+
+async function delSample(id) {
+  if (!confirm(`删除样本 ${id}？（归档文件保留）`)) return;
+  const res = await fetch(`/api/training/samples/${id}`, { method: 'DELETE' });
+  const data = await res.json().catch(() => ({}));
+  toast(res.ok ? '✅ 已删除' : '❌ ' + (data.error || '失败'));
+  loadSamples();
+}
+
+async function setOutcome(id, result) {
+  if (!result) return loadSamples();
+  const res = await fetch(`/api/training/samples/${id}/outcome`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ result }) });
+  const data = await res.json().catch(() => ({}));
+  toast(res.ok ? '✅ 已回标' : '❌ ' + (data.error || '失败'));
+  loadSamples();
 }
 
 async function loadUsers() {
@@ -496,6 +653,9 @@ async function loadTaxonomy() {
     const div = document.createElement('div');
     div.className = 'group';
     div.id = 'group_' + g.id;
+    // 载荷组隐藏（v56）：工况由 3D 标注驱动（loadAnnotator/syncLoadsToSelection 折算进
+    // 隐藏勾选），step/obj 等不可标注格式由 updateLoadGroupMode 回退显示手勾
+    if (g.id === 'load') div.style.display = 'none';
     const opts = g.fields.map(f => {
       if (f.type === 'scale') {
         // 标尺滑块（-3~+3，0=常规不偏重）；两端文案取字段自带 minLabel/maxLabel
@@ -521,14 +681,14 @@ async function loadTaxonomy() {
     const label = e.target.closest('.opt');
     if (label) label.classList.toggle('on', e.target.checked);
     updateLoadTypeDesc();
-    collectSelection(); preflight(); schedulePreview(); saveSelMemory(); renderSelSummary();
+    collectSelection(); preflight(); saveSelMemory(); renderSelSummary();
   });
   // 标尺滑块实时联动
   box.addEventListener('input', (e) => {
     if (e.target.type === 'range') {
       document.getElementById('scaleVal_' + e.target.dataset.field).textContent = e.target.value;
       updateLoadTypeDesc();
-      collectSelection(); preflight(); schedulePreview(); saveSelMemory(); renderSelSummary();
+      collectSelection(); preflight(); saveSelMemory(); renderSelSummary();
     }
   });
 }
@@ -588,7 +748,7 @@ function clearSelection() {
   document.querySelectorAll('.opt input').forEach(inp => { inp.checked = false; inp.closest('.opt').classList.remove('on'); });
   document.querySelectorAll('input[type=range][data-field]').forEach(r => { r.value = 0; const sv = document.getElementById('scaleVal_' + r.dataset.field); if (sv) sv.textContent = '0'; });
   const ltd = document.getElementById('loadTypeDesc'); if (ltd) ltd.textContent = '';
-  preflight(); schedulePreview(); saveSelMemory(); renderSelSummary();
+  preflight(); saveSelMemory(); renderSelSummary();
 }
 
 /** 双通道模式感知（2026-10-05 曼波定）：3mf=审批直通（隐藏勾选区），stl/step=需求链路；
@@ -601,8 +761,9 @@ function updateSlicedMode() {
   const sliced = isSlicedFile();
   $('taxonomy').style.display = sliced ? 'none' : 'block';
   $('slicedNotice').style.display = sliced ? 'block' : 'none';
-  if (sliced) { $('paramPreview').style.display = 'none'; $('conflictHint').textContent = ''; }
+  if (sliced) { $('conflictHint').textContent = ''; }
   else preflight();
+  updateLoadGroupMode();
 }
 
 // ---------- STL 几何体检（2026-10-11 模型特征自拟合） ----------
@@ -661,7 +822,7 @@ function applyAutoSuggestions(sug) {
     if (label) { label.querySelector('input').checked = true; label.classList.add('on'); lastAutoChecked.push(fieldId); }
   }
   updateLoadTypeDesc();
-  collectSelection(); preflight(); schedulePreview(); saveSelMemory(); renderSelSummary();
+  collectSelection(); preflight(); saveSelMemory(); renderSelSummary();
 }
 
 function collectSelection() {
@@ -746,6 +907,8 @@ function submitReservation() {
   fd.append('quantity', $('quantity').value || 1);
   // 3mf 直通不提交勾选（切片参数内嵌）；需求链路提交标签
   fd.append('selection', JSON.stringify(isSlicedFile() ? {} : collectSelection()));
+  // 3D 标注随单存档（v56：载荷工况由标注驱动，底料与训练样本同构；3mf 直通无此项）
+  if (!isSlicedFile()) fd.append('spatial', JSON.stringify(ANNOTATOR ? ANNOTATOR.getAnnotations() : []));
   // STL 体检快照随单入档（学习回路底料；3mf 无此项）
   if (!isSlicedFile() && MODEL_FEATURES && MODEL_FEATURES.ok) fd.append('modelFeatures', JSON.stringify(MODEL_FEATURES));
 
@@ -769,6 +932,7 @@ function submitReservation() {
       $('file').value = ''; $('submitHint').textContent = '';
       updateSlicedMode();
       analyzeModel(); // 文件已清空：收起体检面板、清掉快照（value 置空不触发 change，手动补）
+      loadAnnotator(); // 收起 3D 标注区、清标注态
       saveSelMemory();
       loadList();
     } catch { $('submitHint').textContent = ''; toast('❌ 服务响应异常'); }
@@ -781,7 +945,7 @@ async function loadList() {
   const res = await fetch('/api/reservations');
   if (res.status === 401) { ME = null; renderIdentity(); return; }
   const records = await res.json();
-  window.__records = records; // openCorrection/submitCorrection 从缓存取单（避免 onclick 内联 JSON 截断）
+  window.__records = records; // 行内操作从缓存取单（避免 onclick 内联 JSON 截断）
   loadGivenUp();
   const shown = $('onlyPending')?.checked ? records.filter(r => r.status === '待审批') : records;
   const box = $('list');
@@ -815,7 +979,6 @@ async function loadList() {
     const reviewBtns = pending && isReviewer() ? `<div class="revbox">
           <button class="ok" ${unsliced ? 'disabled title="未切片模型：请先切片（拓竹 3mf / 闪铸 gcode）后重新提交"' : ''} onclick="review('${r.id}','approve')">通过</button>
           <button class="bad" onclick="review('${r.id}','reject')">驳回</button>
-          <button class="mini" onclick="openCorrection('${r.id}')">建议修正</button>
         </div>${unsliced ? '<div class="detail" style="color:var(--warn)">⚠️ 未切片模型——切片后重新提交才能分发（3mf / gcode）</div>' : ''}` : '';
     const cancelBtn = !['已完成', '已取消', '已驳回'].includes(r.status) && (mine || isReviewer())
       ? `<button class="mini" onclick="cancelReservation('${r.id}')">取消</button>` : '';
@@ -1002,9 +1165,8 @@ async function printerCtl(id, action, confirmText) {
   await loadTaxonomy();
   loadColors();
   restoreSelMemory();
-  $('file').addEventListener('change', () => { updateSlicedMode(); analyzeModel(); }); // 双通道模式感知 + STL 几何体检
+  $('file').addEventListener('change', () => { updateSlicedMode(); analyzeModel(); loadAnnotator(); }); // 双通道模式感知 + STL 几何体检 + 3D 标注装载
   preflight();
-  schedulePreview();
   renderSelSummary();
   if (ME) { await loadList(); loadPrinters(); }
   setInterval(() => { if (ME) { loadList(); loadPrinters(); } }, 15000);

@@ -3,16 +3,14 @@ const path = require('path');
 const config = require('../config');
 const bitableApi = require('../feishu/bitable');
 const { downloadFile, downloadApprovalAttachment } = require('../feishu/client');
-const { sendMessage } = require('../feishu/bot');
+const { sendMessage, buildJobFailedCard } = require('../feishu/bot');
 const quietHours = require('../utils/quietHours');
+const { isUnslicedFileName } = require('../utils/fileTypes');
 const printerManager = require('../printer/manager');
 const reservationService = require('./reservation');
 const reservationStore = require('./reservationStore');
 
-/** 未切片文件判定（与 reservationService 同口径：stl/step/obj 不能直接驱动真机；
- *  切片产物=拓竹 3mf + 闪铸 gcode 系，2026-10-14 双品牌批扩） */
-const SLICED_EXT_RE = /\.(3mf|gcode|gx|g)$/i;
-const isUnslicedFile = (r) => !!r && !SLICED_EXT_RE.test(String(r.fileName || ''));
+const isUnslicedFile = (r) => isUnslicedFileName(r && r.fileName);
 const plaza = require('./plaza');
 
 /**
@@ -389,12 +387,30 @@ class Dispatcher {
     this.givenUp.delete(recordId);
     for (const [printerId, task] of this.printing) {
       if (task.recordId === recordId) {
-        // 打印中取消：停机并释放
-        printerManager.stopPrintOnPrinter(printerId).catch(() => {});
+        // 打印中取消：停机并释放。停机失败不再静默（v56）——机器可能继续打已取消单，
+        // 重试一次，仍失败发人工介入卡（群播走静默闸）
+        const printer = printerManager.getPrinterState(printerId);
+        this.stopWithRetry(printerId, task, printer, 1);
         this.printing.delete(printerId);
       }
     }
     this.persistState();
+  }
+
+  /** 打印中取消的停机指令：失败重试一次，仍失败群播人工介入（v56 竞态批修复） */
+  stopWithRetry(printerId, task, printer, retries) {
+    printerManager.stopPrintOnPrinter(printerId).catch((err) => {
+      console.error(`[分发] 已取消单停机失败（${printer ? printer.name : printerId}）:`, err.message);
+      if (retries > 0) {
+        setTimeout(() => this.stopWithRetry(printerId, task, printer, retries - 1), 3000);
+        return;
+      }
+      announce(
+        `已取消单停机失败提醒 ${task.recordId}`,
+        buildJobFailedCard(task, printer, '该单已被取消，但停机指令下发失败——机器可能仍在打印已取消的任务，请人工停止'),
+        (e) => console.error('[分发] 停机失败人工介入卡发送失败:', e.message)
+      );
+    });
   }
 
   /** 记录是否已在本引擎登记过（含排队/打印中/已完成；审批对账用于跳过已知实例） */
