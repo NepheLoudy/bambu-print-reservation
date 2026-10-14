@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v152**（2026-10-14，随本提交落地，bambu v53 双品牌纯内网批归档——闪铸适配+状态观察台+分发品牌隔离，已上线小电脑）。上一版 v151（2026-10-13，f9fac9d，bambu v48+v49 归档批+5 个 gitlink 注册前置）。上一版 v150（2026-10-13，3c673be，hub v130 负责人群整合卡拆独立 10:00 定时联动批——registry 同步）。
+当前最新：**v153**（2026-10-14，随本提交落地，迁移基础设施批——顶层仓正名 NepheLoudy/qianli+ticket-bot 转正第 6 子模块+大脑记忆链路 qianli-brain/brain-sync 落地，两机一致性达成）。上一版 v152（2026-10-14，e62ce67，bambu v53 双品牌纯内网批归档，已上线小电脑）。上一版 v151（2026-10-13，f9fac9d，bambu v48+v49 归档批+5 个 gitlink 注册前置）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -1300,3 +1300,13 @@
 - 曼波令：4A 打印机路由器拔 wan 线转纯内网前，把打印机内网文件分发、显式可选 UI、状态观察 UI（画面/AMS/操作指令、拓竹+闪铸双品牌）全部做好。bambu-print-reservation v53 已 `npm run push` 上线（pm2 online、health ok、/status.html 200），15 套桩测试全绿。要点：①`src/printer/flashforge.js` 闪铸适配层（8898 REST 轮询+uploadGcode/printGcode 分发+jobCtl 控制+8080 MJPEG，serialNumber+checkCode 认证复用 .env 五件套）；②manager 品牌分派（brandOf/cameraKind）+dispatcher 文件格式↔品牌隔离（3mf→拓竹/gcode→闪铸，跨品牌匹配不可见）；③拓竹补腔灯 ledctrl+TCP6000 H.264 WS 中继（前端 WebCodecs 解码）；④`public/status.html` 状态观察台（机队卡片/双品牌画面/AMS 槽位盘/admin 指令条）+主网免路由代理端点；⑤v47 训练架构半成品与 v48~v52 修补随本批首次上线。详录 bambu DEVLOG v53。
 - 联动：`.agents/skills/qianli-lab-network/SKILL.md` §九 补 4A 纯内网形态与闪铸协议档案；network 域 evt_013（踢线服务影响）/evt_014（纯内网批落地）；桌面《机器人总成使用指南.html》补观察台+双品牌条目（工作区外）。
 - 本批锚定 bambu 目录（顶层普通目录，无 gitlink）至 v53 内容；hub（`ticket-pm/project-management-robot/server/.env` 子层）凭据在位未动。
+
+## v153 · 2026-10-14 · 随本提交落地 · chore
+
+**迁移基础设施批（曼波令：保证两机开发体验一致性）——顶层仓正名 + ticket-bot 转正 + 大脑记忆链路落地**
+
+- **顶层仓正名**：GitHub 仓 `NepheLoudy/bambu-print-reservation` → **`NepheLoudy/qianli`**（gh repo rename，旧名自动重定向零断链；两机 origin 已更新）。此前全家桶宿在 bambu 旧仓名下属迁移过渡态。
+- **ticket-bot 转正第 6 个子模块**（`88f3d98`）：此前双重身份（顶层普通目录+本地独立仓未注册，clone 后无 .git）；gitlink 锚 `61512b1`（v91）。台式机侧 pull 后残留目录挡接线，.env 先保出→重接→放回（零损失）。
+- **大脑记忆链路落地**（AGENTS.md 记忆协议的基础设施件，此前 brain-sync.sh/大脑仓库均未实落）：①建私有仓 `NepheLoudy/qianli-brain`；②两机 `memory/` 入 git（笔记本首推 f4eae42，台式机 scp 整目录含 .git 接入）；③`brain-sync.sh`+`brain-sync.cmd`（cmd/双击入口自动定位 git-bash+切仓库根）进顶层仓分发；④`.gitattributes` 锁 `*.sh` LF；⑤台式机 winget 装 GitHub CLI+token 灌入（私有仓读写凭据）。双向同步实测闭环：台式机写探针→save→GitHub→笔记本 pull 收到→清理。
+- **踩坑沉淀**：git-over-SSH 到 Windows cmd 默认 shell 的远端路径引号不通（scp-style 前导斜杠被拒）——整目录 scp 最省；裸 `bash.exe` 无 PATH（dirname 不可用）→ pwd 定位；`D:\` 盘符路径经 BASH_SOURCE 进 bash 落错目录 → cmd 包装器 `cd /d %~dp0` 绕开；WSL `System32\bash.exe` 抢 PATH → 包装器定位 git 自带 bash。
+- 联动：两机私配对齐（凭据台账.local.md / campus-accounts.local.json 已补送台式机，仍不入 git）。
