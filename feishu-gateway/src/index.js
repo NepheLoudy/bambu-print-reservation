@@ -14,13 +14,14 @@ app.use(express.json({ limit: '2mb' }));
 let wsStarted = false;
 let wsLastError = null;
 let wsConnecting = false;
+let wsConnectingSince = 0; // connecting 持续计时（巡检兜底用）
 let wsRetryTimer = null;
 let wsRetryCount = 0;
 let wsClient = null;          // 当前 WSClient 实例（重试时整体新建）
 let wsStatusTimer = null;     // 连接状态巡检（兜底 SDK 静默失败场景）
 const WS_RETRY_BASE_MS = 2 * 1000;      // 首次重试 2s(2026-09-14 提速:校园网被踢秒级自愈后尽快恢复事件流)
 const WS_RETRY_MAX_MS = 5 * 60 * 1000;  // 封顶 5 分钟
-const WS_START_WATCHDOG_MS = 120 * 1000; // start() 无响应看门狗
+const WS_CONNECTING_GIVE_UP_MS = Number(process.env.WS_CONNECTING_GIVE_UP_MS) || 5 * 60 * 1000; // connecting 恒挂兜底阈值（v21 遗留死常量 WS_START_WATCHDOG_MS 的本来语义，v154 落地实现）无响应看门狗
 
 app.get('/api/health', (req, res) => {
   const full = {
@@ -172,15 +173,25 @@ function startWs() {
       try { st = wsClient.getConnectionStatus ? wsClient.getConnectionStatus() : null; } catch { st = null; }
       if (st && st.state === 'failed') {
         wsConnecting = false;
+        wsConnectingSince = 0;
         wsLastError = wsLastError || '状态巡检发现长连接 failed';
         console.error('[网关] 状态巡检发现长连接 failed，转入自动重试');
         scheduleWsRetry(WS_RETRY_BASE_MS);
       } else if (st && st.state === 'connected' && !wsStarted) {
         wsStarted = true;
         wsConnecting = false;
+        wsConnectingSince = 0;
         wsLastError = null;
         wsRetryCount = 0;
         console.log('📡 长连接已连接（状态巡检确认）');
+      } else if (st && st.state === 'connecting') {
+        // connecting 恒挂是 SDK 静默停摆的形态之一（README 兜底承诺此前无实现）——超阈值自退，pm2 自动重建
+        if (!wsConnectingSince) {
+          wsConnectingSince = Date.now();
+        } else if (Date.now() - wsConnectingSince > WS_CONNECTING_GIVE_UP_MS) {
+          console.error(`[网关] 长连接卡在 connecting 超过 ${Math.round(WS_CONNECTING_GIVE_UP_MS / 60000)} 分钟，进程自退待 pm2 重建（v154 巡检兜底）`);
+          process.exit(1);
+        }
       }
     }, 30 * 1000);
   }

@@ -82,9 +82,12 @@ function parseCommand(text) {
 
 async function postJson(url, body) {
   try {
+    // command 模式投递附共享 X-API-Token：下游（approval 等）09-29 起管理端点挂鉴权，裸转发会 403（v154 审查修复）
+    const headers = { 'Content-Type': 'application/json' };
+    if (process.env.GATEWAY_API_TOKEN) headers['X-API-Token'] = process.env.GATEWAY_API_TOKEN; // 与 auth.js 同源（config 未导出该键）
     const res = await fetchWithTimeout(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(body),
     });
     const json = await res.json().catch(() => null);
