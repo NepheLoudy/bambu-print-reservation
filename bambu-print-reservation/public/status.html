@@ -210,6 +210,7 @@ function machineIdle(p) {
 const deviceTabs = new Map();
 /** /sdcard 文件列表缓存（点「加载」才拉，不随 5s 轮询刷） */
 const filesCache = new Map();
+let FLEET = []; // 最近一轮机队状态（文件列表等异步渲染用真机上下文）
 
 const SPEED_NAMES = { 1: '静默', 2: '标准', 3: '竞速', 4: '疯狂' };
 
@@ -358,7 +359,7 @@ async function loadSdcardFiles(id) {
   if (!res.ok) return toast('❌ ' + (data.error || '列表失败'));
   filesCache.set(id, data);
   const box = $(`filesBox${id}`);
-  if (box) box.innerHTML = renderFiles({ gcodeState: '' }, data);
+  if (box) box.innerHTML = renderFiles(FLEET.find((p) => p.id === id) || { gcodeState: '' }, data);
   toast(`✅ 已加载 ${data.length} 个文件`);
 }
 
@@ -374,7 +375,7 @@ async function delSdcardFile(id, name) {
   const files = (filesCache.get(id) || []).filter((f) => f.name !== name);
   filesCache.set(id, files);
   const box = $(`filesBox${id}`);
-  if (box) box.innerHTML = renderFiles({ gcodeState: '' }, files);
+  if (box) box.innerHTML = renderFiles(FLEET.find((p) => p.id === id) || { gcodeState: '' }, files);
 }
 
 async function setTemp(id, kind) {
@@ -431,6 +432,7 @@ async function loadFleet() {
   if (res.status === 401) { location.reload(); return; }
   const printers = await res.json();
   if (!Array.isArray(printers) || !printers.length) { $('fleet').innerHTML = '<div class="detail">暂无登记打印机（.env PRINTER_HOSTS）</div>'; return; }
+  FLEET = printers;
   $('fleet').innerHTML = printers.map(cardHtml).join('');
   // h264 会话保持：卡片重渲染会重画 DOM，正在观看的流重连
   for (const [id, ses] of h264Sessions) {

@@ -1331,3 +1331,4 @@ dashboard keepalive.vbs 双机路径探测批：保活脚本硬编码笔记本�
 - **pm-robot v132**（59dac78）：DDL 卡新增「📨 已指派待确认」分栏（负责人姓名/滞留时长，头部带确认引导「@工单机器人 发接单N / 私聊回接单」，只列名字不 @）；「🆘 无人接单」分栏头部补接单引导；降级直读链路同口径加桶（`TICKET_ASSIGN_*`/`TICKET_ASSIGN_NUDGE_HOURS` 可调，默认对齐 ticket-bot 现网）；新增 stub-test-ticket-buckets 14 断言，13 套全绿。
 - 文档同批：两仓 README、ticket-pm/LOGIC-MAP（§1.6/§2.2）、ticket-pm/AGENTS.md 契约第 1 条（五桶口径+两仓同步义务）、桌面使用指南 HTML 双副本（台式机桌面+大脑仓库权威副本）。
 - 部署：按联动顺序先 ticket-bot 后 pm-robot（knowledge-tracker），两进程 pm2 online + health 200 + 启动关键行全绿；push.js 末步「SSH 连接失败 read ECONNRESET」复现 v155 已定性误报（sshd 频率保护），人工 SSH 验证为准。本机备注：pm-robot 仓根 node_modules 缺 ssh2 致 push 首跑 MODULE_NOT_FOUND，`npm install` 后重推成功（推送机环境问题，非代码问题）；头部指针补正（v155 批漏更，本高频复发项第 5 次）。
+- **v56 全量复查补记（同日）**：17 套 218 断言回归全绿；台式机→H2D 三通道（MQTT/FTPS/RTSPS）全 OPEN；生产 pm2 九进程 online、队列零滞留；H2D 夜间真实完成打印（plate_7.gcode 100%）；踢线实验持续安静。自审修复：观察台文件列表渲染假上下文致按钮假禁用（FLEET 全局缓存）。错误日志中「AMS 槽位必须是 0-3」为开发期坏参数探针留痕，非现场故障。
