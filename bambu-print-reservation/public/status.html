@@ -451,6 +451,7 @@ function errorSection(p) {
     const codeLine = code ? `失败码 <b>${code}</b>${tr(code)}；` : '';
     hot.push(`<div class="residueBox">🔸 <b>任务残留状态</b>：上次打印已终止（${codeLine}）机器已停止但固件仍标记故障——`
       + `屏幕首页无报错属正常现象；<b>残留不清除，新任务不会被自动分发到这台机器</b>。`
+      + `若清除指令无效，可在机器屏幕处理该任务或重启打印机电源。`
       + (IS_ADMIN ? `<div style="margin-top:5px"><button class="mini" onclick="clearResidue(${p.id},'${esc(p.name)}')">🧹 清除任务残留（让机器回空闲）</button></div>` : '')
       + `</div>`);
   }
@@ -475,12 +476,24 @@ function errorSection(p) {
   return parts.join('');
 }
 
-/** 清除任务残留（admin，2026-10-16）：发 clean_print_error（等价屏幕按掉报错，无物理动作）；
- *  清除后机器回空闲，队列中的任务由分发引擎自动续打 */
+/** 清除任务残留（admin，2026-10-16 v2）：后端为状态验证链（候选逐发+轮询离开 FAILED，
+ *  最长约 1 分钟）——结果按机器实际状态如实报告，不再以「指令送达」当成功 */
 async function clearResidue(id, name) {
-  if (!confirm(`清除 ${name} 的残留故障状态？\n\n· 机器当前已停止，本操作无物理动作（等价于在屏幕上按掉报错提示）\n· 清除后机器回到「空闲」，队列中的任务会自动开始打印`)) return;
-  const ok = await cmdPost(id, 'clear-error', null, null, true);
-  if (ok) setTimeout(loadFleet, 2500); // 等状态回流（FAILED→IDLE）
+  if (!confirm(`清除 ${name} 的残留故障状态？\n\n· 机器当前已停止，本操作无物理动作（验证链最长约 1 分钟）\n· 清除成功后机器回「空闲」，队列中的任务会自动开始打印`)) return;
+  toast('⏳ 正在清除并等待机器响应…');
+  let res;
+  let data = {};
+  try {
+    res = await fetch(`/api/printers/${id}/clear-error`, { method: 'POST' });
+    data = await res.json().catch(() => ({}));
+  } catch (err) {
+    return toast('❌ 网络错误：' + err.message);
+  }
+  if (res.status === 401) { location.reload(); return; }
+  if (!res.ok) return toast('❌ ' + (data.error || '清除失败'));
+  if (data.cleared) toast(`✅ 清除成功（${data.state || '空闲'}），机器已回空闲`);
+  else toast('⚠️ ' + (data.note || '指令被受理但状态未变化'));
+  setTimeout(loadFleet, 3000);
 }
 
 function cardHtml(p) {

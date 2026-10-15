@@ -1004,10 +1004,18 @@ app.post('/api/printers/:id/stop', requireUser('admin'), async (req, res) => {
 // 状态门沿用动机械口径（空闲/完成/故障放行，打印中/暂停/准备中一律拒绝）
 app.post('/api/printers/:id/clear-error', requireUser('admin'), async (req, res) => {
   const id = parseInt(req.params.id);
+  // 请求可见性（2026-10-16：状态验证链最长约 1 分钟，防「点了没反应」无从排查）
+  console.log(`[清残留] 收到清除请求 printer=${id}`);
   if (!requireIdleForMachine(id, res)) return;
   try {
     const r = await printerManager.cleanPrintErrorOnPrinter(id);
-    res.json({ success: true, ...(r || {}) });
+    res.json({
+      success: true,
+      ...(r || {}),
+      note: r && r.cleared === false
+        ? '指令被机器受理但状态未变化：可在打印机屏幕处理该任务，或重启打印机电源'
+        : undefined,
+    });
   } catch (err) {
     console.error('清除打印错误失败:', err);
     res.status(400).json({ error: err.message });

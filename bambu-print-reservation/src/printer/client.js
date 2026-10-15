@@ -503,38 +503,62 @@ class PrinterClient {
   }
 
   /**
-   * 清除打印错误残留（2026-10-16 曼波真单批）：H2 固件在打印被取消/失败后会把
-   * gcode_state=FAILED + task_id/fail_reason 挂住（屏幕首页无报错也照样回传）——
-   * 该残留会挡住分发匹配（白名单仅空闲/已完成）= 队列静默卡死的根因之一。
-   * clean_print_error 即「屏幕按掉报错」的协议等价物（BambuStudio 同款命令，
-   * 字段 subtask_id/print_error 系 OrcaSlicer.dll 字符串实锤）；机器已停止时无物理动作。
-   * 三种组帧形态按序试（0 值/真实失败码/仅 subtask_id），全被拒时退回 stop
-   * （对已停止机器为等价清任务，同样无物理动作）——调用方须先过状态门（打印中禁止）。
+   * 清除打印错误残留（2026-10-16 曼波真单批，v2 状态验证链）：H2 固件在打印被取消/失败后
+   * 会把 gcode_state=FAILED + task_id/fail_reason 挂住（屏幕首页无报错也照样回传）——
+   * 该残留会挡住分发匹配（白名单仅空闲/已完成）。
+   * 教训（Bambuddy 同源事故 #2598）：`result: success` 只代表指令被机器收下，**不代表状态
+   * 变化**——必须用 gcodeState 实际离开 FAILED 判定（2026-10-16 实测：clean_print_error 与
+   * stop 均回执 success 但状态纹丝不动，单发试不出对错，必须逐候选验证）。
+   * 候选按「真实失败码 → 0 值 → 仅 subtask_id → stop」逐发，每发后轮询状态 ≤12s；
+   * 全无效再等 20s 复查（H2 状态转换慢是已知特性）。机器已停止时各指令均无物理动作；
+   * 调用方须先过状态门（打印中/暂停/准备中禁止）。
+   * @returns {Promise<{cleared:boolean, command:string|null, fields:string[], state:string, tried:string[]}>}
    */
   async cleanPrintError() {
     if (!this.client || !this.connected) throw new Error('打印机未连接');
     const raw = (this.getState() && this.getState().raw && this.getState().raw.print) || {};
     const subtaskId = String(raw.subtask_id || raw.task_id || '');
     const failCode = Number(raw.fail_reason) || Number(raw.print_error) || 0;
-    const attempts = [
-      { subtask_id: subtaskId, print_error: 0 },
-      { subtask_id: subtaskId, print_error: failCode },
-      { subtask_id: subtaskId },
-      null, // null = 退回裸 stop
+    const candidates = [
+      { command: 'clean_print_error', body: { subtask_id: subtaskId, print_error: failCode } },
+      { command: 'clean_print_error', body: { subtask_id: subtaskId, print_error: 0 } },
+      { command: 'clean_print_error', body: { subtask_id: subtaskId } },
+      { command: 'stop', body: {} },
     ];
-    let lastErr = null;
-    for (const extra of attempts) {
+    const stateNow = () => {
+      const s = this.getPrintStatus();
+      return s ? s.gcodeState : '';
+    };
+    const tried = [];
+    const pollOut = async (maxPolls) => {
+      for (let i = 0; i < maxPolls; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        if (stateNow() !== 'FAILED') return true;
+      }
+      return false;
+    };
+    for (const cand of candidates) {
       const sequenceId = ++this.projectSeq;
-      const command = extra === null ? 'stop' : 'clean_print_error';
+      const tag = `${cand.command}${Object.keys(cand.body).length ? ' ' + JSON.stringify(cand.body) : ''}`;
       try {
-        await this._sendChecked({ print: { sequence_id: sequenceId, command, ...(extra || {}) } }, sequenceId);
-        console.log(`[打印机] 清错误残留成功（${command}${extra ? ' ' + JSON.stringify(extra) : ''}）`);
-        return { command, fields: extra ? Object.keys(extra) : [] };
+        await this._sendChecked({ print: { sequence_id: sequenceId, command: cand.command, ...cand.body } }, sequenceId);
+        tried.push(`${tag}→受理`);
       } catch (err) {
-        lastErr = err;
+        tried.push(`${tag}→拒收(${String(err.message).slice(0, 40)})`);
+        continue; // 拒收直接换下一形态
+      }
+      if (await pollOut(6)) {
+        console.log(`[打印机] 清错误残留成功（${tag}）→ ${stateNow()}`);
+        return { cleared: true, command: cand.command, fields: Object.keys(cand.body), state: stateNow(), tried };
       }
     }
-    throw new Error(`清错误残留全部形态被拒：${lastErr ? lastErr.message : '未知'}`);
+    // 慢转换兜底：全部形态发完后再等 20s 复查（H2 状态转换慢）
+    if (await pollOut(10)) {
+      console.log('[打印机] 清错误残留成功（延迟生效）');
+      return { cleared: true, command: '（延迟生效）', fields: [], state: stateNow(), tried };
+    }
+    console.warn(`[打印机] 清错误残留未生效：${tried.join('；')}`);
+    return { cleared: false, command: null, fields: [], state: stateNow(), tried };
   }
 
   /**
