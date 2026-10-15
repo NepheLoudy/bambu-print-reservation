@@ -223,6 +223,11 @@ class PrinterClient {
       fans: state.fans ? { part: state.fans.part ?? null, aux: state.fans.aux ?? null, chamber: state.fans.chamber ?? null } : null,
       speedLevel,
       lights: state.lights ? { chamber: state.lights.chamber || null, work: state.lights.work || null } : null,
+      // 机器助手报错事件（2026-10-15 曼波令上界面）：HMS 硬件通知 + 打印错误/失败码
+      // （原始码展示；HMS 码文本映射见前端 HMS_KNOWN 表，未知码引导看屏）
+      hms: Array.isArray(state.raw?.print?.hms) ? state.raw.print.hms.slice(0, 6) : [],
+      printError: Number(state.raw?.print?.print_error) || 0,
+      failReason: Number(state.raw?.print?.fail_reason) || 0,
       // 失联标注：true 表示该状态来自过期报文（幽灵空闲防护，选机侧会过滤）
       stateStale: this.isStateStale(),
     };

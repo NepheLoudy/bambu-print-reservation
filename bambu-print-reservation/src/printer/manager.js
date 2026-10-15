@@ -95,6 +95,9 @@ class PrinterManager {
         fans: null,
         speedLevel: null,
         lights: null,
+        hms: [],
+        printError: 0,
+        failReason: 0,
         deviceInfo: null,
         ams: [],
         // 当前正在执行的任务（dispatcher 写入，用于播报与状态展示）
@@ -191,6 +194,9 @@ class PrinterManager {
       fans: status.fans,
       speedLevel: status.speedLevel,
       lights: status.lights,
+      hms: status.hms || [],
+      printError: status.printError || 0,
+      failReason: status.failReason || 0,
       deviceInfo: client.getDeviceInfo(),
       ams: client.getAmsTrays(),
     });
