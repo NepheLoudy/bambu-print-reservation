@@ -151,6 +151,13 @@
   .mfChip { background: var(--bg2); border: 1px solid var(--line2); border-radius: 3px; padding: 1px 8px; font-size: 11px; font-family: var(--mono); }
   .mfNotes { margin-top: 6px; line-height: 1.7; }
   .mfFoot { margin-top: 6px; color: var(--dim); font-size: 11px; }
+  /* 3D 工况标注工坊（预约页与录入台同构视觉，2026-10-15） */
+  .workbench { margin: 14px 0; padding: 14px 16px 16px; background: rgba(83, 214, 240, .035);
+    border: 1px solid var(--line2); border-left: 3px solid var(--cyan); border-radius: 4px; }
+  .wbHead { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+  .wbHead b { font-size: 14px; letter-spacing: 1px; }
+  .wbBadge { display: inline-block; background: var(--cyan); color: #0c2230; font: 800 11px/1.7 var(--mono);
+    padding: 0 7px; border-radius: 3px; letter-spacing: 1px; }
   dialog { background: var(--bg1); color: var(--ink); border: 1px solid var(--line2); border-radius: 4px; padding: 18px; max-width: 560px; width: 92vw; }
   dialog::backdrop { background: rgba(4, 6, 10, .7); }
 </style>
@@ -200,8 +207,8 @@
       <div class="preview" id="slicedNotice" style="display:none">📦 <b>切片产物审批直通模式</b>——3mf（拓竹）/ gcode（闪铸）的切片参数已内嵌文件，无需工况勾选；材料/颜色栏仅用于选机匹配。注意：3mf 只能去拓竹机、gcode 只能去闪铸机，选错品牌会被自动匹配忽略</div>
       <div class="preview" id="modelPanel" style="display:none"></div>
       <div id="taxonomy"></div>
-      <div class="preview" id="anno3dBox" style="display:none">
-        <b>🖱 3D 工况标注</b>——选中工具后点击模型表面落点：标注几何链路看不出来、只有人知道的复杂特征（受弯位置、接触面、外观面、载荷…）。拖拽旋转 / 滚轮缩放，点标注点可编辑删除。
+      <div class="workbench" id="anno3dBox" style="display:none">
+        <div class="wbHead"><span class="wbBadge">3D</span><b>工况标注工坊</b><span class="detail">——选中工具后点击模型表面落点：标注几何链路看不出来、只有人知道的复杂特征（受弯位置、接触面、外观面、载荷…）。拖拽旋转 / 滚轮缩放，点标注点可编辑删除。</span></div>
         <div id="anno3dHint" style="display:none;margin-top:6px;font-size:12px;color:var(--amber)"></div>
         <div id="toolRow" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px"></div>        <button class="mini" onclick="clearSel()" title="取消选中标注，恢复放置模式">✕ 取消选中</button>        <div id="loadTypeRow" style="display:none;margin-top:6px;font-size:12px;color:var(--muted)">载荷工况标注——受力类型：
           <select id="loadTypeSel" onchange="updateLoadBtnColor()" style="padding:3px 6px">
