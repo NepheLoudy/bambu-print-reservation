@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>训练录入台 · 千里战队3D打印预约中心</title>
+<style>
+  /* ============ 千里战队3D打印预约中心 · 工业控制台主题 ============ */
+  :root {
+    --bg0: #0a0d12; --bg1: #10141b; --bg2: #161c26; --inset: #0c1016;
+    --line: #212a36; --line2: #2c3745;
+    --ink: #e8edf4; --muted: #7e8a99; --dim: #55606e;
+    --amber: #ffb02e; --amber2: #ff8f1f; --hot: #ff6a2b;
+    --cyan: #53d6f0; --ok: #35d07f; --warn: #ffb02e; --bad: #ff5d5d;
+    --accent: var(--amber);
+    --mono: Consolas, "Cascadia Mono", "Courier New", monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif; background: var(--bg0); color: var(--ink);
+    padding: 0 16px 40px; min-height: 100vh;
+    background-image:
+      radial-gradient(1200px 500px at 75% -10%, rgba(255, 138, 31, .07), transparent 60%),
+      repeating-linear-gradient(0deg, transparent 0 31px, rgba(120, 150, 190, .045) 31px 32px),
+      repeating-linear-gradient(90deg, transparent 0 31px, rgba(120, 150, 190, .045) 31px 32px);
+    background-attachment: fixed;
+  }
+  .wrap { max-width: 1060px; margin: 0 auto; }
+  /* 页头：徽标块 + 战队名 + 危险条纹分隔 */
+  .head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; padding: 22px 4px 14px; position: relative; }
+  .head::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 6px;
+    background: repeating-linear-gradient(-45deg, var(--amber) 0 12px, #131920 12px 24px); opacity: .85; border-radius: 2px; }
+  .brandbar { display: flex; align-items: center; gap: 14px; }
+  .brandmark { width: 46px; height: 46px; flex: 0 0 46px; background: linear-gradient(135deg, var(--amber), var(--hot));
+    clip-path: polygon(0 0, 100% 0, 100% 72%, 72% 100%, 0 100%); display: flex; align-items: center; justify-content: center;
+    font: 800 20px/1 var(--mono); color: #14100a; letter-spacing: -1px; }
+  h1 { font-size: 21px; letter-spacing: 2px; font-weight: 700; }
+  h1 .en { display: block; font: 600 10px/1.4 var(--mono); letter-spacing: 3px; color: var(--muted); text-transform: uppercase; }
+  .sub { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .sub a { color: var(--cyan); text-decoration: none; }
+  .userbox { font-size: 13px; text-align: right; }
+  .userbox .role { display: inline-block; padding: 1px 9px; border-radius: 3px; color: #14100a; font: 700 11px/1.6 var(--mono); margin: 0 4px; letter-spacing: 1px; }
+  .r-admin { background: var(--amber); } .r-reviewer { background: var(--cyan); color: #0c2230; } .r-member { background: #8b98a8; color: #10141b; }
+  .userbox button { padding: 3px 10px; font-size: 12px; background: var(--bg2); color: var(--ink); border: 1px solid var(--line2); border-radius: 4px; cursor: pointer; }
+  .userbox a { color: var(--cyan); font-size: 12px; margin-right: 6px; }
+  /* 卡片：切角面板 + 左侧分类色条 */
+  .card { background: var(--bg1); border: 1px solid var(--line); border-radius: 4px;
+    padding: 16px 18px 18px; margin-bottom: 18px; position: relative;
+    clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px)); }
+  .card::before { content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; background: linear-gradient(180deg, var(--amber), transparent 120%); opacity: .7; }
+  .card h2 { font-size: 14px; margin-bottom: 14px; letter-spacing: 1.5px; color: var(--ink); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .card h2 .sub { display: inline; margin: 0; letter-spacing: 0; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; letter-spacing: .5px; }
+  input[type=text], input[type=number], input[type=password], select {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--line2); border-radius: 3px; font-size: 14px;
+    background: var(--inset); color: var(--ink); transition: border-color .15s;
+  }
+  input:focus, select:focus { outline: none; border-color: var(--amber); }
+  input[type=file] { font-size: 13px; color: var(--muted); }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .row > div { flex: 1; min-width: 140px; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 10px; }
+  .tabs button { flex: 1; padding: 8px; border: 1px solid var(--line2); background: var(--inset); color: var(--muted); border-radius: 3px; cursor: pointer; font-size: 13px; }
+  .tabs button.on { background: var(--amber); color: #14100a; border-color: var(--amber); font-weight: 700; }
+  .group { border: 1px dashed var(--line2); border-radius: 4px; padding: 10px 12px; margin-top: 12px; background: rgba(255, 176, 46, .025); }
+  .group > .gtitle { font-size: 13px; font-weight: 600; margin-bottom: 4px; cursor: help; }
+  .group > .gdesc { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+  .opts { display: flex; flex-wrap: wrap; gap: 8px; }
+  .opt { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; padding: 5px 11px; border: 1px solid var(--line2);
+    border-radius: 3px; cursor: pointer; user-select: none; background: var(--inset); color: var(--ink); transition: all .12s; }
+  .opt:hover { border-color: var(--amber); }
+  .opt.on { background: rgba(255, 176, 46, .16); border-color: var(--amber); color: var(--amber); box-shadow: inset 0 0 0 1px rgba(255, 176, 46, .35); }
+  .opt input { display: none; }
+  .hint { font-size: 12px; margin-top: 6px; min-height: 16px; color: var(--muted); }
+  .hint.warn { color: var(--warn); } .hint.bad { color: var(--bad); }
+  button.primary { padding: 10px 22px; border: none; border-radius: 3px; font-size: 14px; font-weight: 700; cursor: pointer;
+    background: linear-gradient(135deg, var(--amber), var(--hot)); color: #14100a; letter-spacing: 2px;
+    clip-path: polygon(0 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%); }
+  button.ok { background: #123527; color: var(--ok); border: 1px solid #1e5c40; border-radius: 4px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
+  button.bad { background: #3d1614; color: var(--bad); border: 1px solid #6e2a26; border-radius: 4px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
+  button.mini { background: var(--bg2); color: var(--ink); border: 1px solid var(--line2); border-radius: 3px; padding: 3px 9px; cursor: pointer; font-size: 12px; }
+  button:not(:disabled):hover { filter: brightness(1.15); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  .actions { margin-top: 16px; display: flex; gap: 10px; align-items: center; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 11px; letter-spacing: 1px; font-family: var(--mono); }
+  .badge { display: inline-block; padding: 2px 9px; border-radius: 3px; font-size: 12px; color: #14100a; font-weight: 700; font-family: var(--mono); letter-spacing: .5px; }
+  .s-待审批 { background: var(--warn); } .s-已通过 { background: var(--cyan); color: #0c2230; }
+  .s-排队中 { background: #8fa4ff; color: #131928; } .s-打印中 { background: var(--hot); animation: pulse 2s ease-in-out infinite; }
+  .s-已完成 { background: var(--ok); color: #0c2417; } .s-已驳回, .s-已取消 { background: #6b7684; color: #10141b; }
+  @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 106, 43, .5); } 50% { box-shadow: 0 0 0 6px rgba(255, 106, 43, 0); } }
+  tbody tr { transition: background .12s; }
+  tbody tr:hover { background: rgba(255, 176, 46, .04); }
+  button { transition: filter .12s, transform .05s; }
+  button:not(:disabled):active { transform: translateY(1px); }
+  .histToggle, .paramToggle { color: var(--cyan); cursor: pointer; font-size: 12px; user-select: none; }
+  .histToggle:hover, .paramToggle:hover { text-decoration: underline; }
+  /* taxonomy 组折叠 */
+  .group > .gtitle::after { content: '▾'; float: right; color: var(--muted); font-size: 11px; transition: transform .15s; }
+  .group.collapsed > .gtitle::after { content: '▸'; }
+  .group.collapsed > :not(.gtitle) { display: none; }
+  .group > .gtitle { user-select: none; }
+  /* 已选工况摘要 chips */
+  .selSummary { margin-top: 10px; display: none; align-items: center; flex-wrap: wrap; gap: 6px; }
+  .selSummary .sumChip { display: inline-block; background: rgba(83, 214, 240, .1); border: 1px solid rgba(83, 214, 240, .35); color: var(--cyan); border-radius: 3px; padding: 2px 10px; font-size: 12px; font-family: var(--mono); }
+  .selSummary .sumClear { color: var(--bad); cursor: pointer; font-size: 12px; user-select: none; }
+  .selSummary .sumClear:hover { text-decoration: underline; }
+  .staleTag { display: inline-block; background: #6b7684; color: #10141b; border-radius: 3px; font-size: 11px; padding: 1px 7px; margin-left: 5px; font-family: var(--mono); }
+  .queueLine { font-size: 12px; color: var(--muted); margin-bottom: 6px; line-height: 1.7; }
+  .queueLine b { color: var(--amber); font-family: var(--mono); }
+  /* 移动端：表格卡片化 + 触控目标放大 */
+  @media (max-width: 720px) {
+    body { padding: 0 10px 30px; }
+    .opt { padding: 9px 13px; font-size: 14px; }
+    button.mini { padding: 7px 12px; font-size: 13px; }
+    .card { padding: 12px; }
+    table, tbody, tr, td { display: block; width: 100%; }
+    thead { display: none; }
+    tbody tr { border: 1px solid var(--line); border-radius: 4px; padding: 10px; margin-bottom: 10px; background: var(--bg2); }
+    td { border-bottom: none; padding: 3px 0; }
+    td::before { content: attr(data-label); display: inline-block; min-width: 62px; color: var(--muted); font-size: 11px; }
+    td:last-child::before { content: none; }
+    .pcard { min-width: 100%; }
+  }
+  .pbar { height: 6px; background: var(--inset); border-radius: 2px; overflow: hidden; margin-top: 4px; }
+  .pbar > div { height: 100%; background: linear-gradient(90deg, var(--amber), var(--hot)); }
+  .printer-grid { display: flex; gap: 10px; flex-wrap: wrap; }
+  .pcard { flex: 1; min-width: 260px; border: 1px solid var(--line); border-radius: 4px; padding: 10px 12px; font-size: 13px; background: var(--bg2); }
+  .pcard .st { float: right; }
+  .detail { font-size: 12px; color: var(--muted); }
+  .detail b { color: var(--ink); }
+  .revbox { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--bg2); color: var(--ink);
+    border: 1px solid var(--line2); border-left: 3px solid var(--amber);
+    padding: 10px 18px; border-radius: 4px; font-size: 13px; display: none; max-width: 80vw; z-index: 10; }
+  .empty { color: var(--muted); font-size: 13px; padding: 16px 0; text-align: center; }
+  .convention { font-size: 11px; color: var(--muted); margin-top: 8px; }
+  .scaleRow { display: flex; align-items: center; gap: 10px; padding: 6px 2px; }
+  .scaleRow input[type=range] { flex: 1; accent-color: var(--amber); }
+  .scaleVal { min-width: 22px; text-align: center; font-weight: 700; color: var(--amber); font-family: var(--mono); }
+  .scaleHint { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .typedesc { font-size: 11px; color: var(--cyan); margin-top: 2px; min-height: 13px; }
+  .warnbar { background: rgba(255, 176, 46, .08); border: 1px solid rgba(255, 176, 46, .35); border-radius: 4px; padding: 8px 12px; font-size: 12px; color: var(--amber); margin-bottom: 10px; }
+  .warnbar button { margin-left: 6px; }
+  select.roleSel { width: auto; padding: 3px 6px; font-size: 12px; }
+  .preview { margin-top: 12px; padding: 10px 12px; background: var(--inset); border: 1px solid var(--line2); border-left: 3px solid var(--cyan); border-radius: 3px; font-size: 12px; }
+  .preview b { color: var(--cyan); }
+  .preview .pv { display: inline-block; margin: 2px 10px 2px 0; font-family: var(--mono); }
+  .mfChips { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .mfChip { background: var(--bg2); border: 1px solid var(--line2); border-radius: 3px; padding: 1px 8px; font-size: 11px; font-family: var(--mono); }
+  .mfNotes { margin-top: 6px; line-height: 1.7; }
+  .mfFoot { margin-top: 6px; color: var(--dim); font-size: 11px; }
+  dialog { background: var(--bg1); color: var(--ink); border: 1px solid var(--line2); border-radius: 4px; padding: 18px; max-width: 560px; width: 92vw; }
+  dialog::backdrop { background: rgba(4, 6, 10, .7); }
+  /* 录入台专属 */
+  .statChips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .statChip { background: var(--bg2); border: 1px solid var(--line2); border-radius: 3px; padding: 2px 10px; font-size: 12px; font-family: var(--mono); }
+  .sugbox { border: 1px solid var(--line2); border-radius: 4px; padding: 10px 12px; margin-bottom: 10px; font-size: 12px; background: var(--bg2); }
+  .sugbox .cnt { display: inline-block; background: var(--amber); color: #14100a; border-radius: 3px; padding: 0 8px; font-size: 11px; margin-left: 6px; font-weight: 700; }
+  textarea.paramEdit { width: 100%; height: 110px; font-family: var(--mono); font-size: 12px; padding: 8px; border: 1px solid var(--line2); border-radius: 3px; background: var(--inset); color: var(--ink); }
+</style>
+</head>
+
+<body>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div class="brandbar">
+      <div class="brandmark">QL</div>
+      <div>
+        <h1>训练录入台<span class="en">QIANLI · TRAINING WORKBENCH</span></h1>
+        <div class="sub">3D 工况标注 + 专家切片配对 → 样本库 → 规则拟合 → 反哺预约自动定档　<a href="/">← 返回预约中心</a>　<a href="/status.html">📺 设备观察台 →</a></div>
+      </div>
+    </div>
+    <div class="userbox" id="userbox"></div>
+  </div>
+  </div>
+
+  <div class="card" id="authCard" style="display:none">
+    <h2>登录</h2>
+    <div class="hint warn">🔒 注册已关闭——需要账号请联系 <b>2805328773@qq.com</b>（注明姓名与用途），由管理员人工开通</div>
+    <div class="row">
+      <div><label>用户名</label><input type="text" id="loginUser"></div>
+      <div><label>密码</label><input type="password" id="loginPass"></div>
+    </div>
+    <div class="actions"><button class="primary" onclick="doLogin()">登录</button><span class="hint" id="loginHint"></span></div>
+  </div>
+
+  <div id="appBody" style="display:none">
+    <div class="card">
+      <h2>📥 采集一条训练样本</h2>
+
+      <label>目标打印机（机型隔离：样本与专家参数按机型归档；机队档案 .printer-fleet.json 人工维护）</label>
+      <select id="machineSel" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px;font-size:14px;background:#fbfcfe"><option value="">（未指定）</option></select>
+
+      <!-- 拟合度条（置顶）：引擎(工况)参数 vs 专家(切片)参数——知识库覆盖缺口直接度量 -->
+      <div class="preview" id="fitBar" style="display:none;margin-top:12px"></div>
+
+      <div class="row" style="margin-top:12px">
+        <div><label>模型文件 *（.stl/.3mf 全功能；.step/.stp 可归档但特征与 3D 标注降级）</label><input type="file" id="modelFile" accept=".stl,.3mf,.step,.stp"></div>
+        <div><label>已切片产物（.3mf 工程/已切片——自动提专家参数，选填）</label><input type="file" id="sliceFile" accept=".3mf"></div>
+      </div>
+      <div class="preview" id="modelPanel" style="display:none"></div>
+      <div class="preview" id="slicePanel" style="display:none"></div>
+
+      <div class="preview" id="annotatorBox" style="display:none">
+        <b>🖱 3D 工况标注</b>——选中下方工具后点击模型表面落点：标注几何链路看不出来、只有人知道的复杂特征（受弯位置、接触面、外观面…）。拖拽旋转 / 滚轮缩放，点标注点可删除。
+        <div id="toolRow" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px"></div>        <button class="mini" onclick="clearSel()" title="取消选中标注，恢复放置模式">✕ 取消选中</button>        <div id="loadTypeRow" style="display:none;margin-top:6px;font-size:12px;color:var(--muted)">载荷工况标注——受力类型：
+          <select id="loadTypeSel" onchange="updateLoadBtnColor()" style="padding:3px 6px">
+            <option value="compression">受压</option>
+            <option value="tension">受拉</option>
+            <option value="shear">剪切</option>
+            <option value="bending">弯曲</option>
+            <option value="torsion">扭转</option>
+            <option value="contact">滚压/点接触</option>
+          </select>
+          方向：<select id="loadDirSel" style="padding:3px 6px">
+            <option value="">按面自动（压入）</option>
+            <option value="X">+X</option><option value="-X">−X</option>
+            <option value="Y">+Y</option><option value="-Y">−Y</option>
+            <option value="Z">+Z</option><option value="-Z">−Z</option>
+          </select>
+          载荷性质：<select id="loadNatureSel" style="padding:3px 6px">
+            <option value="static">静载</option>
+            <option value="fatigue">动载疲劳</option>
+            <option value="impact">冲击</option>
+            <option value="vibration">振动</option>
+          </select>
+          载荷量级：<select id="loadMagnitudeSel" style="padding:3px 6px">
+            <option value="light">轻载</option>
+            <option value="medium" selected>中载</option>
+            <option value="heavy">重载</option>
+          </select>
+          <button class="mini" onclick="flipLastLoad()">⇆ 翻转上一箭头</button>（箭头即力方向，自动换算勾选）
+        </div>
+        <div style="position:relative;margin-top:8px">
+          <canvas id="annoCanvas" style="width:100%;height:400px;display:block;background:#fafbfd;border:1px solid var(--line);border-radius:8px;cursor:crosshair"></canvas>
+          <div id="annoOverlay" style="position:absolute;inset:0;pointer-events:none"></div>
+        </div>
+        <div class="mfNotes" id="annoList"></div>
+        <div id="selPanel" style="display:none;margin-top:8px;padding:8px;background:#fbfcfe;border:1px solid var(--line);border-radius:6px;font-size:12px"></div>
+      </div>
+
+      <label>材料类型（选填，工况标注的一部分）</label>
+      <input type="text" id="materialType" placeholder="如 PLA / PETG / PLA-CF，不知道就留空" oninput="scheduleFit()">
+
+      <div id="taxonomy"></div>
+      <div class="convention" id="convention"></div>
+      <div class="selSummary" id="selSummary"></div>
+
+      <div class="row">
+        <div><label>样本可信度 0-100 *（人工填写：你对这条标注与切法数据的信任度，训练加权用）</label><input type="number" id="confidence" value="80" min="0" max="100"></div>
+        <div style="flex:2"><label>备注（选填：这个件是干什么用的、有什么特殊考虑）</label><input type="text" id="notes" placeholder="如 云台横臂验证件，赛季内使用"></div>
+      </div>
+
+      <div class="actions">
+        <button class="primary" id="submitBtn" onclick="submitSample()">入库这条样本</button>
+        <span class="hint" id="submitHint"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>📚 样本库 <span style="font-weight:400;font-size:12px;color:var(--muted)">——打印完记得回来标结果（成功/失败是将来训练的奖励信号）</span></h2>
+      <div class="statChips" id="statChips"></div>
+      <div style="margin-bottom:8px" id="exportLine"></div>
+      <table>
+        <thead><tr><th>样本号</th><th>模型</th><th>工况标注</th><th>专家参数 diff / 拟合</th><th>机型 / 空间标注</th><th>打印结果</th><th>录入</th><th></th></tr></thead>
+        <tbody id="sampleRows"><tr><td colspan="8" class="hint">加载中…</td></tr></tbody>
+      </table>
+  <div class="card" id="reviewCard" style="display:none">
+    <h2>🎓 规则学习治理 <span class="sub" style="display:inline">(审批人)——专家作品导入 / 建议待审池</span></h2>
+    <div class="row" style="margin-bottom:8px">
+      <div style="flex:2">
+        <label>导入专家手工切片 3mf（提取参数 → 与勾选工况组合生成候选规则，经待审池确认后生效）</label>
+        <input type="file" id="expert3mf" accept=".3mf">
+      </div>
+      <div style="flex:0; align-self:flex-end"><button class="mini" onclick="importExpert3mf()">提取并生成候选</button></div>
+    </div>
+    <div class="hint" id="extractHint"></div>
+    <div id="sugList"></div>
+  </div>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<script src="/annotator.js?v=23"></script>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 4000); }
+let ME = null;
+let TAXONOMY = null;
+let MODEL_FEATURES = null;   // 当前模型特征分析结果
+let SLICE_EXTRACTION = null; // 当前切片参数提取结果
+
+const isAdmin = () => ME && ME.role === 'admin';
+const isReviewer = () => ME && (ME.role === 'admin' || ME.role === 'reviewer');
+
+// ---------- 登录态 ----------
+async function loadMe() {
+  try { const res = await fetch('/api/auth/me'); ME = res.ok ? await res.json() : null; } catch { ME = null; }
+  renderIdentity();
+  renderReviewCard();
+}
+function renderIdentity() {
+  const box = $('userbox');
+  if (!ME) { box.innerHTML = ''; $('authCard').style.display = 'block'; $('appBody').style.display = 'none'; return; }
+  $('authCard').style.display = 'none';
+  $('appBody').style.display = 'block';
+  box.innerHTML = `你好，<b>${esc(ME.displayName)}</b><span class="role r-${ME.role}">${ME.role}</span>
+    <button onclick="logout()">退出</button>`;
+  loadSamples();
+  initWorkbench(); // 登录过渡也要初始化工况区——v49 前只在「刷新时已登录」路径初始化，新登录用户工况区永远空白、入库被空勾选挡死
+}
+// 工况区/机队/拟合度只在首次拿到登录态时初始化一次（刷新时 init 与登录过渡共用，TAXONOMY 非空即跳过防双渲染）
+async function initWorkbench() {
+  if (TAXONOMY) return;
+  await loadTaxonomy();
+  loadFleet();
+  computeFit();
+}
+async function doLogin() {
+  const res = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: $('loginUser').value.trim(), password: $('loginPass').value }) });
+  if (res.ok) { await loadMe(); } else { const d = await res.json().catch(() => ({})); $('loginHint').textContent = '❌ ' + (d.error || '登录失败'); }
+}
+async function logout() { await fetch('/api/auth/logout', { method: 'POST' }); ME = null; renderIdentity(); }
+
+// ---------- taxonomy 渲染（无自动预勾选——人工标注保持纯净；自动建议单独存档） ----------
+async function loadTaxonomy() {
+  const res = await fetch('/api/print/taxonomy');
+  TAXONOMY = await res.json();
+  $('convention').textContent = 'ℹ️ ' + TAXONOMY.convention;
+  const box = $('taxonomy');
+  for (const g of TAXONOMY.groups) {
+    const div = document.createElement('div');
+    div.className = 'group';
+    div.id = 'group_' + g.id;
+    if (g.id === 'load') div.style.display = 'none'; // 载荷工况已全量进 3D 标注工具栏（箭头=方向+类型，选择器=性质/量级），勾选在隐藏 DOM 里由箭头联动驱动
+    const fields = g.id === 'load' ? g.fields.filter((f) => f.id !== 'load_direction') : g.fields;
+    const opts = fields.map((f) => {
+      if (f.type === 'scale') {
+        return `<div><div class="gtitle" title="${(f.tooltip || '').replace(/"/g, '&quot;')}">${f.title}</div>
+          <div class="scaleRow" data-scale="${f.id}">
+            <span>${f.minLabel || f.min}</span>
+            <input type="range" min="${f.min}" max="${f.max}" step="1" value="0" data-field="${f.id}">
+            <span>${f.maxLabel || f.max}</span>
+            <span class="scaleVal" id="scaleVal_${f.id}">0</span>
+          </div></div>`;
+      }
+      const optHtml = (f.options || [{ id: '__bool_on', label: f.title }]).map((o) =>
+        `<label class="opt" title="${(f.tooltip || '').replace(/"/g, '&quot;')}" data-field="${f.id}" data-opt="${o.id}" data-type="${f.type}">
+           <input type="checkbox" value="${o.id}">${o.label}</label>`).join('');
+      return `<div><div class="gtitle" title="${(f.tooltip || '').replace(/"/g, '&quot;')}">${f.title}</div><div class="opts">${optHtml}</div></div>`;
+    }).join('');
+    div.innerHTML = `<div class="gtitle" title="${(g.tooltip || '').replace(/"/g, '&quot;')}" onclick="toggleGroup('${g.id}')">${g.title}</div><div class="gdesc">${g.tooltip || ''}</div>${opts}`;
+    box.appendChild(div);
+  }
+  box.addEventListener('change', (e) => {
+    const label = e.target.closest('.opt');
+    if (label) label.classList.toggle('on', e.target.checked);
+    collectSelection(); renderSelSummary(); scheduleFit();
+  });
+  box.addEventListener('input', (e) => {
+    if (e.target.type === 'range') {
+      document.getElementById('scaleVal_' + e.target.dataset.field).textContent = e.target.value;
+      collectSelection(); renderSelSummary(); scheduleFit();
+    }
+  });
+}
+function toggleGroup(id) { document.getElementById('group_' + id).classList.toggle('collapsed'); }
+
+function labelsDict() {
+  const map = {};
+  for (const g of (TAXONOMY?.groups || [])) for (const f of g.fields) {
+    map[f.id] = { title: f.title, type: f.type, labels: {} };
+    for (const o of (f.options || [])) map[f.id].labels[o.id] = o.label;
+  }
+  return map;
+}
+function collectSelection() {
+  const sel = {};
+  document.querySelectorAll('#taxonomy .opt.on').forEach((l) => {
+    const f = l.dataset.field, o = l.dataset.opt, t = l.dataset.type;
+    if (t === 'bool') sel[f] = true;
+    else if (t === 'multi') (sel[f] = sel[f] || []).push(o);
+    else if (t === 'single') sel[f] = o;
+  });
+  document.querySelectorAll('#taxonomy input[type=range][data-field]').forEach((r) => {
+    const v = Number(r.value);
+    if (v !== 0) sel[r.dataset.field] = v;
+  });
+  return sel;
+}
+function renderSelSummary() {
+  const box = $('selSummary');
+  const sel = collectSelection();
+  const dict = labelsDict();
+  const items = [];
+  for (const [fid, v] of Object.entries(sel)) {
+    const f = dict[fid];
+    if (!f) continue;
+    let text;
+    if (f.type === 'bool') text = '';
+    else if (f.type === 'multi' && Array.isArray(v)) text = v.map((x) => f.labels[x] || x).join('/');
+    else if (f.type === 'scale') text = (v > 0 ? '+' : '') + v;
+    else text = f.labels[v] || v;
+    items.push(`<span class="sumChip">${esc(f.title)}${text ? '：' + esc(text) : ''}</span>`);
+  }
+  if (!items.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  box.style.display = 'flex';
+  box.innerHTML = `<span style="font-size:12px;color:var(--muted)">已标注 ${items.length} 项：</span>${items.join('')}<span class="sumClear" onclick="clearSelection()">✕ 清空</span>`;
+}
+function clearSelection() {
+  document.querySelectorAll('#taxonomy .opt input').forEach((inp) => { inp.checked = false; inp.closest('.opt').classList.remove('on'); });
+  document.querySelectorAll('#taxonomy input[type=range][data-field]').forEach((r) => { r.value = 0; const sv = document.getElementById('scaleVal_' + r.dataset.field); if (sv) sv.textContent = '0'; });
+  collectSelection(); renderSelSummary();
+}
+
+// ---------- 模型特征分析 ----------
+$('modelFile').addEventListener('change', analyzeModel);
+const isStepFile = (f) => !!f && /\.(step|stp)$/i.test(f.name);
+async function analyzeModel() {
+  const file = $('modelFile').files[0];
+  MODEL_FEATURES = null;
+  const panel = $('modelPanel');
+  if (!file) { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+  if (isStepFile(file)) {
+    panel.innerHTML = '📐 STEP 已接受（随样本归档）。⚠️ STEP 几何解析暂不支持：特征提取与 3D 标注不可用——需要标注请另存 STL/3MF 再传';
+    return;
+  }
+  panel.innerHTML = '🔍 模型特征分析中…';
+  try {
+    const fd = new FormData(); fd.append('file', file);
+    const res = await fetch('/api/print/model-features', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) { panel.innerHTML = '🔍 特征分析不可用：' + esc(data.error || '失败'); return; }
+    MODEL_FEATURES = data;
+    renderModelPanel(data);
+    applyAutoSuggestions(data.suggestions); // 几何体检自动预勾选（可手动取消）
+  } catch { panel.style.display = 'none'; }
+  loadAnnotator(); // 3D 工况标注窗口跟模型文件走（v1.2 修复：此前错挂在切片上传触发）
+}
+
+// ---------- 几何体检自动预勾选（v1.7.1 修复：重写时调用丢失） ----------
+let lastAutoChecked = [];
+function applyAutoSuggestions(sug) {
+  // 撤掉上一轮自动勾选（体检组语义跟随当前文件），再套用本轮建议
+  for (const fieldId of lastAutoChecked) {
+    const label = document.querySelector('.opt[data-field="' + fieldId + '"]');
+    if (label) { label.querySelector('input').checked = false; label.classList.remove('on'); }
+  }
+  lastAutoChecked = [];
+  const sel = (sug && sug.selection) || {};
+  for (const fieldId of Object.keys(sel)) {
+    if (sel[fieldId] !== true) continue;
+    const label = document.querySelector('.opt[data-field="' + fieldId + '"]');
+    if (label) { label.querySelector('input').checked = true; label.classList.add('on'); lastAutoChecked.push(fieldId); }
+  }
+  collectSelection(); renderSelSummary();
+}
+function renderModelPanel(f) {
+  const panel = $('modelPanel');
+  if (!f.ok) { panel.innerHTML = '🔍 特征分析跳过：' + esc(f.reason || '未知') + '（可继续录入，特征字段记空）'; return; }
+  let chips = '', notes = [];
+  if (f.objects) { // 3mf 多零件
+    chips = [`📦 ${f.objectCount} 个零件`];
+    notes = f.objects.slice(0, 6).map((o) => `• ${esc(o.name)}：${o.bbox.x}×${o.bbox.y}×${o.bbox.z}mm，${o.triangles} 面 → ${Object.keys((o.suggestions || {}).selection || {}).join('+') || '常规'}`);
+    if (f.objects.length > 6) notes.push(`• …共 ${f.objects.length} 个对象`);
+  } else {
+    chips = [
+      `📐 ${f.bbox.x}×${f.bbox.y}×${f.bbox.z} mm`, `🧊 ${f.volumeCm3} cm³`, `🔺 ${f.triangles} 面`,
+      f.holes.count > 0 ? `🕳 ${f.holes.count} 孔` : '🕳 无孔',
+      `⬇️ 重悬空 ${f.overhang.severePct}%`, `📥 贴底 ${f.contact.footprintPct}%`, `🌀 曲面 ${f.curvedPct}%`,
+    ];
+    notes = (f.suggestions.notes || []).map((n) => '• ' + esc(n));
+  }
+  panel.innerHTML = `<b>🔍 模型特征（自动）</b><div class="mfChips">${chips.map((c) => `<span class="mfChip">${c}</span>`).join('')}</div><div class="mfNotes">${notes.join('<br>')}</div>`;
+}
+
+// ---------- 切片参数提取 ----------
+$('sliceFile').addEventListener('change', analyzeSlice);
+async function analyzeSlice() {
+  const file = $('sliceFile').files[0];
+  SLICE_EXTRACTION = null;
+  const panel = $('slicePanel');
+  if (!file) { panel.style.display = 'none'; scheduleFit(); return; }
+  panel.style.display = 'block';
+  panel.innerHTML = '🧈 专家参数提取中…';
+  try {
+    const fd = new FormData(); fd.append('file', file);
+    const res = await fetch('/api/training/analyze-slice', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) { panel.innerHTML = '🧈 提取失败：' + esc(data.error || '失败') + '（可去掉切片文件继续录入纯工况样本）'; scheduleFit(); return; }
+    SLICE_EXTRACTION = data;
+    const diffEntries = Object.entries(data.diff || {});
+    panel.innerHTML = `<b>🧈 专家切片参数</b>（来源 ${esc(data.source)}${data.estMinutes ? '｜预计 ' + data.estMinutes + ' 分钟' : ''}）
+      <div class="mfNotes">${diffEntries.length
+        ? diffEntries.map(([k, v]) => `• ${esc(k)} = ${esc(Array.isArray(v) ? v.join('|') : v)}`).join('<br>')
+        : '• 与基线一致，无差异参数'}</div>`;
+  } catch { panel.style.display = 'none'; }
+  scheduleFit();
+}
+
+// ---------- 拟合度条（2026-10-12 曼波纠正语义：引擎(工况) vs 专家(切片) 的贴合程度；
+// 差异项 = 可被记忆的参数，一键转规则候选进待审池） ----------
+let FIT = null;
+let fitTimer = null;
+function scheduleFit() { clearTimeout(fitTimer); fitTimer = setTimeout(computeFit, 300); }
+async function computeFit() {
+  const expertParams = SLICE_EXTRACTION ? SLICE_EXTRACTION.params : null;
+  const sel = collectSelection();
+  const bar = $('fitBar');
+  if (!expertParams || Object.keys(sel).length === 0) {
+    FIT = null;
+    bar.style.display = 'block';
+    bar.innerHTML = '<b>🎯 拟合度</b>——需两样东西：①勾选工况（人工标注）②上传切片产物（专家参数）。两者齐了，这里显示<b>规则库对这个 case 的覆盖程度</b>：拟合高=规则库已解释你的切法；拟合低=差异项就是可被记忆的新知识。';
+    return;
+  }
+  bar.style.display = 'block';
+  bar.innerHTML = '🎯 拟合度计算中…';
+  try {
+    const res = await fetch('/api/training/fit', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ selection: sel, materialType: $('materialType').value.trim(), expertParams }) });
+    const data = await res.json();
+    if (!res.ok || data.blocked) { bar.innerHTML = '🎯 拟合度不可算：' + esc((data.errors || [data.error]).filter(Boolean).join('；') || '未知'); FIT = null; return; }
+    FIT = data;
+    const color = data.score >= 80 ? 'var(--ok)' : data.score >= 50 ? 'var(--warn)' : 'var(--bad)';
+    const mism = data.rows.filter((r) => !r.match);
+    const diffTable = mism.length
+      ? `<div class="mfNotes" style="margin-top:6px">${mism.map((r) =>
+          `• <b>${esc(r.key)}</b>：引擎=${esc(r.engine === null ? '（无规则覆盖）' : r.engine)} ↔ 专家=${esc(r.expert)}`).join('<br>')}</div>
+        <div style="margin-top:8px"><button class="ok" onclick="memorizeFit()">🧠 把 ${mism.length} 项差异记忆为规则候选（进待审池，采纳后规则库学会此 case）</button></div>`
+      : '<div class="mfNotes">✅ 全参数拟合——规则库已完整解释此切法，无新知识可记</div>';
+    bar.innerHTML = `<b>🎯 拟合度</b>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:6px">
+        <div style="flex:1;height:14px;background:#e3e8ee;border-radius:7px;overflow:hidden">
+          <div style="width:${data.score}%;height:100%;background:${color}"></div>
+        </div>
+        <b style="font-size:16px;color:${color}">${data.score}%</b>
+        <span style="font-size:12px;color:var(--muted)">${data.matches}/${data.total} 参数吻合</span>
+      </div>${diffTable}`;
+  } catch { bar.innerHTML = '🎯 拟合度计算失败'; }
+}
+async function memorizeFit() {
+  if (!FIT) return;
+  const set = {};
+  for (const r of FIT.rows) if (!r.match && r.expert !== null) set[r.key] = r.expert;
+  if (!Object.keys(set).length) return toast('没有可记忆的差异');
+  const res = await fetch('/api/print/rule-suggestions', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      when: collectSelection(), set,
+      reason: `录入工坊拟合差异（拟合度 ${FIT.score}%）：专家切片与规则库输出的差异项`,
+      source: 'correction', sourceRef: 'train-workbench',
+    }) });
+  const d = await res.json();
+  if (res.ok) toast(d.merged ? `✅ 与既有候选聚合（count=${d.suggestion.count}）` : '✅ 已入待审池——reviewer 采纳后规则库学会此 case');
+  else toast('❌ ' + (d.error || '失败'));
+}
+
+// ---------- 3D 工况标注工房 ----------
+// shape: point=点标注 / axis2=两面交线受弯轴线（自动裁剪模型范围）/
+//        support_region=支撑标注（点面=平滑面片染色+悬垂带标红；Shift=并入同特征悬垂面）/
+//        axis_region=面区域统一逻辑（2026-10-13 曼波定：以受压区为准=法向轴向连通，
+//        受压区/接触面/外观面共用）/ circle=识别圆环候选确认（hole_rim 只由识别环点击产生）
+const SPATIAL_TOOLS = [
+  { id: 'support_need', label: '🔴 悬空需支撑', color: '#e74c3c', shape: 'support_region' },
+  { id: 'bending_zone', label: '🟠 受弯轴线', color: '#e67e22', shape: 'axis2' },
+  { id: 'hole_rim', label: '🟡 通孔标注', color: '#f1c40f', shape: 'circle' },
+  { id: 'load', label: '📥 载荷标注', color: '#2980b9', shape: 'load' },
+  { id: 'compression_zone', label: '🔵 受压区', color: '#3b7dd8', shape: 'axis_region' },
+  { id: 'contact_surface', label: '🟣 接触面', color: '#8e44ad', shape: 'axis_region' },
+  { id: 'appearance_face', label: '🟢 外观面', color: '#27ae60', shape: 'axis_region' },
+  { id: 'pin', label: '⚪ 自由标注', color: '#7f8c8d', shape: 'point' },
+];
+let ANNOTATOR = null;
+let currentTool = SPATIAL_TOOLS[0].id;
+
+function initAnnotatorTools() {
+  const row = $('toolRow');
+  row.innerHTML = SPATIAL_TOOLS.filter((t) => t.shape !== 'circle').map((t) => {
+    const suffix = t.shape === 'axis2' ? '（两面交线）' : t.shape === 'support_region' ? '（点面染悬垂）' : t.shape === 'axis_region' ? '（选面染实体）' : '';
+    return `<button class="mini toolBtn" data-tool="${t.id}" data-color="${t.color}" style="border-color:${t.color};color:${t.color}" onclick="pickTool('${t.id}')">${t.label}${suffix}</button>`;
+  }).join('');
+  pickTool(SPATIAL_TOOLS[0].id);
+}
+function pickTool(id) {
+  currentTool = id;
+  if (ANNOTATOR) ANNOTATOR.setTool(id);
+  const ltr = document.getElementById('loadTypeRow');
+  if (ltr) ltr.style.display = id === 'load' ? 'block' : 'none'; // 载荷工况选择器仅载荷工具激活时展开
+  document.querySelectorAll('.toolBtn').forEach((b) => {
+    const on = b.dataset.tool === id;
+    b.style.background = on ? b.dataset.color : '#eef2f6';
+    b.style.color = on ? '#fff' : b.dataset.color;
+  });
+}
+const LOAD_TYPE_LABEL = { compression: '受压', tension: '受拉', shear: '剪切', bending: '弯曲', torsion: '扭转', contact: '滚压接触' };
+const NATURE_LABEL = { static: '静载', fatigue: '动载疲劳', impact: '冲击', vibration: '振动' };
+const MAG_LABEL = { light: '轻载', medium: '中载', heavy: '重载' };
+function spatialLabel(a) {
+  const t = SPATIAL_TOOLS.find((x) => x.id === a.tool) || { label: a.tool };
+  if (a.type === 'load') return `${t.label}·${LOAD_TYPE_LABEL[a.loadType] || a.loadType}载荷` +
+    `${a.loadNature && NATURE_LABEL[a.loadNature] ? '·' + NATURE_LABEL[a.loadNature] : ''}` +
+    `${a.loadMagnitude && MAG_LABEL[a.loadMagnitude] ? '·' + MAG_LABEL[a.loadMagnitude] : ''}` +
+    ` @ (${a.pos.join(', ')})（${dominantAxis([-a.dir[0], -a.dir[1], -a.dir[2]])} 向）`;
+  if (a.type === 'survey') return `${t.label}：全模型悬垂 ${a.faces.length} 面`;
+  if (a.type === 'axis') return `${t.label}：(${a.a.join(', ')}) → (${a.b.join(', ')})`;
+  if (a.type === 'line') return `${t.label}：(${a.a.join(', ')}) → (${a.b.join(', ')})`;
+  if (a.type === 'circle') return `${t.label}：r${a.r}mm @ (${a.c.join(', ')})`;
+  if (a.type === 'region' && a.supportFaces) return `${t.label}：悬垂 ${a.supportFaces.length} / 共 ${a.faces.length} 面染色${a.shift ? '（含同特征）' : ''}`;
+  if (a.type === 'region') return `${t.label}：${a.faces.length} 面染色`;
+  return `${t.label} @ (${a.pos.join(', ')})${a.note ? ' — ' + a.note : ''}`;
+}
+function dominantAxis(dir) {
+  const abs = dir.map((v) => Math.abs(v));
+  const i = abs[0] >= abs[1] && abs[0] >= abs[2] ? 0 : abs[1] >= abs[2] ? 1 : 2;
+  return ['X', 'Y', 'Z'][i];
+}
+const LOAD_BTN_COLORS = { compression: '#3b7dd8', tension: '#e74c3c', shear: '#e67e22', bending: '#8e44ad', torsion: '#27ae60', contact: '#f39c12' };
+function updateLoadBtnColor() {
+  const btn = document.querySelector('.toolBtn[data-tool=load]');
+  if (!btn) return;
+  const c = LOAD_BTN_COLORS[document.getElementById('loadTypeSel').value] || '#2980b9';
+  btn.style.background = c;
+  btn.style.borderColor = c;
+}
+function syncLoadsToSelection() {
+  const anns = ANNOTATOR ? ANNOTATOR.getAnnotations() : [];
+  const loads = anns.filter((a) => a.type === 'load');
+  const dirs = new Set(), types = new Set();
+  for (const L of loads) {
+    // 力压入面 = -法向 → 受力方向取主轴
+    dirs.add(dominantAxis([-L.dir[0], -L.dir[1], -L.dir[2]]));
+    types.add(L.loadType);
+  }
+  const sync = (fieldId, values) => {
+    document.querySelectorAll('.opt[data-field=' + fieldId + ']').forEach((label) => {
+      const opt = label.dataset.opt;
+      const on = values.includes(opt);
+      label.querySelector('input').checked = on;
+      label.classList.toggle('on', on);
+    });
+  };
+  sync('load_direction', [...dirs]);
+  sync('load_type', [...types]);
+  if (loads.length) {
+    const natures = new Set(loads.map((L) => L.loadNature).filter(Boolean));
+    sync('load_nature', [...natures]);
+    const mags = loads.map((L) => L.loadMagnitude).filter(Boolean);
+    sync('load_magnitude', mags.length ? [mags[0]] : []);
+  }
+}
+function onAnnotationsChange(anns) {
+  const list = $('annoList');
+  list.innerHTML = anns.length
+    ? anns.map((a) => `• ${esc(spatialLabel(a))}`).join('<br>') + `<br><span class="sumClear" onclick="undoLast()">↩ 撤销</span> <span class="sumClear" onclick="redoLast()">↪ 重做</span> <span class="sumClear" onclick="clearAnnotations()">✕ 清空全部</span>`
+    : '尚未标注——选工具后点击模型表面';
+  syncLoadsToSelection(); // 载荷箭头增删/翻转后，同步隐藏工况勾选组（v50 断链修复归位）
+}
+function clearAnnotations() { if (ANNOTATOR) { ANNOTATOR.clearAnnotations(); onAnnotationsChange([]); } }
+function undoLast() { if (ANNOTATOR) ANNOTATOR.undo(); }
+function redoLast() { if (ANNOTATOR) ANNOTATOR.redo(); }
+function flipLastLoad() { if (ANNOTATOR && ANNOTATOR.flipLastLoad()) { syncLoadsToSelection(); toast("⇆ 最后一支载荷箭头已翻转"); } else toast("没有可翻转的载荷箭头"); }
+function clearSel() { if (ANNOTATOR) ANNOTATOR.selectNone(); }
+let SEL_AID = null;
+function renderSelPanelPage(a) {
+  SEL_AID = a && a._aid ? a._aid : null;
+  const panel = $('selPanel');
+  if (!SEL_AID) { panel.style.display = 'none'; return; }
+  const t = SPATIAL_TOOLS.find((x) => x.id === a.tool) || { label: a.tool };
+  let ctrl = '';
+  if (a.type === 'load') {
+    const opts = [['compression', '受压'], ['tension', '受拉'], ['shear', '剪切'], ['bending', '弯曲'], ['torsion', '扭转'], ['contact', '滚压接触']];
+    ctrl = '受力类型：<select onchange="updateSelField(\'loadType\', this.value)">' +
+      opts.map((o) => '<option value="' + o[0] + '"' + (a.loadType === o[0] ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select>' +
+      ' <button class="mini" onclick="flipSelDir()">⇆ 翻转方向</button>';
+  }
+  $('selPanel').innerHTML = '<b>✎ ' + esc(t.label) + '</b>' +
+    (ctrl ? '<div style="margin-top:4px">' + ctrl + '</div>' : '') +
+    '<div style="margin-top:4px">备注：<input onchange="updateSelNote(this.value)" value="' + esc(a.note || '') + '" style="width:55%"> <button class="bad" onclick="deleteSel()">删除此标注</button></div>';
+  panel.style.display = 'block';
+}
+function updateSelField(field, value) {
+  if (!SEL_AID || !ANNOTATOR) return;
+  const updated = ANNOTATOR.updateAnnotation(SEL_AID, setObj(field, value));
+  if (updated) { toast('✅ 已更新'); renderSelPanelPage(updated); }
+}
+function updateSelNote(v) {
+  if (!SEL_AID || !ANNOTATOR) return;
+  const updated = ANNOTATOR.updateAnnotation(SEL_AID, { note: v });
+  if (updated) toast('✅ 备注已更新');
+}
+function setObj(k, v) { const o = {}; o[k] = v; return o; }
+function flipSelDir() {
+  if (!SEL_AID || !ANNOTATOR) return;
+  const updated = ANNOTATOR.updateAnnotation(SEL_AID, { dirFlip: true });
+  if (updated) { toast('⇆ 方向已翻转'); renderSelPanelPage(updated); }
+}
+function deleteSel() {
+  if (!SEL_AID || !ANNOTATOR) return;
+  if (!confirm('删除这条标注？')) return;
+  ANNOTATOR.deleteAnnotation(SEL_AID);
+  SEL_AID = null;
+  renderSelPanelPage(null);
+  toast('已删除');
+}
+
+async function loadAnnotator() {
+  const file = $('modelFile').files[0];
+  const box = $('annotatorBox');
+  if (!file || isStepFile(file)) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  initAnnotatorTools();
+  // 画布尺寸要在容器可见后量（隐藏容器 clientWidth=0），否则 WebGL 视口错
+  const canvas = $('annoCanvas');
+  const w = canvas.clientWidth || 600, h = canvas.clientHeight || 380;
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+  try {
+    const fd = new FormData(); fd.append('file', file);
+    const res = await fetch('/api/training/mesh', { method: 'POST', body: fd });
+    const mesh = await res.json();
+    if (!res.ok) { $('toolRow').innerHTML = '<span class="hint">网格下发失败：' + esc(mesh.error || '') + '</span>'; return; }
+    if (!ANNOTATOR) {
+      ANNOTATOR = MeshAnnotator($('annoCanvas'), $('annoOverlay'), {
+        tools: SPATIAL_TOOLS.filter((t) => t.shape !== 'circle'),
+        onChange: onAnnotationsChange,
+        onSelect: (a) => renderSelPanelPage(a),
+        getLoadType: () => document.getElementById('loadTypeSel').value,
+        getLoadDir: () => document.getElementById('loadDirSel').value,
+        getLoadNature: () => document.getElementById('loadNatureSel').value,
+        getLoadMagnitude: () => document.getElementById('loadMagnitudeSel').value,
+        onHint: (t) => toast(t),
+      });
+    }
+    // 识别→标注直通：几何体检的孔口圆投给 3D 视图做候选环（单零件文件）
+    let circleCandidates = [];
+    if (MODEL_FEATURES && MODEL_FEATURES.ok && !MODEL_FEATURES.objects && MODEL_FEATURES.holes.circles) {
+      circleCandidates = MODEL_FEATURES.holes.circles;
+    } else if (MODEL_FEATURES && MODEL_FEATURES.ok && MODEL_FEATURES.objects && MODEL_FEATURES.objects.length === 1) {
+      circleCandidates = (MODEL_FEATURES.objects[0].holes && MODEL_FEATURES.objects[0].holes.circles) || [];
+    }
+    ANNOTATOR.loadMesh(mesh);
+    ANNOTATOR.setCircleCandidates(circleCandidates);
+    onAnnotationsChange([]);
+    if (mesh.decimated) toast(`模型 ${mesh.originalFaceCount} 面，标注视图抽稀至 ${mesh.faceCount} 面`);
+    if (circleCandidates.length) toast(`🔍 识别到 ${circleCandidates.length} 个孔口——点击黄色虚线环即可确认为通孔标注`);
+  } catch (err) { $('toolRow').innerHTML = '<span class="hint">3D 工房初始化失败：' + esc(err.message) + '</span>'; }
+}
+
+// ---------- 提交入库 ----------
+async function submitSample() {
+  const model = $('modelFile').files[0];
+  const slice = $('sliceFile').files[0];
+  const selection = collectSelection();
+  if (!model) return toast('❌ 请选择模型文件');
+  if (Object.keys(selection).length === 0) return toast('❌ 工况勾选不能为空——没有人工标注的样本不构成训练数据');
+
+  const fd = new FormData();
+  fd.append('model', model);
+  if (slice) fd.append('slice', slice);
+  fd.append('selection', JSON.stringify(selection));
+  fd.append('materialType', $('materialType').value.trim());
+  fd.append('notes', $('notes').value.trim());
+  fd.append('machine', $('machineSel').value);
+  fd.append('confidence', $('confidence').value || '80');
+  fd.append('spatial', JSON.stringify(ANNOTATOR ? ANNOTATOR.getAnnotations() : []));
+
+  const btn = $('submitBtn'); btn.disabled = true; $('submitHint').textContent = '上传分析中…';
+  try {
+    const res = await fetch('/api/training/samples', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) { $('submitHint').textContent = ''; return toast('❌ ' + ((data.details || {}).errors || [data.error]).filter(Boolean).join('；')); }
+    toast(`✅ 样本 ${data.id} 已入库`);
+    $('modelFile').value = ''; $('sliceFile').value = '';
+    $('modelPanel').style.display = 'none'; $('slicePanel').style.display = 'none';
+    MODEL_FEATURES = null; SLICE_EXTRACTION = null;
+    $('notes').value = '';
+    clearSelection();
+    loadSamples();
+  } catch { toast('❌ 网络错误'); }
+  $('submitHint').textContent = ''; btn.disabled = false;
+}
+
+// ---------- 样本列表 ----------
+async function loadSamples() {
+  const res = await fetch('/api/training/samples');
+  if (res.status === 401) { ME = null; renderIdentity(); return; }
+  const { samples, stats } = await res.json();
+  const chips = [`共 ${stats.total} 条`, `带切片参数 ${stats.withSlice} 条`, `带几何特征 ${stats.withFeatures} 条`, `已标打印结果 ${stats.withOutcome} 条`]
+    .map((c) => `<span class="statChip">${c}</span>`).join('');
+  $('statChips').innerHTML = chips;
+  $('exportLine').innerHTML = isReviewer()
+    ? `<button class="mini" onclick="exportJsonl()">⬇ 导出 JSONL（训练管线消费）</button>`
+    : '';
+  const rows = samples.map((s) => {
+    const dict = labelsDict();
+    const cond = Object.entries(s.selection || {}).slice(0, 4).map(([fid, v]) => {
+      const f = dict[fid];
+      if (!f) return esc(fid);
+      if (f.type === 'bool') return esc(f.title);
+      if (Array.isArray(v)) return esc(f.title + ':' + v.map((x) => f.labels[x] || x).join('/'));
+      if (f.type === 'scale') return esc(f.title + ':' + (v > 0 ? '+' : '') + v);
+      return esc(f.title + ':' + (f.labels[v] || v));
+    }).join('、') + (Object.keys(s.selection || {}).length > 4 ? ` 等 ${Object.keys(s.selection).length} 项` : '');
+    const diff = s.slice && s.slice.extraction ? Object.keys(s.slice.extraction.diff || {}).length + ' 项差异' : (s.slice ? '与基线一致' : '—');
+    const feats = s.model && s.model.features && s.model.features.ok
+      ? (s.model.features.objects ? `${s.model.features.objectCount} 零件` : `${s.model.features.holes.count} 孔/悬空${s.model.features.overhang.severePct}%`)
+      : '特征未提取';
+    const fitLine = s.fit ? `<span style="color:${s.fit.score >= 80 ? 'var(--ok)' : s.fit.score >= 50 ? 'var(--warn)' : 'var(--bad)'};font-weight:600">拟合 ${s.fit.score}%</span>` : '';
+    const spatialLine = (s.spatial && s.spatial.length) ? `<br><span style="font-size:11px">📍 空间标注 ${s.spatial.length} 个</span>` : '';
+    const oc = s.outcome || { status: '未打印' };
+    const ocColor = { 成功: 'var(--ok)', 失败: 'var(--bad)', 部分成功: 'var(--warn)', 未打印: 'var(--muted)' }[oc.status] || 'var(--muted)';
+    const outcomeCell = oc.status === '未打印'
+      ? `<select style="font-size:11px;padding:2px" onchange="setOutcome('${s.id}', this.value)">` +
+        ['未打印', '成功', '失败', '部分成功'].map((o) => `<option ${o === oc.status ? 'selected' : ''}>${o}</option>`).join('') + '</select>'
+      : `<span style="color:${ocColor};font-weight:600">${esc(oc.status)}</span>` +
+        (oc.issues ? `<br><span style="font-size:11px;color:var(--muted)">${esc(oc.issues).slice(0, 40)}</span>` : '') +
+        `<br><button class="bad" style="font-size:10px;padding:1px 6px" onclick="resetOutcome('${s.id}')">改</button>`;
+    return `<tr>
+      <td><b>${esc(s.id)}</b></td>
+      <td>${esc(s.model ? s.model.name : '—')}<br><span style="color:var(--muted);font-size:11px">${esc(feats)}</span></td>
+      <td>${cond}</td>
+      <td>${diff}${fitLine ? '<br>' + fitLine : ''}</td>
+      <td>${esc(s.machine || '—')}${spatialLine}</td>
+      <td>${outcomeCell}</td>
+      <td>${esc(s.createdBy)}<br><span style="color:var(--muted);font-size:11px">${esc((s.createdAt || '').replace('T', ' ').slice(5, 16))}</span></td>
+      <td>${isReviewer() ? `<button class="bad" onclick="delSample('${s.id}')">删</button>` : ''}</td>
+    </tr>`;
+  });
+  $('sampleRows').innerHTML = rows.join('') || '<tr><td colspan="8" class="hint">还没有样本——录入第一条训练数据吧</td></tr>';
+}
+async function delSample(id) {
+  if (!confirm(`删除样本 ${id}？（归档文件保留）`)) return;
+  const res = await fetch('/api/training/samples/' + id, { method: 'DELETE' });
+  if (res.ok) { toast('已删除 ' + id); loadSamples(); } else { const d = await res.json().catch(() => ({})); toast('❌ ' + (d.error || '失败')); }
+}
+
+// 打印结果回填（奖励信号通道）
+async function setOutcome(id, status) {
+  let issues = '';
+  if (status === '失败' || status === '部分成功') issues = prompt('打印出了什么问题？（支撑翻车/强度不足/尺寸超差…）') || '';
+  const res = await fetch(`/api/training/samples/${id}/outcome`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status, issues }) });
+  if (res.ok) { toast(`${id} 标记为「${status}」`); loadSamples(); } else { const d = await res.json().catch(() => ({})); toast('❌ ' + (d.error || '失败')); }
+}
+async function resetOutcome(id) {
+  const res = await fetch(`/api/training/samples/${id}/outcome`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: '未打印' }) });
+  if (res.ok) loadSamples(); else toast('❌ 重置失败');
+}
+function exportJsonl() { window.open('/api/training/export'); }
+
+async function loadFleet() {
+  try {
+    const res = await fetch('/api/training/fleet');
+    const { machines } = await res.json();
+    $('machineSel').innerHTML = '<option value="">（未指定机型）</option>' +
+      machines.map((m) => `<option value="${esc(m.name)}">${esc(m.name)}</option>`).join('');
+  } catch { /* 机队拉不到不影响录入 */ }
+}
+
+(async function init() {
+  await loadMe(); // renderIdentity 内部统一走 initWorkbench()（登录过渡与刷新同路径）
+})();
+
+
+// ---------- 规则学习治理（v56 复查批：学习链路 UI 回归录入台） ----------
+const PARAM_LABELS = { layerHeight: '层高', wallLoops: '墙数', topShellLayers: '顶面层', bottomShellLayers: '底面层', infillDensity: '填充%', infillPattern: '填充图案', speedProfile: '速度档', supportType: '支撑', supportThresholdAngle: '支撑阈值°', supportDensity: '支撑密度%', seamPosition: '接缝', directionStrategy: '朝向策略', ironing: '熨烫', brim: '裙边', brimWidth: '裙边mm', xyHoleComp: '孔补偿', xyContourComp: '轮廓补偿', temperatureDelta: '热床Δ°', nozzleTempDelta: '喷嘴Δ°' };
+if (typeof isReviewer !== 'function') { window.isReviewer = () => ME && ['reviewer', 'admin'].includes(ME.role); }
+
+function renderReviewCard() {
+  const card = document.getElementById('reviewCard');
+  if (card) card.style.display = isReviewer() ? 'block' : 'none';
+  if (isReviewer()) loadSuggestions();
+}
+
+function openCorrection(id) {
+  const sample = (window.__samples || []).find((s) => s.id === id);
+  if (!sample) return toast('样本已过期，刷新后重试');
+  const dlg = document.createElement('dialog');
+  dlg.innerHTML = '<h3 style="font-size:14px;margin-bottom:8px">📝 修正建议（' + id + '）</h3>' +
+    '<div class="detail" style="margin-bottom:6px">以该样本的工况勾选为条件，编辑参数生成候选规则（待审池确认后生效）</div>' +
+    '<textarea class="paramEdit" id="corrEdit">' + esc(JSON.stringify((sample.fit && sample.fit.engineParams) || sample.selection || {}, null, 1)) + '</textarea>' +
+    '<div style="margin-top:8px"><label>修正理由（必填）</label><input type="text" id="corrReason" placeholder="如：这个件壁太薄 2 墙不够"></div>' +
+    '<div class="actions" style="margin-top:10px">' +
+    '<button class="ok" onclick="submitCorrection(\'' + id + '\', this.closest(\'dialog\'))">提交建议</button>' +
+    '<button class="mini" onclick="this.closest(\'dialog\').close()">取消</button></div>';
+  document.body.appendChild(dlg);
+  dlg.showModal();
+}
+
+async function submitCorrection(id, dlg) {
+  let set;
+  try { set = JSON.parse(dlg.querySelector('#corrEdit').value); } catch { return toast('参数不是合法 JSON'); }
+  const reason = dlg.querySelector('#corrReason').value.trim();
+  if (!reason) return toast('请填写修正理由');
+  const sample = (window.__samples || []).find((s) => s.id === id);
+  const res = await fetch('/api/print/rule-suggestions', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ when: (sample && sample.selection) || {}, set, reason, source: 'correction', sourceRef: id }),
+  });
+  const data = await res.json();
+  if (!res.ok) return toast('❌ ' + data.error);
+  toast(data.merged ? '✅ 已合并到既有建议（累计 ' + data.suggestion.count + ' 次）' : '✅ 建议已入待审池');
+  dlg.close();
+  loadSuggestions();
+}
+
+async function loadSuggestions() {
+  if (!isReviewer()) return;
+  const res = await fetch('/api/print/rule-suggestions?status=pending');
+  if (!res.ok) return;
+  const list = await res.json();
+  const box = document.getElementById('sugList');
+  if (!box) return;
+  if (!list.length) { box.innerHTML = '<div class="empty">待审池为空——修正建议与专家导入会出现在这里</div>'; return; }
+  box.innerHTML = list.sort((a, b) => b.count - a.count).map(s => '<div class="sugbox">' +
+    '<b>' + (s.source === 'extraction' ? '🎓 专家导入' : '🔧 修正') + '</b>' + (s.count > 1 ? '<span class="cnt">×' + s.count + '</span>' : '') +
+    '<span class="detail">｜' + esc((s.sourceRefs || []).map(x => '#' + x).join(' ')) + '｜' + esc(s.suggestedBy || '') + '｜' + esc((s.createdAt || '').slice(5, 16)) + '</span>' +
+    '<br><span class="detail">当：</span>' + esc(JSON.stringify(s.when)) +
+    '<br><span class="detail">设：</span><b>' + esc(JSON.stringify(s.set)) + '</b>' +
+    '<br><span class="detail">' + esc(s.reason) + '</span>' +
+    '<div class="revbox"><button class="ok" onclick="decide(\'' + s.id + '\',\'adopt\')">采纳生效</button>' +
+    '<button class="bad" onclick="decide(\'' + s.id + '\',\'reject\')">拒绝</button></div></div>').join('');
+}
+
+async function decide(id, action) {
+  const res = await fetch('/api/print/rule-suggestions/' + id + '/' + action, { method: 'POST' });
+  const data = await res.json();
+  if (!res.ok) return toast('❌ ' + data.error);
+  toast(action === 'adopt' ? '✅ 已转正为生效规则 ' + (data.ruleId || '') : '✅ 已拒绝');
+  loadSuggestions();
+}
+
+async function importExpert3mf() {
+  const file = document.getElementById('expert3mf').files[0];
+  if (!file) return toast('选择专家切片的 3mf');
+  const sel = collectSelection();
+  if (!Object.keys(sel).length) return toast('请先在上方勾选该作品的工况需求（将作为候选规则的条件）');
+  const fd = new FormData();
+  fd.append('file', file);
+  const hint = document.getElementById('extractHint');
+  hint.textContent = '解析中…';
+  const res = await fetch('/api/print/slicer-extract', { method: 'POST', body: fd });
+  const data = await res.json();
+  if (!res.ok) { hint.className = 'hint bad'; hint.textContent = data.error; return; }
+  const diffKeys = Object.keys(data.diff || {});
+  if (!diffKeys.length) { hint.className = 'hint'; hint.textContent = '提取成功但与出厂基线无差异，无需生成候选'; return; }
+  const res2 = await fetch('/api/print/rule-suggestions', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ when: sel, set: data.diff, reason: '专家作品提取（' + data.source + '）：' + file.name, source: 'extraction', sourceRef: file.name }),
+  });
+  const data2 = await res2.json();
+  if (!res2.ok) { hint.className = 'hint bad'; hint.textContent = '候选提交失败: ' + data2.error; return; }
+  hint.className = 'hint';
+  hint.textContent = '✅ 已生成候选：' + diffKeys.map(k => (PARAM_LABELS[k] || k) + '=' + data.diff[k]).join('、') + '——待审池确认后生效';
+  loadSuggestions();
+}
+
+</script>
+</body>
+</html>
