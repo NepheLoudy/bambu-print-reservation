@@ -797,8 +797,8 @@ app.delete('/api/reservations/:id', requireUser(), async (req, res) => {
 
 app.post('/api/reservations/:id/approve', requireUser('reviewer', 'admin'), async (req, res) => {
   try {
-    const { comment, dispatch } = req.body || {};
-    const result = await reservationService.approveReservation(req.params.id, req.user.displayName, comment, dispatch || {});
+    const { comment, dispatch, sampleEntry } = req.body || {};
+    const result = await reservationService.approveReservation(req.params.id, req.user.displayName, comment, dispatch || {}, Boolean(sampleEntry));
     require('./services/usageReport').reportUsage(req.user.username, 'print-approve').catch(() => {});
     res.json(result);
   } catch (err) {

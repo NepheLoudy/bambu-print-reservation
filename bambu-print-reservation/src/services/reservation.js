@@ -88,8 +88,10 @@ class ReservationService {
    * dispatch（2026-10-16 曼波令「审批人应能选槽位/喷嘴」）：
    *   { assignedPrinter?: name, tray?: {amsId, trayId}, nozzleId?: number }——都可空（空=自动匹配，保持原能力）。
    *   指定值**审批时硬校验**（打印机在册/槽位实装/喷头存在），fail 即 400 不落审批。
+   * sampleEntry（2026-10-16 曼波令「审批做两件事」之①决定要不要进样本库）：
+   *   勾选即异步建训练样本（未打印态）——打印完成/失败后由分发引擎按源单回填真实结果。
    */
-  async approveReservation(id, reviewer, comment, dispatch = {}) {
+  async approveReservation(id, reviewer, comment, dispatch = {}, sampleEntry = false) {
     const reservation = store.get(id);
     if (!reservation) throw new Error('预约记录不存在');
     // 显式状态门槛：仅「待审批」可批。不能只依赖状态机——排队中→已通过是
@@ -142,8 +144,9 @@ class ReservationService {
     const prefNote = pref.tray || pref.nozzleId || pref.assignedPrinter
       ? `｜分发指定：${pref.assignedPrinter || '自动机'}${pref.tray ? `·${pref.tray.slot}` : ''}${pref.nozzleId != null ? '·' + (pref.nozzleLabel || `喷头${pref.nozzleId + 1}`) : ''}`
       : '';
+    const sampleNote = sampleEntry ? '｜📚 已勾选入库训练样本' : '';
 
-    store.updateStatus(id, config.status.REVIEW_APPROVED, `审批人：${reviewer || '未署名'}${comment ? `｜意见：${comment}` : ''}${prefNote}`);
+    store.updateStatus(id, config.status.REVIEW_APPROVED, `审批人：${reviewer || '未署名'}${comment ? `｜意见：${comment}` : ''}${prefNote}${sampleNote}`);
     store.setReview(id, {
       reviewer: reviewer || '',
       comment: comment || '',
@@ -166,6 +169,24 @@ class ReservationService {
       throw new Error('该任务已在分发队列中（幂等拦截），请刷新列表核对单据状态');
     }
     store.updateStatus(id, config.status.QUEUED, '已进入打印队列');
+
+    // 审批入库（2026-10-16 曼波令）：勾选即建训练样本（未打印态）——打印完成/失败后由
+    // 分发引擎按源单回填真实 outcome（学习奖励通道）。setImmediate 异步执行：文件读+几何
+    // 体检为秒级 CPU 工作，绝不进审批-入队关键路径（入队无 await 的竞态约束保持）
+    if (sampleEntry) {
+      store.setSample(id, { sampleEntry: true, at: new Date().toISOString() });
+      const snapshot = store.get(id);
+      setImmediate(() => {
+        try {
+          const sample = createSampleFromReservation(snapshot, reviewer);
+          store.setSample(id, { sampleId: sample.id });
+          console.log(`[预约服务] 审批入库：${id} → 样本 ${sample.id}`);
+        } catch (err) {
+          console.warn(`[预约服务] 审批入库失败 ${id}: ${err.message}`);
+          try { store.setSample(id, { sampleError: err.message }); } catch { /* 记录失败不阻塞 */ }
+        }
+      });
+    }
 
     // 群播移出入队关键路径：notifyReviewResult 自带 try/catch 永不 reject，此处仅触发不等待
     this.notifyReviewResult(store.get(id), config.reviewResult.APPROVED, comment);
@@ -315,4 +336,52 @@ class ReservationService {
 
 const reservationService = new ReservationService();
 
+/**
+ * 预约单 → 训练样本（2026-10-16 曼波令「审批做两件事」之①）：与手工录入三方合成同构——
+ * 几何特征（体检快照优先，否则现算）× 人工标注（selection + spatial）× 本单实际参数
+ * （3mf 直通=内嵌切片提取；需求链路=引擎定档参数以小 JSON 归档）。
+ * 同步执行（调用方 setImmediate 异步化）；失败抛错由调用方按失败软着陆记录 sampleError。
+ */
+function createSampleFromReservation(record, reviewer) {
+  const fs = require('fs');
+  if (!record) throw new Error('预约单不存在');
+  const is3mf = /\.3mf$/i.test(record.fileName || '');
+  const buf = record.filePath ? fs.readFileSync(record.filePath) : null;
+  if (!buf || buf.length === 0) throw new Error('源文件不可读（filePath 缺失或为空）');
+  let features = record.modelFeatures || null;
+  let slice = null;
+  if (is3mf) {
+    let extraction = null;
+    try { extraction = require('./slicerExtract').extractFrom3mf(buf); } catch { /* 提取失败仍入库 */ }
+    if (!features) {
+      try { features = require('./modelFeatures').analyze3mf(buf); } catch { /* 体检失败照常入库 */ }
+    }
+    slice = {
+      originalName: record.fileName || 'slice.3mf',
+      buffer: buf,
+      extraction: extraction
+        ? { source: extraction.source, params: extraction.params, estMinutes: extraction.estMinutes, filaments: extraction.filaments, bedType: extraction.bedType }
+        : null,
+    };
+  } else if (record.processParams && Object.keys(record.processParams).length > 0) {
+    // 需求链路：引擎定档参数即本单实际参数（无切片产物）——小 JSON 归档，训练消费口径同 extraction
+    slice = {
+      originalName: 'engine-params.json',
+      buffer: Buffer.from(JSON.stringify({ params: record.processParams, appliedRules: record.appliedRules || [] }, null, 2)),
+      extraction: { source: 'engine', params: record.processParams, appliedRules: record.appliedRules || [] },
+    };
+  }
+  return require('./trainingStore').create({
+    createdBy: reviewer || '审批入库',
+    notes: `审批入库 · 源单 ${record.id}`,
+    sourceRecordId: record.id,
+    selection: record.selection || {},
+    spatial: record.spatial || [],
+    materialType: record.materialType || '',
+    model: { originalName: record.fileName || 'model', buffer: buf, features },
+    slice,
+  });
+}
+
 module.exports = reservationService;
+module.exports.createSampleFromReservation = createSampleFromReservation;

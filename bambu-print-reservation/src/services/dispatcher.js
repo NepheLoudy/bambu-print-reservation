@@ -920,6 +920,17 @@ class Dispatcher {
         hasMore ? config.status.QUEUED : config.status.COMPLETED,
         hasMore ? `完成 1 件（还剩 ${task.remaining} 件），自动续打下一件` : `打印完成 @ ${printer.name}`
       ), 'complete');
+      // 审批入库样本回填（2026-10-16）：勾选入库的单在全部件完成后写真实成功结果
+      if (!hasMore) {
+        try {
+          const rec = reservationStore.get(task.recordId);
+          if (rec && rec.sample && rec.sample.sampleEntry && rec.sample.sampleId) {
+            require('./trainingStore').setOutcomeBySource(task.recordId, {
+              status: '成功', recordedBy: '打印系统', issues: `打印完成 @ ${printer.name}`,
+            });
+          }
+        } catch (err) { console.warn('[分发] 入库样本结果回填失败:', err.message); }
+      }
     } else if (isMirrorTask(task)) {
       await bitableApi
         .updateRecord(config.bitable.reservationTableId, task.recordId, {
@@ -996,6 +1007,15 @@ class Dispatcher {
 
     if (isLocalTask(task)) {
       storeSafe(() => reservationStore.updateStatus(task.recordId, config.status.QUEUED, `打印失败重排：${reason}`), 'fail');
+      // 入库样本失败回填（2026-10-16）：重试若成功会再覆盖为「成功」——末次真实结果为准
+      try {
+        const rec = reservationStore.get(task.recordId);
+        if (rec && rec.sample && rec.sample.sampleEntry && rec.sample.sampleId) {
+          require('./trainingStore').setOutcomeBySource(task.recordId, {
+            status: '失败', recordedBy: '打印系统', issues: String(reason || '').slice(0, 200),
+          });
+        }
+      } catch (err) { console.warn('[分发] 入库样本失败回填异常:', err.message); }
     } else if (isMirrorTask(task)) {
       await bitableApi
         .updateRecord(config.bitable.reservationTableId, task.recordId, {

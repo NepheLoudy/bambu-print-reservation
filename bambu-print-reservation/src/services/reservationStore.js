@@ -202,6 +202,17 @@ const reservationStore = {
     return { ...record };
   },
 
+  /** 审批入库样本标记（2026-10-16 曼波令）：{sampleEntry/sampleId/sampleError} 落档，不流转状态 */
+  setSample(id, patch = {}) {
+    const records = load();
+    const record = records.find((r) => r.id === id);
+    if (!record) throw new Error(`预约不存在: ${id}`);
+    record.sample = { ...(record.sample || {}), ...patch };
+    record.updatedAt = new Date().toISOString();
+    save(records);
+    return { ...record };
+  },
+
   /**
    * 上传源文件生命周期（2026-10-05 审查批）：终态单（已完成/已取消/已驳回）超过
    * UPLOAD_RETENTION_DAYS 天（默认 30，0=禁用）后清理源文件——磁盘护栏；单据记录

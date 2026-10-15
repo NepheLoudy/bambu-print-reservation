@@ -14,6 +14,8 @@ process.env.AUTH_STORE_FILE = path.join(os.tmpdir(), `bambu-test-ops-auth-${proc
 process.env.PROCESS_RULES_FILE = path.join(os.tmpdir(), `bambu-test-ops-rules-${process.pid}.json`);
 process.env.RULE_SUGGESTIONS_FILE = path.join(os.tmpdir(), `bambu-test-ops-sug-${process.pid}.json`);
 process.env.BACKUP_DIR = path.join(os.tmpdir(), `bambu-test-ops-backup-${process.pid}`);
+process.env.TRAINING_SAMPLES_FILE = path.join(os.tmpdir(), `bambu-test-ops-train-${process.pid}.json`);
+process.env.TRAINING_FILES_DIR = path.join(os.tmpdir(), `bambu-test-ops-trainfiles-${process.pid}`);
 
 const assert = require('assert');
 const fs = require('fs');
@@ -221,6 +223,32 @@ check('canDispatchResidueFailed:静止残留放行,有在打痕迹/未知不放�
   assert.equal(canDispatchResidueFailed({ ...base, activeTask: { id: 1 } }), false, '有在册任务不放行');
   assert.equal(canDispatchResidueFailed({ status: '空闲', gcodeState: 'IDLE' }), false, '非故障态不归此判');
   assert.equal(canDispatchResidueFailed(null), false);
+});
+
+check('createSampleFromReservation:预约单→训练样本(3mf 内嵌参数/源单引用/结果回填)', () => {
+  const { createSampleFromReservation } = require('../src/services/reservation');
+  const trainingStore = require('../src/services/trainingStore');
+  const zip = new AdmZip();
+  zip.addFile('Metadata/project_settings.config', Buffer.from(JSON.stringify({
+    curr_bed_type: 'High Temp Plate', layer_height: '0.2', wall_loops: '3',
+  })));
+  zip.addFile('Metadata/slice_info.config', Buffer.from('<?xml version="1.0"?><config><plate><filament id="1" tray_info_idx="GFA00" type="PLA" color="#26A69A" used_m="10" used_for_object="true"/></plate></config>'));
+  const f = path.join(os.tmpdir(), `bambu-test-sample-${process.pid}.3mf`);
+  fs.writeFileSync(f, zip.toBuffer());
+  const record = {
+    id: 'R20261016-999', fileName: 'test_part.3mf', filePath: f,
+    materialType: 'PLA', selection: { load_magnitude: 'medium' }, spatial: [],
+    processParams: null, appliedRules: [],
+  };
+  const s = createSampleFromReservation(record, '测试审批人');
+  assert.equal(s.sourceRecordId, 'R20261016-999', '源单引用落档（结果回填的钩子）');
+  assert.ok(/^T\d{8}-\d{3}$/.test(s.id), '样本号生成');
+  assert.ok(s.slice && s.slice.extraction && s.slice.extraction.params, '内嵌切片参数已提取');
+  assert.equal(s.slice.extraction.bedType, 'High Temp Plate');
+  assert.ok(s.model && s.model.storedPath && s.slice.storedPath === s.model.storedPath, '3mf 同产物归档去重（模型即切片）');
+  const back = trainingStore.setOutcomeBySource('R20261016-999', { status: '成功', recordedBy: '测试' });
+  assert.ok(back && back.outcome.status === '成功', '按源单回填 outcome');
+  try { fs.unlinkSync(f); } catch { /* 已不存在 */ }
 });
 
 check('buildAmsMapping:指定槽/自动匹配/无清单三径,外挂虚拟料位 254/255 编码', () => {

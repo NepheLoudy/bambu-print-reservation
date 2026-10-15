@@ -12,6 +12,8 @@ process.env.RESERVATIONS_UPLOAD_DIR = path.join(os.tmpdir(), `bambu-test-up-${pr
 process.env.DISPATCH_STATE_FILE = path.join(os.tmpdir(), `bambu-test-dispatch-${process.pid}.json`);
 process.env.QUIET_BACKLOG_FILE = path.join(os.tmpdir(), `bambu-test-quiet-${process.pid}.json`);
 process.env.QUIET_HOURS_DISABLED = '1';
+process.env.TRAINING_SAMPLES_FILE = path.join(os.tmpdir(), `bambu-test-lr-train-${process.pid}.json`);
+process.env.TRAINING_FILES_DIR = path.join(os.tmpdir(), `bambu-test-lr-trainfiles-${process.pid}`);
 // 集成用例不得向真实群 webhook 播报（.env 里是真实群机器人，曾触发 9499 限流）；
 // 空字符串已存在 → dotenv 不覆盖 → bot.sendMessage 空值守卫跳过发送
 process.env.BOT_WEBHOOK_URL = '';
@@ -173,6 +175,15 @@ check('集成：取消 → dequeue 出队 + store 已取消', async () => {
   await reservationService.cancelReservation(r.id);
   assert.equal(store.get(r.id).status, '已取消');
   assert.ok(!dispatcher.getQueueSnapshot().some((q) => q.recordId === r.id), '任务应已出队');
+});
+
+check('集成：审批勾选入库 → 决策落档 + 样本管线软着陆（测试单无真实文件→记录 sampleError）', async () => {
+  const r = submit();
+  await reservationService.approveReservation(r.id, '测试审批人', '', {}, true);
+  await new Promise((res2) => setTimeout(res2, 300)); // 等异步管线（setImmediate + 文件读）
+  const rec = store.get(r.id);
+  assert.ok(rec.sample && rec.sample.sampleEntry === true, '入库决策应落档');
+  assert.ok(rec.sample.sampleId || rec.sample.sampleError, '样本号或失败原因二者其一');
 });
 
 // ---------- 审查批：聊天列表兼容 / 上传文件生命周期 ----------

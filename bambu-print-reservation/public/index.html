@@ -1060,10 +1060,10 @@ function review(id, action) {
   doReview(id, 'reject', prompt('驳回理由：') || '');
 }
 
-async function doReview(id, action, comment, dispatch) {
+async function doReview(id, action, comment, dispatch, sampleEntry) {
   const res = await fetch(`/api/reservations/${id}/${action}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ comment, ...(dispatch ? { dispatch } : {}) }),
+    body: JSON.stringify({ comment, ...(dispatch ? { dispatch } : {}), ...(sampleEntry ? { sampleEntry: true } : {}) }),
   });
   const data = await res.json();
   if (res.status === 401) { ME = null; renderIdentity(); return toast('登录已过期'); }
@@ -1082,6 +1082,7 @@ function openApproveDialog(id) {
     + `<label>目标打印机</label><select id="apPrinter" onchange="renderApTrays()"><option value="">自动匹配（按材料/颜色选机）</option>${opts}</select>`
     + `<label>AMS 槽位（用料）</label><select id="apTray" disabled><option value="">自动匹配（按材料/颜色）</option></select>`
     + `<div id="apNozzleRow" style="display:none"><label>喷嘴</label><select id="apNozzle"><option value="">自动</option></select></div>`
+    + `<label style="display:flex;align-items:center;gap:6px;margin-top:8px;cursor:pointer"><input type="checkbox" id="apSample" style="width:auto;margin:0">📚 入库为训练样本<span class="detail">（打印完成后自动回填成功/失败；无工况勾选或 3D 标注的单会被拒入库）</span></label>`
     + `<label>审批意见（可空）</label><input type="text" id="apComment" placeholder="如：优先打这个件">`
     + `<div class="actions" style="margin-top:10px">`
     + `<button class="ok" id="apGo">通过并分发</button>`
@@ -1096,9 +1097,10 @@ function openApproveDialog(id) {
     if (trayRaw) { try { dispatch.tray = JSON.parse(trayRaw); } catch { /* 忽略坏值 */ } }
     const nz = dlg.querySelector('#apNozzleRow').style.display !== 'none' ? dlg.querySelector('#apNozzle').value : '';
     if (nz !== '') dispatch.nozzleId = Number(nz);
+    const sampleEntry = dlg.querySelector('#apSample').checked; // 📚 入库为训练样本（2026-10-16）
     const comment = dlg.querySelector('#apComment').value.trim();
     dlg.close();
-    doReview(id, 'approve', comment, dispatch);
+    doReview(id, 'approve', comment, dispatch, sampleEntry);
   };
   dlg.showModal();
 }

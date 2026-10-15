@@ -96,11 +96,20 @@ const trainingStore = {
       sliceRec = archiveFile(id, 'slice', input.slice.originalName, input.slice.buffer, MAX_ARCHIVE);
       sliceRec.kind = '3mf';
     }
+    // 同产物去重（2026-10-16 审批入库）：3mf 直通单的「模型」与「切片」是同一份文件，
+    // 归档一次两处引用（省每样本一份文件体积）；切片侧仍带 extraction 供训练消费
+    if (modelRec && sliceRec && modelRec.md5 === sliceRec.md5) {
+      try { if (sliceRec.storedPath && sliceRec.storedPath !== modelRec.storedPath) fs.unlinkSync(sliceRec.storedPath); } catch { /* 已不存在 */ }
+      sliceRec.storedPath = modelRec.storedPath;
+      sliceRec.dedupFrom = 'model';
+    }
 
     const record = {
       id,
       createdAt: now,
       createdBy: String(input.createdBy || ''),
+      // 源单引用（2026-10-16 审批入库链）：预约单号——打印完成/失败时按此回填 outcome
+      sourceRecordId: String(input.sourceRecordId || '').slice(0, 64),
       // 机型隔离（2026-10-12 曼波：多品牌机队，工艺链路按机型隔离；几何链路全机通用）
       machine: String(input.machine || '').trim(),
       notes: String(input.notes || '').slice(0, 500),
@@ -124,6 +133,13 @@ const trainingStore = {
     samples.push(record);
     save(samples);
     return { ...record };
+  },
+
+  /** 按源单回填打印结果（2026-10-16 审批入库链）：dispatcher 完成/失败钩子调用；无对应样本返回 null */
+  setOutcomeBySource(sourceRecordId, outcome) {
+    const s = load().find((x) => x.sourceRecordId === String(sourceRecordId || ''));
+    if (!s) return null;
+    return this.setOutcome(s.id, outcome);
   },
 
   list() { return load().slice().reverse(); },
