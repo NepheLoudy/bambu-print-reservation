@@ -1332,3 +1332,4 @@ dashboard keepalive.vbs 双机路径探测批：保活脚本硬编码笔记本�
 - 文档同批：两仓 README、ticket-pm/LOGIC-MAP（§1.6/§2.2）、ticket-pm/AGENTS.md 契约第 1 条（五桶口径+两仓同步义务）、桌面使用指南 HTML 双副本（台式机桌面+大脑仓库权威副本）。
 - 部署：按联动顺序先 ticket-bot 后 pm-robot（knowledge-tracker），两进程 pm2 online + health 200 + 启动关键行全绿；push.js 末步「SSH 连接失败 read ECONNRESET」复现 v155 已定性误报（sshd 频率保护），人工 SSH 验证为准。本机备注：pm-robot 仓根 node_modules 缺 ssh2 致 push 首跑 MODULE_NOT_FOUND，`npm install` 后重推成功（推送机环境问题，非代码问题）；头部指针补正（v155 批漏更，本高频复发项第 5 次）。
 - **v56 全量复查补记（同日）**：17 套 218 断言回归全绿；台式机→H2D 三通道（MQTT/FTPS/RTSPS）全 OPEN；生产 pm2 九进程 online、队列零滞留；H2D 夜间真实完成打印（plate_7.gcode 100%）；踢线实验持续安静。自审修复：观察台文件列表渲染假上下文致按钮假禁用（FLEET 全局缓存）。错误日志中「AMS 槽位必须是 0-3」为开发期坏参数探针留痕，非现场故障。
+- **v56 现场热修（同日，曼波观察台实测暴露）**：画面「已断开」根因=5s 重渲染逐轮重建会话且旧 WS 不关——每 5s 泄漏一条 WS+RTSPS 会话，打满 LIVE555 会话额后新会话被拒。修复：活会话防重入 + 解码器画布动态寻址跨重渲染续画 + loadFleet 只复活死会话。部署机侧 rtsps 实测 1.1MB/4.3s 正常（服务端无恙，纯前端会话管理锅）；生产 WS 中继 E2E 实测 STREAM PASS（1.35MB/6s）。
