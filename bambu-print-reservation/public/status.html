@@ -114,6 +114,7 @@
 </div>
 <div class="toast" id="toast"></div>
 
+<script src="/vendor/jmuxer.min.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -196,6 +197,7 @@ function camSection(p) {
     return `<div class="cam" id="cam${id}">
       <div class="ph" id="camPh${id}">📷 拓竹本地流（${tag}，H.264）——点「连接画面」经服务端中继拉流</div>
       <canvas id="camCv${id}" style="display:none" width="640" height="360"></canvas>
+      <video id="camVideo${id}" style="display:none" muted playsinline autoplay></video>
       <button class="camBtn" id="camBtn${id}" onclick="toggleH264Stream(${id}, this)">▶ 连接画面</button>
       <span class="camTag">${tag}</span>
     </div>`;
@@ -467,6 +469,9 @@ async function loadFleet() {
   const ae = document.activeElement;
   const inContinuousInput = ae && ae.tagName === 'INPUT' && ae.closest && ae.closest('.fanline,.gline');
   if (inContinuousInput) return;
+  // MSE 会话守卫（2026-10-16）：jmuxer 持有 video 元素引用，卡片重绘会换掉 DOM 导致画面丢失——
+  // MSE 观看期间跳过整绘（状态数字暂不刷新，断开画面即恢复；WebCodecs 路径不受影响）
+  for (const ses of h264Sessions.values()) { if (ses.mode === 'mse') return; }
   const res = await fetch('/api/printers');
   if (res.status === 401) { location.reload(); return; }
   const printers = await res.json();
@@ -580,24 +585,42 @@ async function startH264Stream(id, auto = false) {
       const p = $(`camPh${id}`);
       if (p) p.textContent = '⏹ 画面已断开';
       try { ses.decoder && ses.decoder.close(); } catch { /* 已关 */ }
+  try { ses.jmuxer && ses.jmuxer.destroy(); } catch { /* MSE 清理（10-16） */ }
       h264Sessions.delete(id);
       const b = $(`camBtn${id}`);
       if (b) { b.textContent = '▶ 连接画面'; b.onclick = () => startH264Stream(id); }
     }
   };
 
-  // WebCodecs 能力检查：不可用多为**非安全上下文**（HTTP 非 localhost 不暴露
-  // VideoDecoder，2026-10-15 实锤）——引导用户走 HTTPS 端口而非笼统报「浏览器太老」
-  if (!('VideoDecoder' in window)) {
-    const httpsHint = location.protocol === 'https:'
-      ? '（当前已是 HTTPS，可能是浏览器版本过旧——建议 Chrome/Edge 94+）'
-      : `（HTTP 非 localhost 访问不开放 WebCodecs！请改用 https://${location.hostname}${location.port === '3001' ? ':3443' : ':' + location.port}${location.pathname} 访问——自签证书首访需点「继续访问」）`;
-    ph.textContent = '⚠️ 此浏览器环境不支持 WebCodecs 视频解码' + httpsHint;
+  // 解码路径选择（2026-10-16 双通道）：
+  //   WebCodecs 可用（HTTPS / localhost）→ canvas 低延迟直解（首选）
+  //   WebCodecs 不可用（HTTP 非 localhost / 内嵌 Electron 内核）→ **MSE fallback**：
+  //     jmuxer 把 H.264 Annex-B 实时 remux 成 fMP4 喂 <video>（MSE 无安全上下文要求）
+  //     —— IAB 不认自签证书打不开 HTTPS，MSE 是它在 HTTP 下看画面的唯一路径
+  ses.mode = ('VideoDecoder' in window) ? 'webcodecs' : 'mse';
+  if (ses.mode === 'mse' && !window.JMuxer) {
+    ph.textContent = '⚠️ 解码器不可用（WebCodecs/MSE 均缺失）——请用 Chrome/Edge 系浏览器访问';
     ws.close();
     return;
   }
+  if (ses.mode === 'mse') {
+    // MSE 播放器：video 元素绑定（jmuxer 持有元素引用，故 MSE 会话存续期间
+    // loadFleet 跳过卡片重绘——见 loadFleet 的 MSE 守卫）
+    const videoNow = $(`camVideo${id}`);
+    if (!videoNow) { ph.textContent = '❌ 播放器元素缺失'; ws.close(); return; }
+    videoNow.style.display = 'block';
+    ph.style.display = 'none';
+    ses.jmuxer = new window.JMuxer({
+      node: videoNow,
+      mode: 'video',
+      flushingTime: 0, // 最少缓冲，压低延迟
+      fps: 30,
+      debug: false,
+    });
+    toast(`✅ ${id} 号机画面已接通（MSE 通道）`);
+  }
 
-  ses.decoder = new VideoDecoder({
+  ses.decoder = ses.mode === 'webcodecs' ? new VideoDecoder({
     output: (frame) => {
       ses.frameCount++;
       // 画布/占位动态寻址：5s 重渲染会替换 DOM，解码器持有的旧引用会失效——
@@ -615,10 +638,16 @@ async function startH264Stream(id, auto = false) {
       if (ses.frameCount === 1) toast(`✅ ${id} 号机画面已接通`);
     },
     error: (e) => { console.error('decoder', e); const p = $(`camPh${id}`); if (p) p.textContent = '❌ 解码失败：' + e.message; },
-  });
+  }) : null;
 
   ws.onmessage = (ev) => {
     if (!(ev.data instanceof ArrayBuffer)) return;
+    // MSE 通道：原始字节直接喂 jmuxer（它自带 Annex-B 解析）
+    if (ses.mode === 'mse') {
+      ses.frameCount += 0; // 帧计数交给 video 元素（无法精确）；保持字段
+      try { ses.jmuxer.feed({ video: new Uint8Array(ev.data) }); } catch { /* 坏块丢弃 */ }
+      return;
+    }
     ses.pending.push(new Uint8Array(ev.data));
     // 攒一攒再拆帧（打印机 TCP 分包不按 NALU 对齐）
     if (ses.pending.length < 4 && ses.pending.reduce((a, b) => a + b.length, 0) < 65536) return;
@@ -675,6 +704,7 @@ function closeH264Stream(id) {
   ses.wantWatch = false;
   try { ses.ws && ses.ws.close(); } catch { /* 已关 */ }
   try { ses.decoder && ses.decoder.close(); } catch { /* 已关 */ }
+  try { ses.jmuxer && ses.jmuxer.destroy(); } catch { /* MSE 清理（10-16） */ }
   h264Sessions.delete(id);
   const b = $(`camBtn${id}`), ph = $(`camPh${id}`), cv = $(`camCv${id}`);
   if (b) { b.textContent = '▶ 连接画面'; b.onclick = () => startH264Stream(id); }

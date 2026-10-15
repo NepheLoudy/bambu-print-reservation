@@ -34,11 +34,17 @@ app.use(express.json({ limit: '2mb' }));
 // WebCodecs 要求安全上下文，HTTP 非 localhost 下画面必然黑屏。只对**浏览器 HTML 导航**
 // （Accept 含 text/html）302 跳转 HTTPS 镜像；API/内部调用（Accept: */* 的 fetch/curl、
 // gateway/hub 转发）不受影响。302 而非 301：避免浏览器永久缓存（将来调整端口的余地）
+// ⚠️ 内嵌浏览器（Electron/ZCode IAB）豁免（2026-10-16 实锤：IAB 不认系统证书库，
+// 跳 HTTPS 落证书错误页反而全瞎）——IAB 留在 HTTP，画面走 MSE（jmuxer）通道
 const HTTPS_MIRROR_PORT = Number(process.env.HTTPS_PORT || 3443);
 app.use((req, res, next) => {
+  const ua = String(req.headers['user-agent'] || '');
+  const isEmbedded = /Electron|ZCode\//i.test(ua); // IAB 内嵌内核不重定向
   if (
-    req.method === 'GET'
+    req.protocol === 'http' // ⚠️ 仅 HTTP 侧生效——HTTPS 镜像共用同一 app，缺此条件会自我 302 死循环（ERR_TOO_MANY_REDIRECTS 实锤）
+    && req.method === 'GET'
     && HTTPS_MIRROR_PORT > 0
+    && !isEmbedded
     && String(req.headers.accept || '').includes('text/html')
     && !req.path.startsWith('/api/') // API 路径永不重定向（保险双闸）
   ) {
