@@ -206,11 +206,10 @@
       </div>
       <div class="preview" id="slicedNotice" style="display:none">📦 <b>切片产物审批直通模式</b>——3mf（拓竹）/ gcode（闪铸）的切片参数已内嵌文件，无需工况勾选；材料/颜色栏仅用于选机匹配。注意：3mf 只能去拓竹机、gcode 只能去闪铸机，选错品牌会被自动匹配忽略</div>
       <div class="preview" id="modelPanel" style="display:none"></div>
-      <div id="taxonomy"></div>
       <div class="workbench" id="anno3dBox" style="display:none">
         <div class="wbHead"><span class="wbBadge">3D</span><b>工况标注工坊</b><span class="detail">——选中工具后点击模型表面落点：标注几何链路看不出来、只有人知道的复杂特征（受弯位置、接触面、外观面、载荷…）。拖拽旋转 / 滚轮缩放，点标注点可编辑删除。</span></div>
         <div id="anno3dHint" style="display:none;margin-top:6px;font-size:12px;color:var(--amber)"></div>
-        <div id="toolRow" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px"></div>        <button class="mini" onclick="clearSel()" title="取消选中标注，恢复放置模式">✕ 取消选中</button>        <div id="loadTypeRow" style="display:none;margin-top:6px;font-size:12px;color:var(--muted)">载荷工况标注——受力类型：
+        <div id="toolRow" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px"></div>        <button class="mini" id="clearSelBtn" onclick="clearSel()" title="取消选中标注，恢复放置模式">✕ 取消选中</button>        <div id="loadTypeRow" style="display:none;margin-top:6px;font-size:12px;color:var(--muted)">载荷工况标注——受力类型：
           <select id="loadTypeSel" onchange="updateLoadBtnColor()" style="padding:3px 6px">
             <option value="compression">受压</option>
             <option value="tension">受拉</option>
@@ -245,6 +244,7 @@
         <div class="mfNotes" id="annoList"></div>
         <div id="selPanel" style="display:none;margin-top:8px;padding:8px;background:#fbfcfe;border:1px solid var(--line);border-radius:6px;font-size:12px"></div>
       </div>
+      <div id="taxonomy"></div>
       <div class="hint" id="loadSummary"></div>
       <div class="hint" id="conflictHint"></div>
       <div class="convention" id="convention"></div>
@@ -585,6 +585,8 @@ async function loadAnnotator() {
   // 提示写进独立元素，绝不 innerHTML 覆盖工具行/画布（否则换 STL 后标注区报废）
   const hint = $('anno3dHint');
   $('toolRow').style.display = meshCapable ? 'flex' : 'none';
+  const csb = $('clearSelBtn');
+  if (csb) csb.style.display = meshCapable ? '' : 'none';
   document.getElementById('annoCanvasWrap').style.display = meshCapable ? 'block' : 'none';
   if (!file) {
     hint.style.display = 'block';
