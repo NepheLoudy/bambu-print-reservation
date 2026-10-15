@@ -988,14 +988,40 @@ app.post('/api/printers/:id/resume', requireUser('reviewer'), async (req, res) =
   }
 });
 
+// 停止打印（admin，2026-10-16 曼波真单批）：下发后**验证机器是否真的离开打印态**——
+// 「指令被收下但机器没停」此前是黑盒（stop 回执 success 不等于停机）；按机器实际状态
+// 如实回报（stopped/state/note），前端按结果提示，不再一律显示「已下发」
 app.post('/api/printers/:id/stop', requireUser('admin'), async (req, res) => {
+  const id = parseInt(req.params.id);
+  console.log(`[停止] 收到停止请求 printer=${id}`);
   try {
-    const { id } = req.params;
-    await printerManager.stopPrintOnPrinter(parseInt(id));
-    res.json({ success: true });
+    const gone = ['PRINTING', 'RUNNING', 'PAUSE', 'PREPARE', 'RESUME'];
+    const readState = () => {
+      const st = printerManager.getPrinterState(id);
+      return st ? String(st.gcodeState || '').toUpperCase() : '';
+    };
+    const before = readState();
+    if (!gone.includes(before)) {
+      return res.json({ success: true, wasPrinting: false, stopped: true, state: printerManager.getPrinterState(id)?.status || '', note: '机器当前未处于打印状态，无需停止' });
+    }
+    await printerManager.stopPrintOnPrinter(id);
+    // 状态验证：≤10s 内离开打印/暂停/准备态视为已停止（H2 状态转换慢是已知特性）
+    let stopped = false;
+    for (let i = 0; i < 5; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      if (!gone.includes(readState())) { stopped = true; break; }
+    }
+    const st = printerManager.getPrinterState(id);
+    res.json({
+      success: true,
+      wasPrinting: true,
+      stopped,
+      state: st ? st.status : '',
+      note: stopped ? undefined : '指令被机器受理但状态未变化——请查看机器屏幕（固件可能未响应停止指令）',
+    });
   } catch (err) {
     console.error('停止打印失败:', err);
-    res.status(500).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 

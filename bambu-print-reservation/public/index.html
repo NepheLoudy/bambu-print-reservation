@@ -1271,7 +1271,14 @@ async function printerCtl(id, action, confirmText) {
   if (!confirm(confirmText)) return;
   const res = await fetch(`/api/printers/${id}/${action}`, { method: 'POST' });
   const data = await res.json().catch(() => ({}));
-  toast(res.ok ? '✅ 指令已下发' : '❌ ' + (data.error || '指令失败'));
+  if (res.status === 401) { location.reload(); return; }
+  if (!res.ok) return toast('❌ ' + (data.error || '指令失败'));
+  if (action === 'stop') {
+    // 2026-10-16 曼波真单批：停止按机器实际状态如实回报（固件可能静默忽略停止指令）
+    toast(data.stopped ? `✅ 已停止（${data.state || '已停'}）` : '⚠️ ' + (data.note || '指令被受理但机器未停机'));
+  } else {
+    toast('✅ 指令已下发');
+  }
   setTimeout(loadPrinters, 800);
 }
 

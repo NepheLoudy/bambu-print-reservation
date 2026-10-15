@@ -97,6 +97,7 @@
 | 用料映射 | `ams_mapping2` 逐用料 `{ams_id, slot_id}`（旧 `ams_mapping` legacy 值：AMS=ams*4+slot、外挂=虚拟料位原值）。分发引擎按 slice_info.config 用料清单自动匹配（材料+颜色 redmean），审批指定槽位优先 |
 | fail_reason 50348044 | = 0x0300400C = **HMS 0300-400C「打印已取消」**（非硬件故障；屏幕手停/外部打断/被新任务取消均落此码）。分发侧语义：命中该码 = **机器端人工取消 → 不自动重发**（humanTerminateTask，2026-10-16） |
 | gcode_state RUNNING | **H2 新固件的打印执行态**（打 print 中上报 RUNNING 而非 PRINTING；2026-10-16 实测）。映射层须将 RUNNING 计入「打印中」——漏收会被兜底成空闲、把正在打印的机器误标可派单 |
+| 停止/暂停指令 | `stop`/`pause`/`resume` 帧合规（社区同款 `{"print":{"command":"stop"}}`，print 域数字 seq）；但**回执 success ≠ 真正停机**（残留态实测静默 no-op）——控制台按状态验证如实回报（2026-10-16）。另注：社区有「2025+ 固件控制命令需签名」报告（LINUX DO），本项目实测 project_file/ledctrl 无需签名可用，stop 若在真实打印中仍无效再按该线索深挖 |
 | 错误残留 | 打印被取消/失败后固件**挂住** `gcode_state=FAILED`+`task_id`（屏幕无任何提示仍持续回传；`clean_print_error`/`stop` 实测全受理但不生效——**指令免疫**，2026-10-16 实测）。解除=屏幕处理/重启电源；**分发侧已放行「静止残留」**（方案B：新任务开打顶掉残留，有在打痕迹的真故障不放行） |
 
 ---

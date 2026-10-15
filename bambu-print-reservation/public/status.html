@@ -250,7 +250,7 @@ function controlPanelHtml(p) {
       ${p.status === '暂停' ? `<button class="ok" onclick="cmdPost(${p.id},'resume',null,'恢复打印？')">▶ 恢复</button>` : ''}
       ${lampPair('chamber', '腔灯')}
       ${bambu ? lampPair('work', '工作灯') : ''}
-      ${IS_ADMIN ? `<button class="bad" onclick="cmdPost(${p.id},'stop',null,'⚠️ 停止打印？停机不可恢复，耗材作废')">⏹ 停止</button>` : ''}
+      ${IS_ADMIN && ['打印中', '暂停', '准备中'].includes(p.status) ? `<button class="bad" onclick="stopPrinter(${p.id},'${esc(p.name)}')">⏹ 停止</button>` : ''}
     </div>`;
   if (!bambu) {
     return quickBar + '<div class="meta">闪铸机型：控制面暂限暂停/恢复/灯/停止</div>';
@@ -571,6 +571,26 @@ async function loadFleet() {
 }
 
 // ---------- 指令 ----------
+
+/** 停止打印（admin，2026-10-16 曼波真单批）：按机器实际状态如实回报——
+ *  「指令被收下但机器没停」此前是黑盒（stop 回执 success ≠ 停机），不再一律报「已下发」 */
+async function stopPrinter(id, name) {
+  if (!confirm(`停止 ${name} 的打印？\n\n停机不可恢复，耗材作废`)) return;
+  toast('⏳ 已下发停止，等待机器响应…');
+  let res;
+  let data = {};
+  try {
+    res = await fetch(`/api/printers/${id}/stop`, { method: 'POST' });
+    data = await res.json().catch(() => ({}));
+  } catch (err) {
+    return toast('❌ 网络错误：' + err.message);
+  }
+  if (res.status === 401) { location.reload(); return; }
+  if (!res.ok) return toast('❌ ' + (data.error || '停止失败'));
+  if (data.stopped) toast(`✅ 已停止（${data.state || '已停'}）`);
+  else toast('⚠️ ' + (data.note || '指令被受理但机器未停机'));
+  setTimeout(loadFleet, 2500);
+}
 
 async function cmdPost(id, path, body, confirmText, silentConfirm) {
   if (confirmText && !confirm(confirmText)) return false;

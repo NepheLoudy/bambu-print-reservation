@@ -965,7 +965,7 @@ class Dispatcher {
       storeSafe(() => reservationStore.updateStatus(
         task.recordId,
         config.status.CANCELLED,
-        '已在机器上手动取消——系统不自动重发（如需继续请「复刻」该单）'
+        '已被人工取消（打印机屏幕或控制台）——系统不自动重发（如需继续请「复刻」该单）'
       ), 'human-terminate');
     } else if (isMirrorTask(task)) {
       await bitableApi
@@ -980,12 +980,12 @@ class Dispatcher {
       require('../feishu/bot').buildJobFailedCard(
         task,
         printer,
-        '任务已在打印机上被手动取消，系统不会自动重发；如需继续打印，请在预约页面使用「复刻」重新提交'
+        '任务已被人工取消（打印机屏幕或控制台均可）——系统不会自动重发；如需继续打印，请在预约页面使用「复刻」重新提交'
       ),
       (err) => console.error('[分发] 终止播报失败:', err.message)
     );
-    plaza.append({ event: '人工终止', title: `${task.applicationNo || task.recordId} @ ${printer.name}：机器端手动取消` });
-    console.log(`[分发] 人工终止: ${task.applicationNo || task.recordId} @ ${printer.name}（机器端手动取消，不重发）`);
+    plaza.append({ event: '人工终止', title: `${task.applicationNo || task.recordId} @ ${printer.name}：人工取消` });
+    console.log(`[分发] 人工终止: ${task.applicationNo || task.recordId} @ ${printer.name}（人工取消，不重发）`);
     this.trigger('task-human-terminated');
   }
 
