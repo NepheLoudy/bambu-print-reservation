@@ -67,6 +67,21 @@ function canJogMachine(gcodeState) {
   return ['IDLE', 'FINISH', 'FAILED'].includes(String(gcodeState || '').toUpperCase());
 }
 
+/**
+ * 残留故障可派单判定（2026-10-16 曼波令·方案B，纯函数单测覆盖）：打印被取消/失败后
+ * H2 固件把 gcode_state=FAILED 挂住且**对指令免疫**（clean_print_error/stop 实测全受理
+ * 但不生效，屏幕亦无提示），机器实际静止可用。放行「静止残留」参与分发——新任务开打时
+ * 固件用新状态顶掉残留（Bambu Studio 同口径）；真故障（有在打痕迹：activeTask/进度>0）
+ * 不放行。失联门由调用方（getAvailablePrinters 的报文新鲜度）把守。
+ */
+function canDispatchResidueFailed(p) {
+  return Boolean(p)
+    && p.status === '故障'
+    && String(p.gcodeState || '').toUpperCase() === 'FAILED'
+    && !p.activeTask
+    && !(Number(p.progress) > 0);
+}
+
 class PrinterManager {
   constructor() {
     this.clients = {};
@@ -300,7 +315,9 @@ class PrinterManager {
    */
   getAvailablePrinters() {
     return Object.values(this.printerStates).filter((p) => {
-      if (!p.autoDispatch || !['空闲', '已完成'].includes(p.status)) return false;
+      if (!p.autoDispatch) return false;
+      // 2026-10-16 方案B：静止的残留故障（指令免疫的 FAILED 挂态）同空闲放行派单
+      if (!['空闲', '已完成'].includes(p.status) && !canDispatchResidueFailed(p)) return false;
       const client = this.clients[p.id];
       return Boolean(client) && !client.isStateStale();
     });
@@ -561,3 +578,4 @@ module.exports.resolveJobEvent = resolveJobEvent;
 module.exports.brandOf = brandOf;
 module.exports.cameraKind = cameraKind;
 module.exports.canJogMachine = canJogMachine;
+module.exports.canDispatchResidueFailed = canDispatchResidueFailed;

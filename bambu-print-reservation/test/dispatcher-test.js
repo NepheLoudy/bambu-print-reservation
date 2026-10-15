@@ -107,6 +107,15 @@ check('占用中的打印机不在候选（快照只传空闲）', () => {
   // 模拟 getAvailablePrinters 已过滤打印中的机器
   assert.equal(dispatcher.matchPrinter(task, [printingX1C1, H2D]), null);
 });
+check('静止残留故障（FAILED 挂态）同空闲可派单（2026-10-16 方案B）', () => {
+  const task = { materialType: 'PETG', color: '蓝色' };
+  const residueH2D = { ...H2D, status: '故障', gcodeState: 'FAILED', activeTask: null, progress: 0 };
+  assert.equal(dispatcher.matchPrinter(task, [residueH2D]).name, 'H2D', '残留挂态放行（新任务开打自动顶掉残留）');
+  const midFail = { ...H2D, status: '故障', gcodeState: 'FAILED', activeTask: null, progress: 47 };
+  assert.equal(dispatcher.matchPrinter(task, [midFail]), null, '中途失败（进度>0）不放行');
+  const tracedTask = { ...H2D, status: '故障', gcodeState: 'FAILED', activeTask: { id: 1 }, progress: 0 };
+  assert.equal(dispatcher.matchPrinter(task, [tracedTask]), null, '有在册任务不放行');
+});
 
 // ---------- 队列排序 ----------
 check('加急任务排在普通任务前', () => {

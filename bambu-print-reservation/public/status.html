@@ -450,8 +450,8 @@ function errorSection(p) {
     const code = p.failReason || p.printError || 0;
     const codeLine = code ? `失败码 <b>${code}</b>${tr(code)}；` : '';
     hot.push(`<div class="residueBox">🔸 <b>任务残留状态</b>：上次打印已终止（${codeLine}）机器已停止但固件仍标记故障——`
-      + `屏幕首页无报错属正常现象；<b>残留不清除，新任务不会被自动分发到这台机器</b>。`
-      + `若清除指令无效，可在机器屏幕处理该任务或重启打印机电源。`
+      + `屏幕首页无报错属正常现象；<b>分发器已放行「静止残留」派单——新任务开打会自动顶掉它</b>。`
+      + `也可点下方按钮尝试立即清除（指令无效时重启打印机电源）。`
       + (IS_ADMIN ? `<div style="margin-top:5px"><button class="mini" onclick="clearResidue(${p.id},'${esc(p.name)}')">🧹 清除任务残留（让机器回空闲）</button></div>` : '')
       + `</div>`);
   }

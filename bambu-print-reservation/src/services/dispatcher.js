@@ -595,11 +595,13 @@ class Dispatcher {
   /** 为单个任务选机：指定打印机 → 多色覆盖 → AMS 精确 → AMS 家族 */
   matchPrinter(task, available) {
     // 双保险：只考虑真正空闲且支持自动分发的打印机（调用方列表未过滤时也不误选）；
+    // 静止的残留故障（FAILED 挂态，指令免疫）同空闲放行——2026-10-16 方案B
+    // （新任务开打自动顶掉残留；有在打痕迹的真故障仍拒绝）；
     // 文件格式↔品牌隔离（2026-10-14 双品牌批）：拓竹 3mf 与闪铸 gcode 切片格式互不
     // 兼容，跨品牌分发=打出废件，匹配层直接不可见
     const candidates = (available || []).filter(
       (p) => p.autoDispatch
-        && ['空闲', '已完成'].includes(p.status)
+        && (['空闲', '已完成'].includes(p.status) || printerManager.canDispatchResidueFailed(p))
         && brandForFile(task.fileName) === (printerManager.brandOf(p.model) || 'bambu')
     );
 

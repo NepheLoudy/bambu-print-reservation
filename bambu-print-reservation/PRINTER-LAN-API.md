@@ -96,7 +96,7 @@
 | 开打帧 bed_type | 必须与切片产物 `curr_bed_type` 一致（错配触发 H2 板检测警告/暂停 0500-8051）。token：Textured PEI Plate→`textured_plate`、High Temp Plate / Smooth PEI Plate→`hot_plate`、Cool Plate→`cool_plate`、SuperTack→`supertack_plate`（OrcaSlicer.dll 实锤）；**2026-10-16 起按文件动态取**，硬编码仅兜底 |
 | 用料映射 | `ams_mapping2` 逐用料 `{ams_id, slot_id}`（旧 `ams_mapping` legacy 值：AMS=ams*4+slot、外挂=虚拟料位原值）。分发引擎按 slice_info.config 用料清单自动匹配（材料+颜色 redmean），审批指定槽位优先 |
 | fail_reason 50348044 | = 0x0300400C = **HMS 0300-400C「打印已取消」**（非硬件故障；屏幕手停/外部打断/被新任务取消均落此码） |
-| 错误残留 | 打印被取消/失败后固件**挂住** `gcode_state=FAILED`+`task_id`（屏幕首页无报错仍持续回传）；清除 = `clean_print_error`（BambuStudio 同款命令，字段 `subtask_id`/`print_error`，OrcaSlicer.dll 实锤）；不清则分发匹配（白名单仅空闲/已完成）永远不选此机，队列静默卡死 |
+| 错误残留 | 打印被取消/失败后固件**挂住** `gcode_state=FAILED`+`task_id`（屏幕无任何提示仍持续回传；`clean_print_error`/`stop` 实测全受理但不生效——**指令免疫**，2026-10-16 实测）。解除=屏幕处理/重启电源；**分发侧已放行「静止残留」**（方案B：新任务开打顶掉残留，有在打痕迹的真故障不放行） |
 
 ---
 

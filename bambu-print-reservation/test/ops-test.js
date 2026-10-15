@@ -199,6 +199,16 @@ check('resolveJobEvent:首报文补收尾事件(重启间隙),常规变迁口径
   assert.equal(resolveJobEvent('IDLE', 'IDLE', true), null, '同为空闲不发事件');
 });
 
+check('canDispatchResidueFailed:静止残留放行,有在打痕迹/未知不放行', () => {
+  const { canDispatchResidueFailed } = require('../src/printer/manager');
+  const base = { status: '故障', gcodeState: 'FAILED', activeTask: null, progress: 0 };
+  assert.equal(canDispatchResidueFailed(base), true, '静止残留放行（方案B：新任务顶掉）');
+  assert.equal(canDispatchResidueFailed({ ...base, progress: 47 }), false, '进度>0（中途失败）不放行');
+  assert.equal(canDispatchResidueFailed({ ...base, activeTask: { id: 1 } }), false, '有在册任务不放行');
+  assert.equal(canDispatchResidueFailed({ status: '空闲', gcodeState: 'IDLE' }), false, '非故障态不归此判');
+  assert.equal(canDispatchResidueFailed(null), false);
+});
+
 check('buildAmsMapping:指定槽/自动匹配/无清单三径,外挂虚拟料位 254/255 编码', () => {
   const { buildAmsMapping } = require('../src/services/dispatcher');
   const printer = {
