@@ -292,7 +292,9 @@ class PrinterClient {
             url: `ftp:///${fileName}`,
             file: fileName,
             md5: '',
-            bed_type: 'auto',
+            // 板型必须与切片产物 curr_bed_type 一致（auto 在 H2 上仍触发板检测警告
+            // [0500-8051 223015] 暂停——2026-10-15 真机实锤）
+            bed_type: 'textured_plate',
             timelapse: false,
             bed_leveling: true,
             auto_bed_leveling: 1,

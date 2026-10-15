@@ -139,6 +139,13 @@ for (const [k, v] of Object.entries(engineParams)) {
   applied.push(`${k}→${key}=${val}`);
 }
 
+// 打印板型对齐（2026-10-15 真机实锤）：Orca 基座档缺省 Cool Plate（床温 35°）与
+// H2D 实装的金色纹理 PEI 不符 → 打印机板检测警告 [0500-8051 223015] 暂停。
+// 默认注入 Textured PEI Plate；ORCA_BED_TYPE 环境变量可覆盖（换板即改）
+const bedType = process.env.ORCA_BED_TYPE || 'Textured PEI Plate';
+processCfg.curr_bed_type = bedType;
+applied.push(`bedType→curr_bed_type=${bedType}`);
+
 // 兼容对齐：CLI 拿 machine 的 inherits（user 档的系统父名）与 process 的
 // compatible_printers 名单逐个比对，不等即 -17 拒切。让两边指向同一身份：
 // machine.inherits = 机器档名，process 名单 = [机器档名]
