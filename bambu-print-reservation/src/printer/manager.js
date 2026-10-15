@@ -47,7 +47,8 @@ function resolveJobEvent(prevState, to, hasActiveTask) {
     return null;
   }
   if (prevState === to) return null;
-  if (to === 'PRINTING' && !['RESUME'].includes(prevState)) return 'start';
+  // RUNNING = H2 新固件的打印执行态（2026-10-16 实测），与 PRINTING 同义并入 start 判定
+  if ((to === 'PRINTING' || to === 'RUNNING') && !['RESUME'].includes(prevState)) return 'start';
   // 注意 FINISH → finish 分支在前，idle 分支不再判 FINISH（否则永不可达）
   if (to === 'FINISH') return 'finish';
   if (to === 'FAILED') return 'failed';

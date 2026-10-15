@@ -14,6 +14,16 @@ const slicerExtract = require('./slicerExtract');
 const isUnslicedFile = (r) => isUnslicedFileName(r && r.fileName);
 const plaza = require('./plaza');
 
+// 机器端人工取消的 fail_reason 集合（2026-10-16 曼波令）：HMS 0300-400C「打印已取消」
+// 系列码 = 打印被人在机器上停止/取消（屏幕手停、外部客户端取消）——**人的决定，系统
+// 必须尊重**：不重排队、不自动重发（此前误走 failTask「失败重排」——机器上取消一次、
+// 系统就再发一次，与人循环对抗）。本系统自己发的 stop 不会走到此判（dequeue 先释放
+// printing 映射，failed 事件找不到在册任务）。
+const HUMAN_CANCEL_FAIL_CODES = new Set([50348044]); // 0x0300400C；后续实测到变体码再补
+function isHumanCancelFailReason(code) {
+  return HUMAN_CANCEL_FAIL_CODES.has(Number(code) || 0);
+}
+
 /**
  * 文件格式 → 品牌适配（2026-10-14 双品牌纯内网批，纯函数单测覆盖）：
  * gcode/g/gx（FlashPrint/Orca 闪铸 profile 产物）→ 闪铸；其余（Bambu Studio 3mf
@@ -285,7 +295,17 @@ class Dispatcher {
       if (event === 'finish') {
         if (task) this.completeTask(task, printer);
       } else if (event === 'failed') {
-        if (task) this.failTask(task, printer, '打印机上报失败状态');
+        if (task) {
+          // 2026-10-16 曼波令：机器端人工取消（0300-400C 系列）不重发——
+          // 其余失败（机械/挤出/AMS 等）维持既有「失败重排」通道
+          if (isHumanCancelFailReason(printer.failReason)) {
+            this.humanTerminateTask(task, printer).catch((err) =>
+              console.error('[分发] 人工终止收尾失败:', err.message)
+            );
+          } else {
+            this.failTask(task, printer, '打印机上报失败状态');
+          }
+        }
       } else if (event === 'start') {
         // 预估时长捕获（v46）：start 时刻打印机已算出本任务 ETA（mc_remaining_time，
         // 分钟）——幽灵巡检阈值从固定 12h 变动态（预估×2 且 ≥1h）
@@ -300,10 +320,17 @@ class Dispatcher {
         // 放行前先按失败收尾（写回「排队中」+ 重排/重试通道），再触发下一轮匹配
         const ghost = this.printing.get(printer.id);
         if (ghost) {
-          console.warn(`[分发] 打印机 ${printer.name} 由打印中直回空闲且无完成事件，按失败收尾幽灵任务: ${ghost.applicationNo || ghost.recordId}`);
-          this.failTask(ghost, printer, '打印机回空闲且无完成事件').catch((err) =>
-            console.error('[分发] 幽灵任务收尾失败:', err.message)
-          );
+          // 幽灵收尾同样尊重人工取消码（直回空闲但残留取消码时不当失败重排）
+          if (isHumanCancelFailReason(printer.failReason)) {
+            this.humanTerminateTask(ghost, printer).catch((err) =>
+              console.error('[分发] 人工终止收尾失败:', err.message)
+            );
+          } else {
+            console.warn(`[分发] 打印机 ${printer.name} 由打印中直回空闲且无完成事件，按失败收尾幽灵任务: ${ghost.applicationNo || ghost.recordId}`);
+            this.failTask(ghost, printer, '打印机回空闲且无完成事件').catch((err) =>
+              console.error('[分发] 幽灵任务收尾失败:', err.message)
+            );
+          }
         }
         this.trigger('printer-idle');
       }
@@ -799,9 +826,10 @@ class Dispatcher {
 
       task.startedAt = Date.now();
       this.printing.set(printer.id, task);
-      // 成功分发清零重试计数（2026-09-27）：不清零则 givenUp 人工恢复后再失败
-      // 会带着历史计数直接判耗尽（一次失败就退出队列），运行期失败也提前折寿
-      task.dispatchRetries = 0;
+      // 重试计数口径（2026-10-16 热修4）：**成功分发不清零**——此前每次开打成功即清零，
+      // 「开打→快速失败→重排」循环永远停在计数 1、够不到上限 3，配合残留放行（方案B）
+      // 成无限热循环（R003 实测 9 分钟 4 发）。清零只发生在「干净的起点」：人工恢复
+      // （manualDispatch）与完整件完成（completeTask 续件段）。
       printerManager.updateState(printer.id, { activeTask: task });
 
       announce(`开始卡 ${task.recordId}`,
@@ -920,6 +948,45 @@ class Dispatcher {
     }
     console.log(`[分发] 完成: ${task.applicationNo || task.recordId} @ ${printer.name}`);
     this.trigger('task-finish');
+  }
+
+  /**
+   * 机器端人工终止（2026-10-16 曼波令）：打印在机器上被手动取消（fail_reason 命中
+   * HUMAN_CANCEL_FAIL_CODES）——**人的决定，系统不跟人对着干**：不重排队、不自动重发。
+   * 口径对齐网页端取消：本地单置「已取消」（如需继续用「复刻」一键重开）+ 播报终止卡。
+   * 与 failTask 的差别：不消耗重试次数、不进 givenUp——这不是失败，是人工终止。
+   */
+  async humanTerminateTask(task, printer) {
+    if (this.printing.get(printer.id) !== task) return;
+    this.printing.delete(printer.id);
+    printerManager.updateState(printer.id, { activeTask: null });
+
+    if (isLocalTask(task)) {
+      storeSafe(() => reservationStore.updateStatus(
+        task.recordId,
+        config.status.CANCELLED,
+        '已在机器上手动取消——系统不自动重发（如需继续请「复刻」该单）'
+      ), 'human-terminate');
+    } else if (isMirrorTask(task)) {
+      await bitableApi
+        .updateRecord(config.bitable.reservationTableId, task.recordId, {
+          '申请状态': config.status.CANCELLED,
+        })
+        .catch(() => {});
+    }
+
+    announce(
+      `终止卡 ${task.recordId}`,
+      require('../feishu/bot').buildJobFailedCard(
+        task,
+        printer,
+        '任务已在打印机上被手动取消，系统不会自动重发；如需继续打印，请在预约页面使用「复刻」重新提交'
+      ),
+      (err) => console.error('[分发] 终止播报失败:', err.message)
+    );
+    plaza.append({ event: '人工终止', title: `${task.applicationNo || task.recordId} @ ${printer.name}：机器端手动取消` });
+    console.log(`[分发] 人工终止: ${task.applicationNo || task.recordId} @ ${printer.name}（机器端手动取消，不重发）`);
+    this.trigger('task-human-terminated');
   }
 
   async failTask(task, printer, reason) {
@@ -1153,6 +1220,8 @@ class Dispatcher {
 
     this.queue = this.queue.filter((t) => t.recordId !== task.recordId);
     if (fromGivenUp) this.givenUp.delete(task.recordId);
+    // 人工恢复 = 干净的起点（2026-10-16）：清零历史失败计数，给满额重试额度
+    task.dispatchRetries = 0;
     await this.dispatch(task, printer);
     this.persistState();
     return { manualOnly: false, message: `已分发到 ${printer.name}` };
@@ -1172,3 +1241,4 @@ module.exports.buildLocalTask = buildLocalTask;
 module.exports.staleThresholdMs = staleThresholdMs;
 module.exports.brandForFile = brandForFile;
 module.exports.buildAmsMapping = buildAmsMapping;
+module.exports.isHumanCancelFailReason = isHumanCancelFailReason;

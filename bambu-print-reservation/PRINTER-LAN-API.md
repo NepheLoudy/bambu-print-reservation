@@ -95,7 +95,8 @@
 | 外部料位编码 | H2D 外部料位 = 虚拟料位：**254=外挂料盘·左 / 255=外挂料盘·右**（各为独立虚拟 AMS 单元、槽 0；Bambuddy 同口径）。数据位：`print.vir_slot`（打印域，非 AMS 域） |
 | 开打帧 bed_type | 必须与切片产物 `curr_bed_type` 一致（错配触发 H2 板检测警告/暂停 0500-8051）。token：Textured PEI Plate→`textured_plate`、High Temp Plate / Smooth PEI Plate→`hot_plate`、Cool Plate→`cool_plate`、SuperTack→`supertack_plate`（OrcaSlicer.dll 实锤）；**2026-10-16 起按文件动态取**，硬编码仅兜底 |
 | 用料映射 | `ams_mapping2` 逐用料 `{ams_id, slot_id}`（旧 `ams_mapping` legacy 值：AMS=ams*4+slot、外挂=虚拟料位原值）。分发引擎按 slice_info.config 用料清单自动匹配（材料+颜色 redmean），审批指定槽位优先 |
-| fail_reason 50348044 | = 0x0300400C = **HMS 0300-400C「打印已取消」**（非硬件故障；屏幕手停/外部打断/被新任务取消均落此码） |
+| fail_reason 50348044 | = 0x0300400C = **HMS 0300-400C「打印已取消」**（非硬件故障；屏幕手停/外部打断/被新任务取消均落此码）。分发侧语义：命中该码 = **机器端人工取消 → 不自动重发**（humanTerminateTask，2026-10-16） |
+| gcode_state RUNNING | **H2 新固件的打印执行态**（打 print 中上报 RUNNING 而非 PRINTING；2026-10-16 实测）。映射层须将 RUNNING 计入「打印中」——漏收会被兜底成空闲、把正在打印的机器误标可派单 |
 | 错误残留 | 打印被取消/失败后固件**挂住** `gcode_state=FAILED`+`task_id`（屏幕无任何提示仍持续回传；`clean_print_error`/`stop` 实测全受理但不生效——**指令免疫**，2026-10-16 实测）。解除=屏幕处理/重启电源；**分发侧已放行「静止残留」**（方案B：新任务开打顶掉残留，有在打痕迹的真故障不放行） |
 
 ---

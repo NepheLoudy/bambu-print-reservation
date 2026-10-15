@@ -7,8 +7,11 @@ const { Readable } = require('stream');
 const RtpsSession = require('./rtsps');
 
 // gcodeState（打印机上报的 gcode_state）→ 统一中文状态
+// RUNNING 是 H2 新固件的「打印执行中」态（2026-10-16 真机实测：H2D 打print时上报 RUNNING
+// 而非 PRINTING；此前未收录被兜底成「空闲」——会把正在打印的机器误标为空闲/可派单）
 const GCODE_STATE_MAP = {
   PRINTING: '打印中',
+  RUNNING: '打印中',
   RESUME: '打印中',
   PAUSE: '暂停',
   FINISH: '已完成',

@@ -197,6 +197,20 @@ check('resolveJobEvent:首报文补收尾事件(重启间隙),常规变迁口径
   assert.equal(resolveJobEvent('FINISH', 'IDLE', true), 'idle', 'FINISH→IDLE 同样发 idle（幂等重试）');
   assert.equal(resolveJobEvent('PAUSE', 'IDLE', true), 'idle', 'PAUSE→IDLE（屏幕取消暂停任务）触发重匹配');
   assert.equal(resolveJobEvent('IDLE', 'IDLE', true), null, '同为空闲不发事件');
+  // RUNNING=H2 新固件打印执行态（2026-10-16 实测）——并入 start/收尾口径
+  assert.equal(resolveJobEvent('PREPARE', 'RUNNING', true), 'start', 'RUNNING 起点算 start（ETA 捕获通道）');
+  assert.equal(resolveJobEvent('RUNNING', 'FINISH', true), 'finish');
+  assert.equal(resolveJobEvent('RUNNING', 'IDLE', false), 'idle', '打印中(RUNNING)→空闲触发重匹配');
+  assert.equal(resolveJobEvent('RUNNING', 'FAILED', true), 'failed');
+});
+
+check('isHumanCancelFailReason:机器端人工取消码识别（取消不重发）', () => {
+  const { isHumanCancelFailReason } = require('../src/services/dispatcher');
+  assert.equal(isHumanCancelFailReason(50348044), true, 'HMS 0300-400C=打印已取消');
+  assert.equal(isHumanCancelFailReason('50348044'), true, '字符串数字同样识别');
+  assert.equal(isHumanCancelFailReason(0), false);
+  assert.equal(isHumanCancelFailReason(undefined), false);
+  assert.equal(isHumanCancelFailReason(12345), false, '未知码当普通失败走重排');
 });
 
 check('canDispatchResidueFailed:静止残留放行,有在打痕迹/未知不放行', () => {
