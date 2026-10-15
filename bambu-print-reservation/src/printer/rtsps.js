@@ -22,6 +22,9 @@ const RTSPS_PORT = 322;
 const STREAM_PATH = '/streaming/live/1';
 // TLS + RTSP 握手（OPTIONS→DESCRIBE×2→SETUP→PLAY）总预算
 const HANDSHAKE_TIMEOUT_MS = 12000;
+// 流态空闲超时：打印机断电/断网后 TCP 不一定立刻关，60s 无字节即自杀，
+// 不占打印机的 RTSP 会话额（LIVE555 会话数有限，僵尸会话会顶死新观看）
+const STREAM_IDLE_TIMEOUT_MS = 60 * 1000;
 
 function md5(s) {
   return crypto.createHash('md5').update(s).digest('hex');
@@ -189,6 +192,7 @@ class RtpsSession extends EventEmitter {
   }
 
   _onData(chunk) {
+    this._armIdleTimer();
     this.rx = Buffer.concat([this.rx, chunk]);
     // 统一状态机：RTSP 响应（文本）与 interleaved 流（二进制）在同一条 TLS 连接里
     // 混跑——实测 PLAY 响应回来前 RTCP SR 就先到，按缓冲区首字节分流处理
@@ -264,9 +268,19 @@ class RtpsSession extends EventEmitter {
     } else if (this._stage === 'play') {
       clearTimeout(this._handshakeTimer);
       this.streaming = true;
+      this._armIdleTimer();
       // 缓冲里可能已攒着先到的流数据——外层 _onData 循环会继续消化，无需递归
       this.emit('open');
     }
+  }
+
+  /** 流态空闲看门狗：60s 无任何字节即判定链路死亡，自杀释放打印机 RTSP 会话额 */
+  _armIdleTimer() {
+    clearTimeout(this._idleTimer);
+    this._idleTimer = setTimeout(() => {
+      if (this.destroyed || !this.streaming) return;
+      this._fail(new Error(`画面流空闲超时（${STREAM_IDLE_TIMEOUT_MS / 1000}s 无数据）`));
+    }, STREAM_IDLE_TIMEOUT_MS);
   }
 
   /** 401 后带 digest 重发当前方法（同 CSeq 语义无必要，递增即可） */
@@ -289,6 +303,7 @@ class RtpsSession extends EventEmitter {
     if (this.destroyed) return;
     this.destroyed = true;
     clearTimeout(this._handshakeTimer);
+    clearTimeout(this._idleTimer);
     // TEARDOWN 尽力而为：对端可能已不在，失败无所谓
     try {
       if (this.socket && !this.socket.destroyed && this.session) {

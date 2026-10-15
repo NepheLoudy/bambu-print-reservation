@@ -1134,9 +1134,13 @@ app.get('/api/printers/:id/camera/mjpeg', requireUser(), (req, res) => {
   upstream.end();
 });
 
-// 拓竹 P1/A1 系 H.264 中继：TCP 6000 裸流 → WebSocket 二进制（前端 WebCodecs 解码）。
-// upgrade 不走 express 中间件，cookie 会话在此手动校验（requireUser 同源逻辑）
+// 拓竹画面 H.264 中继：P1/A1=TCP 6000 裸流 / X1-H2D=RTSPS 322（rtsps.js 归一 Annex-B）
+// → WebSocket 二进制（前端 WebCodecs 解码）。upgrade 不走 express 中间件，cookie 会话在此手动校验
 const wssCamera = new WebSocketServer({ noServer: true });
+// 每打印机并发观看上限（v56 复查批）：前端泄漏页/多开标签会按连接数吃打印机 RTSP 会话额，
+// 封顶后多余的直接拒绝——新连接永远抢得到额度，泄漏页不再能饱和打印机
+const CAMERA_MAX_PER_PRINTER = 3;
+const cameraRelayCount = new Map(); // printerId → 当前中继数
 function handleCameraUpgrade(req, socket, head) {
   const m = /^\/api\/printers\/(\d+)\/camera\/h264(\?.*)?$/.exec(req.url || '');
   if (!m) { socket.destroy(); return; }
@@ -1152,8 +1156,19 @@ function handleCameraUpgrade(req, socket, head) {
     socket.destroy();
     return;
   }
+  const relayCount = cameraRelayCount.get(p.id) || 0;
+  if (relayCount >= CAMERA_MAX_PER_PRINTER) {
+    socket.write('HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\n\r\n');
+    socket.destroy();
+    console.log(`[画面] ${p.name} 中继数已达上限 ${CAMERA_MAX_PER_PRINTER}，拒绝新连接（有泄漏页未关？）`);
+    return;
+  }
+  cameraRelayCount.set(p.id, relayCount + 1);
   wssCamera.handleUpgrade(req, socket, head, (ws) => {
     const upstream = printerManager.openCameraStream(p.id);
+    const release = () => {
+      cameraRelayCount.set(p.id, Math.max(0, (cameraRelayCount.get(p.id) || 1) - 1));
+    };
     upstream.on('data', (chunk) => {
       // 背压保护：慢客户端（浏览器后台标签页）的缓冲超 4MB 就丢帧，防服务端内存被撑爆
       if (ws.readyState !== ws.OPEN) return;
@@ -1161,11 +1176,15 @@ function handleCameraUpgrade(req, socket, head) {
       ws.send(chunk, { binary: true });
     });
     upstream.on('error', (err) => {
+      release();
       try { ws.close(1011, err.message.slice(0, 100)); } catch { /* 已关 */ }
     });
-    upstream.on('close', () => { try { ws.close(1000); } catch { /* 已关 */ } });
-    ws.on('close', () => { try { upstream.destroy(); } catch { /* 已销毁 */ } });
-    ws.on('error', () => { try { upstream.destroy(); } catch { /* 已销毁 */ } });
+    upstream.on('close', () => {
+      release();
+      try { ws.close(1000); } catch { /* 已关 */ }
+    });
+    ws.on('close', () => { release(); try { upstream.destroy(); } catch { /* 已销毁 */ } });
+    ws.on('error', () => { release(); try { upstream.destroy(); } catch { /* 已销毁 */ } });
   });
 }
 

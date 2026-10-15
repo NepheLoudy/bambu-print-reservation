@@ -523,25 +523,33 @@ async function loadAnnotator() {
   const file = $('file').files[0];
   const box = $('anno3dBox');
   const meshCapable = !!file && /\.stl$/i.test(file.name) && !isSlicedFile();
-  box.style.display = meshCapable ? 'block' : 'none';
-  // 非静默：明确告诉用户 3D 标注的启用条件（录入台入口可见性）——
+  // 录入台常显（v56 复查批）：需求链路模式下区块永远可见，按状态给引导——
+  // 入口不可见=「找不到标注在哪」的直接根源
+  box.style.display = isSlicedFile() ? 'none' : 'block';
+  // 非静默：明确告诉用户 3D 标注的启用条件——
   // 提示写进独立元素，绝不 innerHTML 覆盖工具行/画布（否则换 STL 后标注区报废）
   const hint = $('anno3dHint');
-  if (file && !isSlicedFile() && !/\.stl$/i.test(file.name)) {
-    box.style.display = 'block';
+  $('toolRow').style.display = meshCapable ? 'flex' : 'none';
+  document.getElementById('annoCanvasWrap').style.display = meshCapable ? 'block' : 'none';
+  if (!file) {
     hint.style.display = 'block';
-    hint.innerHTML = '📐 3D 工况标注仅支持 <b>.stl</b> 模型（当前 ' + esc(file.name) + '）——step/obj 可用切片软件另存 STL，或直接在下方手勾工况（载荷组已展开）。';
-    $('toolRow').style.display = 'none';
+    hint.innerHTML = '📐 选择 <b>.stl</b> 模型后，此处出现 3D 标注视图——载荷/悬垂支撑/受弯轴线/接触面/外观面点选即标，自动折算工况并定档。';
+    $('annoList').textContent = '';
+    updateLoadGroupMode();
+    syncLoadsToSelection();
+    return;
+  }
+  if (!isSlicedFile() && !/\.stl$/i.test(file.name)) {
+    hint.style.display = 'block';
+    hint.innerHTML = '📐 3D 工况标注仅支持 <b>.stl</b> 模型（当前 ' + esc(file.name) + '）——step/obj 可用切片软件另存 STL，或直接在下方手勾工况（载荷组已展开回退）。';
     $('loadTypeRow').style.display = 'none';
-    document.getElementById('annoCanvasWrap').style.display = 'none';
     $('annoList').textContent = '';
     updateLoadGroupMode();
     syncLoadsToSelection();
     return;
   }
   hint.style.display = 'none';
-  $('toolRow').style.display = 'flex';
-  document.getElementById('annoCanvasWrap').style.display = 'block';
+  $('loadTypeRow').style.display = 'none';
   updateLoadGroupMode();
   if (!meshCapable) { syncLoadsToSelection(); return; }
   initAnnotatorTools();
@@ -1213,6 +1221,7 @@ async function printerCtl(id, action, confirmText) {
   restoreSelMemory();
   $('file').addEventListener('change', () => { updateSlicedMode(); analyzeModel(); loadAnnotator(); }); // 双通道模式感知 + STL 几何体检 + 3D 标注装载
   preflight();
+  loadAnnotator(); // 录入台常显：首屏即给出 3D 标注引导（v56 复查批）
   renderSelSummary();
   if (ME) { await loadList(); loadPrinters(); }
   setInterval(() => { if (ME) { loadList(); loadPrinters(); } }, 15000);
