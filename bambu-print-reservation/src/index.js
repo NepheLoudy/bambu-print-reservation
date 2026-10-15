@@ -30,6 +30,23 @@ app.use(cors());
 // 审批事件/表单可能较大（AGENTS.md 通用坑：express.json 放宽到 2mb）
 app.use(express.json({ limit: '2mb' }));
 
+// HTTP → HTTPS 导航自动升级（2026-10-16 曼波反复踩「HTTP 页面没画面」根治）：
+// WebCodecs 要求安全上下文，HTTP 非 localhost 下画面必然黑屏。只对**浏览器 HTML 导航**
+// （Accept 含 text/html）302 跳转 HTTPS 镜像；API/内部调用（Accept: */* 的 fetch/curl、
+// gateway/hub 转发）不受影响。302 而非 301：避免浏览器永久缓存（将来调整端口的余地）
+const HTTPS_MIRROR_PORT = Number(process.env.HTTPS_PORT || 3443);
+app.use((req, res, next) => {
+  if (
+    req.method === 'GET'
+    && HTTPS_MIRROR_PORT > 0
+    && String(req.headers.accept || '').includes('text/html')
+    && !req.path.startsWith('/api/') // API 路径永不重定向（保险双闸）
+  ) {
+    return res.redirect(302, `https://${req.hostname}:${HTTPS_MIRROR_PORT}${req.originalUrl}`);
+  }
+  next();
+});
+
 // 前端页面（同源伺服，public/index.html）；HTML 不缓存——页面迭代后浏览器不得吃旧版；
 // js/css 同样不缓存（2026-10-12：迭代期启发式缓存让浏览器跑旧脚本，"功能又坏了"类反馈的真凶）
 app.use(express.static(path.join(__dirname, '..', 'public'), {
