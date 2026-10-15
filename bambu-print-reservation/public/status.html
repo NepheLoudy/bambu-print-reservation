@@ -65,6 +65,9 @@
   /* 机器助手报错事件区（HMS/错误码） */
   .errBox { margin: 6px 0; padding: 8px 12px; background: rgba(255, 93, 93, .07); border: 1px solid rgba(255, 93, 93, .4);
     border-left: 3px solid var(--bad); border-radius: 3px; font-size: 12px; color: #ffb3b3; line-height: 1.8; }
+  /* 任务残留条（2026-10-16）：机器已停止但固件挂着 FAILED，非活跃告警——琥珀色信息口径 */
+  .residueBox { margin: 6px 0; padding: 8px 12px; background: rgba(217, 179, 43, .07); border: 1px solid rgba(217, 179, 43, .45);
+    border-left: 3px solid #d9b32b; border-radius: 3px; font-size: 12px; color: #e8cf8a; line-height: 1.8; }
   .coldBox { margin: 6px 0; padding: 5px 12px; background: rgba(126, 138, 153, .06); border: 1px solid var(--line2);
     border-radius: 3px; font-size: 11px; color: var(--dim); line-height: 1.7; }
   .tempRow { display: flex; align-items: center; gap: 8px; font-size: 12px; margin: 6px 0; }
@@ -420,19 +423,36 @@ function hmsTs(h) {
 }
 
 /**
- * 机器助手报错事件区（实时性口径，2026-10-15 晚修）：
- *   - print_error/fail_reason 是「最后一次打印的错误」——打印机持久保留不清，
- *     仅在**活动打印或失败态**（PRINTING/PAUSE/PREPARE/FAILED）展示，空闲/完成隐藏
- *     （否则停了测试件后旧错误码会一直挂着 = 曼波反馈的「实时性差」）
+ * 机器助手报错事件区（实时性口径，2026-10-16 二次修——曼波反馈「机子没报错还显示」）：
+ *   - print_error/fail_reason 打印机会持久保留——仅**活动打印**（打印中/暂停/准备中）
+ *     或**有在打痕迹的故障**（FAILED 且 activeTask/进度>0）作红色活跃告警；
+ *   - FAILED 且机器静止 = 任务终止残留（H2 固件在取消/失败后不清 gcode_state，
+ *     屏幕首页无报错也照样回传）——降级为「任务残留」信息条 + 一键清除；残留不清，
+ *     分发匹配（白名单仅空闲/已完成）永远选不中这台机器 = 队列静默卡死的根因之一；
+ *   - 已知码翻译成人话（50348044=HMS 0300-400C 取消码，实锤）；未知码保留原始值引导看屏；
  *   - HMS 通知按时间戳过滤：超 24h 的历史码折叠为灰色一行，活跃码醒目显示
  */
+const FAIL_REASON_KNOWN = {
+  50348044: '打印已取消（停止/外部中断，非硬件故障）',
+};
+
 function errorSection(p) {
-  const active = ['打印中', '暂停', '准备中', '故障'].includes(p.status);
+  const tr = (code) => (FAIL_REASON_KNOWN[code] ? `（${FAIL_REASON_KNOWN[code]}）` : '');
+  const printing = ['打印中', '暂停', '准备中'].includes(p.status);
+  const failedActive = p.status === '故障' && (p.activeTask || Number(p.progress) > 0);
+  const residue = p.status === '故障' && String(p.gcodeState || '').toUpperCase() === 'FAILED' && !failedActive;
   const hot = [];
   const cold = [];
-  if (active) {
-    if (p.printError) hot.push(`⛔ 打印错误码 <b>${p.printError}</b>（详情见打印机屏幕）`);
-    if (p.failReason && p.failReason !== p.printError) hot.push(`⚠️ 失败原因码 <b>${p.failReason}</b>`);
+  if (printing || failedActive) {
+    if (p.printError) hot.push(`⛔ 打印错误码 <b>${p.printError}</b>${tr(p.printError)}（详情见打印机屏幕）`);
+    if (p.failReason && p.failReason !== p.printError) hot.push(`⚠️ 失败原因码 <b>${p.failReason}</b>${tr(p.failReason)}`);
+  } else if (residue) {
+    const code = p.failReason || p.printError || 0;
+    const codeLine = code ? `失败码 <b>${code}</b>${tr(code)}；` : '';
+    hot.push(`<div class="residueBox">🔸 <b>任务残留状态</b>：上次打印已终止（${codeLine}）机器已停止但固件仍标记故障——`
+      + `屏幕首页无报错属正常现象；<b>残留不清除，新任务不会被自动分发到这台机器</b>。`
+      + (IS_ADMIN ? `<div style="margin-top:5px"><button class="mini" onclick="clearResidue(${p.id},'${esc(p.name)}')">🧹 清除任务残留（让机器回空闲）</button></div>` : '')
+      + `</div>`);
   }
   const now = Date.now();
   for (const h of (p.hms || [])) {
@@ -444,9 +464,23 @@ function errorSection(p) {
   }
   if (!hot.length && !cold.length) return '';
   const parts = [];
+  // 残留条自带琥珀样式：单独输出，不套红色 errBox 外衣
+  const residueIdx = hot.findIndex((s) => s.includes('residueBox'));
+  if (residueIdx >= 0) {
+    parts.push(hot[residueIdx]);
+    hot.splice(residueIdx, 1);
+  }
   if (hot.length) parts.push(`<div class="errBox">${hot.map((s) => `<div>${s}</div>`).join('')}</div>`);
   if (cold.length) parts.push(`<div class="coldBox">📋 历史通知（>24h 折叠）：${cold.join('；')}</div>`);
   return parts.join('');
+}
+
+/** 清除任务残留（admin，2026-10-16）：发 clean_print_error（等价屏幕按掉报错，无物理动作）；
+ *  清除后机器回空闲，队列中的任务由分发引擎自动续打 */
+async function clearResidue(id, name) {
+  if (!confirm(`清除 ${name} 的残留故障状态？\n\n· 机器当前已停止，本操作无物理动作（等价于在屏幕上按掉报错提示）\n· 清除后机器回到「空闲」，队列中的任务会自动开始打印`)) return;
+  const ok = await cmdPost(id, 'clear-error', null, null, true);
+  if (ok) setTimeout(loadFleet, 2500); // 等状态回流（FAILED→IDLE）
 }
 
 function cardHtml(p) {

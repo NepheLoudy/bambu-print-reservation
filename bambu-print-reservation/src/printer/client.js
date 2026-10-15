@@ -503,6 +503,41 @@ class PrinterClient {
   }
 
   /**
+   * 清除打印错误残留（2026-10-16 曼波真单批）：H2 固件在打印被取消/失败后会把
+   * gcode_state=FAILED + task_id/fail_reason 挂住（屏幕首页无报错也照样回传）——
+   * 该残留会挡住分发匹配（白名单仅空闲/已完成）= 队列静默卡死的根因之一。
+   * clean_print_error 即「屏幕按掉报错」的协议等价物（BambuStudio 同款命令，
+   * 字段 subtask_id/print_error 系 OrcaSlicer.dll 字符串实锤）；机器已停止时无物理动作。
+   * 三种组帧形态按序试（0 值/真实失败码/仅 subtask_id），全被拒时退回 stop
+   * （对已停止机器为等价清任务，同样无物理动作）——调用方须先过状态门（打印中禁止）。
+   */
+  async cleanPrintError() {
+    if (!this.client || !this.connected) throw new Error('打印机未连接');
+    const raw = (this.getState() && this.getState().raw && this.getState().raw.print) || {};
+    const subtaskId = String(raw.subtask_id || raw.task_id || '');
+    const failCode = Number(raw.fail_reason) || Number(raw.print_error) || 0;
+    const attempts = [
+      { subtask_id: subtaskId, print_error: 0 },
+      { subtask_id: subtaskId, print_error: failCode },
+      { subtask_id: subtaskId },
+      null, // null = 退回裸 stop
+    ];
+    let lastErr = null;
+    for (const extra of attempts) {
+      const sequenceId = ++this.projectSeq;
+      const command = extra === null ? 'stop' : 'clean_print_error';
+      try {
+        await this._sendChecked({ print: { sequence_id: sequenceId, command, ...(extra || {}) } }, sequenceId);
+        console.log(`[打印机] 清错误残留成功（${command}${extra ? ' ' + JSON.stringify(extra) : ''}）`);
+        return { command, fields: extra ? Object.keys(extra) : [] };
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    throw new Error(`清错误残留全部形态被拒：${lastErr ? lastErr.message : '未知'}`);
+  }
+
+  /**
    * 灯控制（观察台指令条）。
    * 双口径（2026-10-15 H2 真机实测实锤，全部格式矩阵扫过）：
    *   H2/X1 新世代：led_node='chamber_light2'（H2D 专用节点名，Orca 二进制实锤）、

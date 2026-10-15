@@ -999,6 +999,21 @@ app.post('/api/printers/:id/stop', requireUser('admin'), async (req, res) => {
   }
 });
 
+// 清除任务错误残留（admin，2026-10-16 曼波真单批）：H2 固件取消/失败后残留 FAILED
+// 会挡住分发匹配——本端点发 clean_print_error（停止态等价屏幕按掉报错，无物理动作）；
+// 状态门沿用动机械口径（空闲/完成/故障放行，打印中/暂停/准备中一律拒绝）
+app.post('/api/printers/:id/clear-error', requireUser('admin'), async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (!requireIdleForMachine(id, res)) return;
+  try {
+    const r = await printerManager.cleanPrintErrorOnPrinter(id);
+    res.json({ success: true, ...(r || {}) });
+  } catch (err) {
+    console.error('清除打印错误失败:', err);
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // 灯控（reviewer+）：body {on, lamp: 'chamber'|'work'}，缺省腔灯（闪铸忽略 lamp）
 app.post('/api/printers/:id/light', requireUser('reviewer'), async (req, res) => {
   try {

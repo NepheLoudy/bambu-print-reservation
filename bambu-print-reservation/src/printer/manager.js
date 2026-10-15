@@ -412,6 +412,11 @@ class PrinterManager {
     return this._bambuClient(printerId).amsChangeFilament(amsId, trayId);
   }
 
+  /** 清除打印错误残留（admin；bambu 链路，多形态组帧见 client.cleanPrintError） */
+  cleanPrintErrorOnPrinter(printerId) {
+    return this._bambuClient(printerId).cleanPrintError();
+  }
+
   listSdcardFilesOnPrinter(printerId) {
     return this._bambuClient(printerId).listSdcardFiles();
   }

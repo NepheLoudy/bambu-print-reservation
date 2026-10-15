@@ -107,6 +107,7 @@ checkAsync('校准/回原点/退料未连接报错', async () => {
   await assert.rejects(() => client.calibration(), /未连接/);
   await assert.rejects(() => client.home(), /未连接/);
   await assert.rejects(() => client.unloadFilament(), /未连接/);
+  await assert.rejects(() => client.cleanPrintError(), /未连接/);
 });
 
 checkAsync('灯控 lamp 参数归一（腔灯缺省/工作灯）', async () => {
