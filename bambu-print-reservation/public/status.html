@@ -425,9 +425,11 @@ function cardHtml(p) {
 }
 
 async function loadFleet() {
-  // 用户正在拖风扇滑条/输 gcode/操作页签输入框时跳过本轮重渲染，防控件被打断
+  // 5s 重渲染跳过条件（v56 复查批收窄）：仅在拖风扇滑条/输 gcode 等连续输入时跳过——
+  // 此前按「焦点在 .panel 内」一刀切，页签按钮也在面板内 → 点页签永远不刷新（全部失灵）
   const ae = document.activeElement;
-  if (ae && ae.closest && ae.closest('.panel,.gline,.fanline,.dtabBody,.tempRow')) return;
+  const inContinuousInput = ae && ae.tagName === 'INPUT' && ae.closest && ae.closest('.fanline,.gline');
+  if (inContinuousInput) return;
   const res = await fetch('/api/printers');
   if (res.status === 401) { location.reload(); return; }
   const printers = await res.json();
