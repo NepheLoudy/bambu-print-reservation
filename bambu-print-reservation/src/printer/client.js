@@ -66,6 +66,23 @@ class PrinterClient {
     }
   }
 
+  /**
+   * 统一命令发送 + 回包 result 校验（2026-10-15 H2 真机实锤）：
+   * 打印机对失败命令回 {"result":"fail"/"FAIL","reason":"..."}（system 域小写、print 域大写），
+   * 而 bambu-link sendCommand 只按 sequence 匹配就 resolve——不校验 result 就会重演
+   * 「echo 伪装成功」（UI 显示已下发、打印机实际未执行）。
+   * opts.stringSeq：system 域（ledctrl）新世代要求字符串 sequence_id；print 域用数字。
+   */
+  async _sendChecked(payload, sequenceId, opts = {}) {
+    const seqForSend = opts.stringSeq ? String(sequenceId) : sequenceId;
+    const resp = await this.client.getMqttClient().sendCommand(JSON.stringify(payload), seqForSend, true);
+    const r = (resp && (resp.print || resp.system)) || {};
+    if (String(r.result || '').toUpperCase() === 'FAIL') {
+      throw new Error(`打印机拒绝命令（${r.command || '?'}）: ${r.reason || '未知原因'}`);
+    }
+    return resp;
+  }
+
   async connect() {
     if (this.connecting) return;
     if (this.connected) return;
@@ -326,57 +343,74 @@ class PrinterClient {
             md5: '',
           },
         };
-    return this.client
-      .getMqttClient()
-      .sendCommand(JSON.stringify(payload), sequenceId, true);
+    return this._sendChecked(payload, sequenceId);
   }
 
   async pausePrint() {
-    if (!this.client || !this.connected) {
-      throw new Error('打印机未连接');
-    }
-    return this.client.pausePrint();
+    if (!this.client || !this.connected) throw new Error('打印机未连接');
+    const sequenceId = ++this.projectSeq;
+    return this._sendChecked({ print: { sequence_id: sequenceId, command: 'pause', param: '' } }, sequenceId);
   }
 
   async resumePrint() {
-    if (!this.client || !this.connected) {
-      throw new Error('打印机未连接');
-    }
-    return this.client.resumePrint();
+    if (!this.client || !this.connected) throw new Error('打印机未连接');
+    const sequenceId = ++this.projectSeq;
+    return this._sendChecked({ print: { sequence_id: sequenceId, command: 'resume', param: '' } }, sequenceId);
   }
 
   async stopPrint() {
-    if (!this.client || !this.connected) {
-      throw new Error('打印机未连接');
-    }
-    return this.client.stopPrint();
+    if (!this.client || !this.connected) throw new Error('打印机未连接');
+    const sequenceId = ++this.projectSeq;
+    return this._sendChecked({ print: { sequence_id: sequenceId, command: 'stop', param: '' } }, sequenceId);
   }
 
   /**
-   * 灯控制（观察台指令条）：标准 LAN 协议 ledctrl 命令，直接走底层 MQTT sendCommand
-   * （序号沿用 projectSeq 高段位防撞车）。lamp：chamber_light（腔灯）/ work_light（工作灯）
+   * 灯控制（观察台指令条）。
+   * 双口径（2026-10-15 H2 真机实测实锤，全部格式矩阵扫过）：
+   *   H2/X1 新世代：led_node='chamber_light2'（H2D 专用节点名，Orca 二进制实锤）、
+   *     **字符串 sequence_id**、时间字段四件套 led_on_time/led_off_time/loop_times/
+   *     interval_time——旧格式（chamber_light + 数字 seq + led_time）一律回
+   *     {"result":"fail","reason":"json wrong format"}
+   *   P1/A1 老世代：led_node='chamber_light'、数字 seq、led_time（既有验证保持）
    */
   async lightControl(on, lamp = 'chamber_light') {
     if (!this.client || !this.connected) {
       throw new Error('打印机未连接');
     }
-    const node = lamp === 'work_light' ? 'work_light' : 'chamber_light';
+    const isNewGen = /H2|X1/.test(String(this.config.model || '').toUpperCase());
     const sequenceId = ++this.projectSeq;
-    const payload = {
+    if (isNewGen) {
+      // H2D 三灯节点：chamber_light（主腔灯）/ work_light（工作灯）/ chamber_light2（副腔灯）
+      // 端点「腔灯」= chamber_light2、「工作灯」= work_light（2026-10-15 节点-响应对照实测）
+      const node = lamp === 'work_light' ? 'work_light' : 'chamber_light2';
+      return this._sendChecked({
+        system: {
+          sequence_id: String(sequenceId),
+          command: 'ledctrl',
+          led_node: node,
+          led_mode: on ? 'on' : 'off',
+          led_on_time: 1000,
+          led_off_time: 1000,
+          loop_times: 1,
+          interval_time: 1000,
+        },
+      }, sequenceId, { stringSeq: true });
+    }
+    const node = lamp === 'work_light' ? 'work_light' : 'chamber_light';
+    return this._sendChecked({
       system: {
-        sequence_id: sequenceId, // 必须数字——回包匹配器按数值序号对帧（字符串会超时）
+        sequence_id: sequenceId,
         command: 'ledctrl',
         led_node: node,
         led_mode: on ? 'on' : 'off',
         led_time: 600,
       },
-    };
-    return this.client.getMqttClient().sendCommand(JSON.stringify(payload), sequenceId, true);
+    }, sequenceId);
   }
 
-  // ============ 全量远控（2026-10-15 观察台 v55）============
-  // 参数校验前置（未连接也先报参数错，前端 400/409 语义区分）；动作本体走
-  // bambu-link 现成封装。危险面（轴动/回原点/校准/退料）的状态门控在 manager/端点层。
+  // ============ 全量远控（2026-10-15 观察台 v55；v56 复查批统一自组帧+回包校验）============
+  // 全部走 _sendChecked（request topic + result 校验）；参数校验前置（未连接也先报参数错，
+  // 前端 400/409 语义区分）。危险面（轴动/回原点/校准/退料）的状态门控在 manager/端点层。
 
   /** 打印速度档：1 静默 / 2 标准 / 3 竞速 / 4 疯狂 */
   async setSpeed(level) {
@@ -385,7 +419,8 @@ class PrinterClient {
       throw new Error('速度档必须是 1-4 的整数');
     }
     if (!this.client || !this.connected) throw new Error('打印机未连接');
-    return this.client.printSpeedSet(n);
+    const sequenceId = ++this.projectSeq;
+    return this._sendChecked({ print: { sequence_id: sequenceId, command: 'speed', param: n } }, sequenceId);
   }
 
   /** 风扇速度：kind = PART(模型扇 P1) / AUX(辅助扇 P2) / CHAMBER(腔室扇 P3)，0-255 */
@@ -399,7 +434,11 @@ class PrinterClient {
       throw new Error('风扇速度必须是 0-255 的整数');
     }
     if (!this.client || !this.connected) throw new Error('打印机未连接');
-    return this.client.setFanSpeed(s, K);
+    const fans = { PART: 1, AUX: 2, CHAMBER: 3 };
+    const sequenceId = ++this.projectSeq;
+    return this._sendChecked({
+      print: { sequence_id: sequenceId, command: 'gcode_line', param: `M106 P${fans[K]} S${s}\n` },
+    }, sequenceId);
   }
 
   /** gcode 直控：单条（可多行）原始 G-code 下发 */
@@ -408,17 +447,29 @@ class PrinterClient {
     if (!g) throw new Error('gcode 不能为空');
     if (g.length > 800) throw new Error('gcode 过长（>800 字符）');
     if (!this.client || !this.connected) throw new Error('打印机未连接');
-    return this.client.printGcode(g.endsWith('\n') ? g : g + '\n');
+    const sequenceId = ++this.projectSeq;
+    return this._sendChecked({
+      print: { sequence_id: sequenceId, command: 'gcode_line', param: g.endsWith('\n') ? g : g + '\n' },
+    }, sequenceId);
   }
 
-  async calibration() {
+  /** 校准：full=全量；level=自动调平、vib=振动补偿（option 位 1/2） */
+  async calibration(option) {
     if (!this.client || !this.connected) throw new Error('打印机未连接');
-    return this.client.calibration();
+    const sequenceId = ++this.projectSeq;
+    if (option === undefined || option === null || option === 'full') {
+      return this._sendChecked({ print: { sequence_id: sequenceId, command: 'calibration', param: '' } }, sequenceId);
+    }
+    const OPT = { level: 1, vib: 2 };
+    const v = OPT[option];
+    if (!v) throw new Error('校准类型必须是 full/level/vib');
+    return this._sendChecked({ print: { sequence_id: sequenceId, command: 'calibration', option: v } }, sequenceId);
   }
 
   async home() {
     if (!this.client || !this.connected) throw new Error('打印机未连接');
-    return this.client.home();
+    const sequenceId = ++this.projectSeq;
+    return this._sendChecked({ print: { sequence_id: sequenceId, command: 'gcode_line', param: 'G28\n' } }, sequenceId);
   }
 
   /** 轴相对移动：axis X/Y/Z，distance mm（带符号）；Z 轴限低速防撞 */
@@ -435,12 +486,15 @@ class PrinterClient {
       throw new Error('单次移动距离不能超过 100mm');
     }
     if (!this.client || !this.connected) throw new Error('打印机未连接');
-    return this.client.move(A, d, A === 'Z' ? 1200 : 9000);
+    const sequenceId = ++this.projectSeq;
+    const gcode = `M211 S ; save soft endstop flag\nM211 X1 Y1 Z1 ; turn on soft endstop\nM1002 push_ref_mode\nG91\nG1 ${A}${d} F${A === 'Z' ? 1200 : 9000}\nM1002 pop_ref_mode\nM211 R ; restore soft endstop flag\n`;
+    return this._sendChecked({ print: { sequence_id: sequenceId, command: 'gcode_line', param: gcode } }, sequenceId);
   }
 
   async unloadFilament() {
     if (!this.client || !this.connected) throw new Error('打印机未连接');
-    return this.client.unloadFilament();
+    const sequenceId = ++this.projectSeq;
+    return this._sendChecked({ print: { sequence_id: sequenceId, command: 'unload_filament', param: '' } }, sequenceId);
   }
 
   // ============ 设备化扩展（2026-10-15 观察台 v56：温度/AMS/文件管理/校准细分）============
@@ -488,29 +542,12 @@ class PrinterClient {
         tray_id: t,
       },
     };
-    return this.client.getMqttClient().sendCommand(JSON.stringify(payload), sequenceId, true);
+    return this._sendChecked(payload, sequenceId);
   }
 
   /**
-   * 校准：full=全量（bambu-link 封装）；level=自动调平、vib=振动补偿（社区 option 位
-   * 口径：1=调平 2=振动补偿，v56 真机校准，异常回退全量）
+   * 设备全景（raw 补充字段）：喷嘴规格/WiFi 信号/固件版本/AMS 湿度
    */
-  async calibration(option) {
-    if (!this.client || !this.connected) throw new Error('打印机未连接');
-    if (option === undefined || option === null || option === 'full') {
-      return this.client.calibration();
-    }
-    const OPT = { level: 1, vib: 2 };
-    const v = OPT[option];
-    if (!v) throw new Error('校准类型必须是 full/level/vib');
-    const sequenceId = ++this.projectSeq;
-    const payload = {
-      print: { sequence_id: sequenceId, command: 'calibration', option: v },
-    };
-    return this.client.getMqttClient().sendCommand(JSON.stringify(payload), sequenceId, true);
-  }
-
-  /** 设备全景（raw 补充字段）：喷嘴规格/WiFi 信号/固件版本/AMS 湿度 */
   getDeviceInfo() {
     const state = this.getState();
     if (!state) return null;
