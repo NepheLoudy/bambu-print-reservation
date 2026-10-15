@@ -528,8 +528,18 @@ function suggestFromFeatures(features) {
   const selection = {};
 
   if (features.holes.count > 0) {
-    selection.through_holes = true;
-    notes.push(`检测到 ${features.holes.count} 个孔特征${features.holes.radii[0] !== undefined ? `（最小半径 ${features.holes.radii[0]}mm）` : ''}${features.holes.openMesh ? '；⚠️ 网格不闭合，孔数按圆口检出计' : ''}——打印孔径会缩，已预勾「通孔补偿」`);
+    // 孔补偿分轴向（2026-10-16 曼波令）：竖直孔（轴≈Z）与水平孔（轴在 XY）补偿机理不同——
+    // 按孔口拟圆法向逐一判别各自给建议；无圆口明细（非闭合网格按亏格计）时保守给 Z 向
+    const circles = Array.isArray(features.holes.circles) ? features.holes.circles : [];
+    const isVertical = (n) => Math.abs(Number(n && n[2]) || 0) > 0.9;
+    let hasZ = false;
+    let hasXy = false;
+    for (const c of circles) { if (isVertical(c.n)) hasZ = true; else hasXy = true; }
+    if (!circles.length) hasZ = true;
+    if (hasZ) selection.hole_comp_z = true;
+    if (hasXy) selection.hole_comp_xy = true;
+    const axisLabel = hasZ && hasXy ? '·Z 向+XY 向' : hasZ ? '·Z 向' : '·XY 向';
+    notes.push(`检测到 ${features.holes.count} 个孔特征${features.holes.radii[0] !== undefined ? `（最小半径 ${features.holes.radii[0]}mm）` : ''}${features.holes.openMesh ? '；⚠️ 网格不闭合，孔数按圆口检出计' : ''}——打印孔径会缩，已预勾「通孔补偿${axisLabel}」`);
   }
   if (features.overhang.severePct >= t.overhangSeverePct || features.overhang.upperOverhangPct >= t.upperOverhangPct) {
     selection.overhang_heavy = true;

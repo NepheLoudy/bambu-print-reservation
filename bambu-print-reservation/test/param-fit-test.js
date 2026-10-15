@@ -51,7 +51,7 @@ check('口径：只在专家声明的键上评估，引擎多出的键不罚分'
 });
 
 check('真实规则引擎烟测：基线勾选 vs 专家切片 diff 可比较', () => {
-  const applied = processRules.applyRules({ through_holes: true, curved_surface: true });
+  const applied = processRules.applyRules({ hole_comp_z: true, curved_surface: true });
   const expert = { layer_height: '0.2', wall_loops: '2', xy_hole_compensation: '-0.2', support_threshold_angle: '40' };
   const fit = compare(applied.params, {
     layerHeight: expert.layer_height, wallLoops: expert.wall_loops,

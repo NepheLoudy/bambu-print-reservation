@@ -40,12 +40,12 @@ check('非法工况（池外字段）按 taxonomy 校验拒收', () => {
 check('正常录入：id 递增、选择与特征与切片参数三方合成', () => {
   const s1 = store.create({
     createdBy: '曼波', notes: '测试样本',
-    selection: { through_holes: true, load_direction: ['Z'] },
+    selection: { hole_comp_z: true, load_direction: ['Z'] },
     model: { originalName: 'part.stl', buffer: Buffer.from('model-data'), features: FEATURES },
     slice: { originalName: 'part.gcode.3mf', buffer: Buffer.from('slice-data'), extraction: { source: 'gcode', params: { layerHeight: 0.2 }, diff: { layerHeight: 0.2 }, estMinutes: 30 } },
   });
   assert.ok(/^T\d{8}-001$/.test(s1.id), `id 格式应 T日期-序号，实际 ${s1.id}`);
-  assert.equal(s1.selection.through_holes, true);
+  assert.equal(s1.selection.hole_comp_z, true);
   assert.equal(s1.model.features.ok, true);
   assert.equal(s1.slice.extraction.estMinutes, 30);
   assert.equal(s1.createdBy, '曼波');
@@ -73,7 +73,7 @@ check('list 倒序 + get + stats 覆盖统计', () => {
   assert.equal(stats.total, 3);
   assert.equal(stats.withSlice, 1);
   assert.equal(stats.withFeatures, 2, '第三条 features=null 不计入 withFeatures');
-  assert.equal(stats.conditionCoverage.through_holes, 1);
+  assert.equal(stats.conditionCoverage.hole_comp_z, 1);
 });
 
 check('remove 删除样本（归档文件保留）', () => {
@@ -88,7 +88,7 @@ check('remove 删除样本（归档文件保留）', () => {
 });
 
 check('outcome 回填：合法状态入库、非法状态拒收', () => {
-  const s = store.create({ createdBy: 't', selection: { through_holes: true }, model: { originalName: 'o.stl', buffer: Buffer.from('o'), features: FEATURES } });
+  const s = store.create({ createdBy: 't', selection: { hole_comp_z: true }, model: { originalName: 'o.stl', buffer: Buffer.from('o'), features: FEATURES } });
   const updated = store.setOutcome(s.id, { status: '失败', issues: '支撑翻车' });
   assert.equal(updated.outcome.status, '失败');
   assert.equal(updated.outcome.issues, '支撑翻车');

@@ -26,14 +26,14 @@ function check(name, fn) {
 // ---------- 结构完整性 ----------
 
 check('标签池版本为 v4（几何体检组批）', () => {
-  assert.equal(TAXONOMY_VERSION, 'v4');
+  assert.equal(TAXONOMY_VERSION, 'v5');
 });
 
 check('几何体检（自动检测）组：4 个 bool 字段齐备', () => {
   const auto = groups.find((g) => g.id === 'auto');
   assert.ok(auto, '缺 auto 组');
   const ids = auto.fields.map((f) => f.id);
-  assert.deepEqual(ids, ['through_holes', 'overhang_heavy', 'curved_surface', 'small_footprint']);
+  assert.deepEqual(ids, ['hole_comp_z', 'hole_comp_xy', 'overhang_heavy', 'curved_surface', 'small_footprint']);
   for (const f of auto.fields) {
     assert.equal(f.type, 'bool', `${f.id} 应为 bool`);
     assert.ok(f.tooltip.includes('自动检测'), `${f.id} tooltip 应说明自动检测语义`);

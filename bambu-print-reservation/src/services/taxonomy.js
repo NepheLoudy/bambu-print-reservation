@@ -13,7 +13,7 @@
 //   （CAD 导出的设计姿态通常是使用姿态）。Z 向受力 ≈ 层间受力（最弱方向）。
 // ============================================================
 
-const TAXONOMY_VERSION = 'v4';
+const TAXONOMY_VERSION = 'v5'; // v5（2026-10-16 曼波细化令）：孔补偿轴向拆分（Z 向/XY 向）+ 环境扩充（暴晒/低温/粉尘/防水/食品）+ 新增「使用场景」「工艺特征」组 + 失效后果/公差/后续加工等补齐
 
 /** 选项：{ id, label }；bool/number 字段无 options */
 const groups = [
@@ -158,6 +158,30 @@ const groups = [
         tooltip: '用于电气隔离（绝缘垫、接线端子座）。⚠️ 碳纤增强材料导电，此项将强制排除一切 CF 系',
         mapsHint: ['排除一切 CF 系（碳纤维导电，安全级拦截）；普通 PLA/PETG/ABS 均绝缘'],
       },
+      {
+        id: 'failure_consequence',
+        type: 'single',
+        title: '失效后果',
+        formTitle: '失效后果',
+        tooltip: '这零件断了会怎样：仅外观受损（摆件/装饰）→ 常规；影响功能（机构卡滞、返工拆机）→ 强度档位+1；关键安全（人身、贵重设备）→ 最高强度档 + 材料上探 + 建议冗余与人工复检',
+        options: [
+          { id: 'cosmetic', label: '仅外观受损' },
+          { id: 'functional', label: '影响功能' },
+          { id: 'critical', label: '关键安全' },
+        ],
+        mapsHint: [
+          'functional → 墙/填充 +1 档',
+          'critical → 满配强度（墙 4+、填充 60%+）、材料 CF/PA 上探、朝向保守化、复检提醒',
+        ],
+      },
+      {
+        id: 'repeated_assembly',
+        type: 'bool',
+        title: '反复拆装',
+        formTitle: '反复拆装',
+        tooltip: '螺纹/卡扣连接处会反复拆装（维修口、迭代验证件）。螺纹牙磨损与卡扣疲劳是主失效模式',
+        mapsHint: ['螺纹处加墙、提示热熔铜螺母替代自攻；卡扣悬臂降速打印保弹性'],
+      },
     ],
   },
   {
@@ -200,6 +224,30 @@ const groups = [
           'printed_interlock → 插接面预留 0.2–0.3mm 间隙、孔销负补偿、配合面支撑避让',
         ],
       },
+      {
+        id: 'dim_tolerance',
+        type: 'single',
+        title: '关键尺寸公差',
+        formTitle: '关键尺寸公差',
+        tooltip: '全局尺寸精度要求：紧（±0.1mm，测量/装配精密件）→ 慢速精密档；中（±0.3mm，一般装配）→ 常规；宽松（非关键尺寸）→ 无约束。与「配合需求」不同：这里管全局尺寸，配合管轴孔配合面',
+        options: [
+          { id: 'tight', label: '紧（±0.1mm）' },
+          { id: 'medium', label: '中（±0.3mm）' },
+          { id: 'loose', label: '宽松（非关键）' },
+        ],
+        mapsHint: [
+          'tight → 精密档：层高 0.12、外壁降速；ABS 大件收缩提示',
+          'medium → 常规档；loose → 不加约束',
+        ],
+      },
+      {
+        id: 'post_machining',
+        type: 'bool',
+        title: '需要后续加工',
+        formTitle: '后续加工预留',
+        tooltip: '打印完还要钻孔/攻丝/打磨（后处理件）。需要预留加工余量：孔留小料、面留厚料',
+        mapsHint: ['打印孔径预留负余量（留钻量）、关键面层数+；「打印后加工」说明写入工艺单'],
+      },
     ],
   },
   {
@@ -227,6 +275,14 @@ const groups = [
         mapsHint: [
           '颜色栏列全色（+分隔）；分发按「所有颜色同机 AMS 可得」选机；颜色→槽位映射以 3mf 内嵌配置为准',
         ],
+      },
+      {
+        id: 'translucent',
+        type: 'bool',
+        title: '透光/半透件',
+        formTitle: '透光件',
+        tooltip: '要求透光/导光（灯罩、光路件、透明外壳）。透光率由填充与层缝散射决定：薄壁+低填充反而雾透均匀',
+        mapsHint: ['薄壁 1-2 圈或低填充高融合、层高 0.12、耗材干燥（气泡散射）；材料选透明 PETG/PC'],
       },
     ],
   },
@@ -261,6 +317,14 @@ const groups = [
         tooltip: '用结构件做隔热屏障。塑料本身导热都低，隔热主要靠结构：密闭气隙分层优于实心',
         mapsHint: ['Gyroid/低密度填充做密闭气隙；避免实心（导热路径短、费料）'],
       },
+      {
+        id: 'flame_retardant',
+        type: 'bool',
+        title: '阻燃需求',
+        formTitle: '阻燃',
+        tooltip: '靠近热源/电气回路需要阻燃（电源周边、电子外壳）。常规 FDM 耗材多数无阻燃认证——提示级，建议查证材料 UL 等级',
+        mapsHint: ['提示：需阻燃认证耗材（PC-ABS FR 等）或改金属/钣金方案；常规耗材不支持承诺'],
+      },
     ],
   },
   {
@@ -291,6 +355,76 @@ const groups = [
         formTitle: '湿热环境',
         tooltip: '长期潮湿/水汽环境。注意 PA（尼龙）吸水会膨胀变形',
         mapsHint: ['排除 PA（吸湿变形）或提醒干燥打印与密封处理'],
+      },
+      {
+        id: 'sun_exposure',
+        type: 'bool',
+        title: '暴晒/强日照',
+        formTitle: '暴晒强日照',
+        tooltip: '长期露天暴晒（含玻璃后直晒）。UV+高温双杀：PLA 脆化发白、ABS 泛黄——材料层直接排除',
+        mapsHint: ['排除 PLA（UV 脆化）；ASA/PC 优先，PETG 次之'],
+      },
+      {
+        id: 'low_temp',
+        type: 'bool',
+        title: '低温环境（≤0°C）',
+        formTitle: '低温环境',
+        tooltip: '冬季户外/冷库/高空使用。低温下材料变脆，PLA 尤其耐冲击性骤降',
+        mapsHint: ['排除 PLA；PETG/PA 韧性系优先；叠加抗冲击规则'],
+      },
+      {
+        id: 'dusty',
+        type: 'bool',
+        title: '粉尘/颗粒环境',
+        formTitle: '粉尘环境',
+        tooltip: '沙尘、粉料、木屑等颗粒环境。磨蚀配合面 + 卡入运动副',
+        mapsHint: ['表面致密（墙数+1）、避免大孔隙填充外露；配合间隙放宽提示'],
+      },
+      {
+        id: 'waterproof',
+        type: 'bool',
+        title: '防水/密封',
+        formTitle: '防水密封',
+        tooltip: '需要气密/水密或密封配合（O 圈、垫片场合）。层缝是渗漏路径',
+        mapsHint: ['墙数≥4、层高 0.16 提致密；提示密封面抛光/涂封 + 必要时换 PETG'],
+      },
+      {
+        id: 'food_contact',
+        type: 'bool',
+        title: '食品接触',
+        formTitle: '食品接触',
+        tooltip: '会接触食品（厨房用具等）。FDM 层缝藏菌、多数耗材无食品认证——提示级',
+        mapsHint: ['提示：层缝易藏菌需后处理/表面涂层；材料层无认证耗材可选，风险自行确认'],
+      },
+    ],
+  },
+  {
+    id: 'scene',
+    title: '使用场景',
+    tooltip: '最直观的一组：这是干什么用的件——场景决定工程判断的默认倾向（测试件可糙快、上场件留余量）',
+    fields: [
+      {
+        id: 'scene_usage',
+        type: 'multi',
+        title: '使用场景',
+        formTitle: '使用场景',
+        tooltip: '可多选（一个件可以既是机器人项目件又是测试迭代件）。场景是整条链路的上下文标签：拟合分组、材料倾向与人工评审的共同参照',
+        options: [
+          { id: 'test_iter', label: '测试迭代件' },
+          { id: 'infra', label: '基础建设件' },
+          { id: 'robot', label: '机器人项目件' },
+          { id: 'structural', label: '承力结构件' },
+          { id: 'fixture', label: '夹具/工装件' },
+          { id: 'enclosure', label: '电子/设备外壳件' },
+          { id: 'showcase', label: '外观/展示件' },
+          { id: 'teaching', label: '教学演示件' },
+          { id: 'spare', label: '备件/替换件' },
+        ],
+        mapsHint: [
+          'test_iter → 与「一次性寿命」协同：放宽质量换速度',
+          'structural → 与载荷量级/失效后果联动提示强度档',
+          'enclosure → 与电气绝缘/阻燃联动；fixture → 与关键尺寸公差联动',
+        ],
       },
     ],
   },
@@ -325,17 +459,64 @@ const groups = [
     ],
   },
   {
-    id: 'auto',
-    title: '几何体检（自动检测）',
-    tooltip: '上传 STL 后由模型几何分析自动预勾（通孔/悬空/曲面/贴底接触），机器人只提建议——不符合实际就手动取消，勾选与其他组同等参与引擎映射',
+    id: 'craft',
+    title: '工艺特征',
+    tooltip: '几何决定打印难点的「人工确认区」——体检检不到、但打印时是真坑的特征，看一眼模型勾上',
     fields: [
       {
-        id: 'through_holes',
+        id: 'thin_wall',
         type: 'bool',
-        title: '通孔补偿',
-        formTitle: '通孔补偿',
-        tooltip: '自动检测：模型存在孔特征（拓扑亏格/孔口拟圆）。FDM 打印孔径普遍收缩（螺孔插不进是重灾区），引擎对孔径做负向补偿留出缩量',
-        mapsHint: ['xyHoleComp 约 -0.1mm（孔径打印收缩补偿）；孔周壁致密由配合类规则叠加'],
+        title: '薄壁件',
+        formTitle: '薄壁件',
+        tooltip: '存在壁厚 <1.6mm（≈2×喷嘴口径）的区域。薄壁处走线少、强度低，且容易打薄破孔',
+        mapsHint: ['薄壁区多墙填满、降速、层高 0.16；必要时提示加厚设计'],
+      },
+      {
+        id: 'long_bridge',
+        type: 'bool',
+        title: '大跨桥接',
+        formTitle: '大跨桥接',
+        tooltip: '存在长距离无支撑悬空走线（桥接长度 >30mm）。桥面下垂是主缺陷',
+        mapsHint: ['桥接速度降档、桥接风扇满速、提示可加辅助支撑'],
+      },
+      {
+        id: 'tall_slender',
+        type: 'bool',
+        title: '细长高件',
+        formTitle: '细长高件',
+        tooltip: '高度与底面尺寸比例大（高瘦件，>5:1）。打印中晃动与倾倒风险',
+        mapsHint: ['整体降速、加裙边、必要时提示加支撑塔/分段设计'],
+      },
+      {
+        id: 'fine_detail',
+        type: 'bool',
+        title: '精细纹理/细节',
+        formTitle: '精细细节',
+        tooltip: '有微小文字/浮雕/毫米级细节需要还原（铭牌、公仔、微结构）',
+        mapsHint: ['层高 0.08–0.12、外壁慢速、提示 0.2 喷嘴选项'],
+      },
+    ],
+  },
+  {
+    id: 'auto',
+    title: '几何体检（自动检测）',
+    tooltip: '上传模型后由几何分析自动预勾（孔/悬空/曲面/贴底接触），机器人只提建议——不符合实际就手动取消，勾选与其他组同等参与引擎映射',
+    fields: [
+      {
+        id: 'hole_comp_z',
+        type: 'bool',
+        title: '通孔补偿·Z 向（竖直孔）',
+        formTitle: '通孔补偿Z向',
+        tooltip: '自动检测：存在竖直开孔（孔轴≈Z，开在顶/底平面）。竖直孔直径受轮廓收缩——螺孔插不进的重灾区',
+        mapsHint: ['竖直孔直径走 xyHoleComp 负补偿（约 -0.1mm）；孔口降速/多壳提圆度'],
+      },
+      {
+        id: 'hole_comp_xy',
+        type: 'bool',
+        title: '通孔补偿·XY 向（水平孔）',
+        formTitle: '通孔补偿XY向',
+        tooltip: '自动检测：存在水平开孔（孔轴在 XY 平面，开在侧壁）。水平孔的竖直尺寸受层高/下垂影响，顶部易塌',
+        mapsHint: ['水平孔：孔顶悬垂降速+细层高；孔径轮廓补偿同样叠加（xyHoleComp）'],
       },
       {
         id: 'overhang_heavy',

@@ -204,7 +204,7 @@
       <div class="row">
         <div><label>模型 / 切片文件 *（.stl/.step/.stp 走需求链路+<b>3D 工况标注</b>：载荷/支撑/受弯在 3D 视图点选，自动定档；.obj 手勾工况；.3mf=拓竹直通 / .gcode=闪铸直通）</label><input type="file" id="file" accept=".stl,.step,.stp,.3mf,.obj,.gcode,.gx,.g"></div>
       </div>
-      <div class="preview" id="slicedNotice" style="display:none">📦 <b>切片产物审批直通模式</b>——3mf（拓竹）/ gcode（闪铸）的切片参数已内嵌文件，无需工况勾选；材料/颜色栏仅用于选机匹配。注意：3mf 只能去拓竹机、gcode 只能去闪铸机，选错品牌会被自动匹配忽略</div>
+      <div class="preview" id="slicedNotice" style="display:none">📦 <b>切片产物审批直通模式</b>——3mf（拓竹）/ gcode（闪铸）的切片参数已内嵌文件，无需工况定档；<b>下方工况勾选与 3D 标注为选填</b>（填了用于入库训练样本/后续拟合，不改变直通切片参数）。注意：3mf 只能去拓竹机、gcode 只能去闪铸机，选错品牌会被自动匹配忽略</div>
       <div class="preview" id="modelPanel" style="display:none"></div>
       <div class="workbench" id="anno3dBox" style="display:none">
         <div class="wbHead"><span class="wbBadge">3D</span><b>工况标注工坊</b><span class="detail">——选中工具后点击模型表面落点：标注几何链路看不出来、只有人知道的复杂特征（受弯位置、接触面、外观面、载荷…）。拖拽旋转 / 滚轮缩放，点标注点可编辑删除。</span></div>
@@ -499,7 +499,9 @@ function syncLoadsToSelection() {
   }
   // 空间标注 → 属性类勾选的只增联动（工况界限重整：能在 3D 标的都自动带出勾选）
   if (anns.some((a) => a.tool === 'appearance_face')) syncAdd('appearance', '__bool_on');
-  if (anns.some((a) => a.tool === 'hole_rim')) syncAdd('through_holes', '__bool_on');
+  // 孔标注 → 通孔补偿（2026-10-16 轴向拆分）：标注层不带轴向细分，默认勾 Z 向（竖直孔为常见孔位）；
+  // 水平孔请在 XY 向项手动补勾（或等几何体检按孔口法向自动判别）
+  if (anns.some((a) => a.tool === 'hole_rim')) syncAdd('hole_comp_z', '__bool_on');
   if (anns.some((a) => a.tool === 'support_need')) syncAdd('overhang_heavy', '__bool_on');
   renderLoadSummary(loads);
 }
@@ -799,15 +801,16 @@ function clearSelection() {
   preflight(); saveSelMemory(); renderSelSummary();
 }
 
-/** 双通道模式感知（2026-10-05 曼波定）：3mf=审批直通（隐藏勾选区），stl/step=需求链路；
- *  2026-10-14 双品牌批：闪铸 gcode 系切片产物与 3mf 同走直通 */
+/** 双通道模式感知（2026-10-05 曼波定）：3mf=审批直通，stl/step=需求链路；
+ *  2026-10-16 修正：直通单**同样收集工况勾选与 3D 标注**（切片参数由工况×几何共同决定，
+ *  无标注的纯 3mf 入库训练无意义；直通单的勾选不作定档、仅作样本底料，冲突免检） */
 function isSlicedFile() {
   const f = $('file').files[0];
   return !!f && /\.(3mf|gcode|gx|g)$/i.test(f.name);
 }
 function updateSlicedMode() {
   const sliced = isSlicedFile();
-  $('taxonomy').style.display = sliced ? 'none' : 'block';
+  $('taxonomy').style.display = 'block';
   $('slicedNotice').style.display = sliced ? 'block' : 'none';
   if (sliced) { $('conflictHint').textContent = ''; }
   else preflight();
@@ -1072,17 +1075,27 @@ async function doReview(id, action, comment, dispatch, sampleEntry) {
   loadList();
 }
 
-/** 通过并分发对话框（2026-10-16）：审批人指定目标机/AMS 槽位/喷嘴——留空即自动匹配 */
-function openApproveDialog(id) {
+/** 通过并分发对话框（2026-10-16）：审批人指定目标机/AMS 槽位/喷嘴——留空即自动匹配；
+ *  入库训练样本勾选按源单底料可用性把关（2026-10-16 曼波定：切片参数由工况×几何共同决定，
+ *  无工况勾选的纯 3mf 入库无意义——不可勾选的单给出原因，不落空决策） */
+async function openApproveDialog(id) {
   const dlg = document.createElement('dialog');
   const printers = (window.__printers || []);
+  let rec = null;
+  try {
+    const r = await fetch(`/api/reservations/${id}`);
+    if (r.ok) rec = await r.json();
+  } catch { /* 取不到按不可入库处理（宁严勿空） */ }
+  const canSample = !!(rec && rec.selection && Object.keys(rec.selection).length > 0);
   const opts = printers.map((p) => `<option value="${esc(p.name)}">${esc(p.name)}（${esc(p.status)}${p.stateStale ? '/失联' : ''}）</option>`).join('');
   dlg.innerHTML = `<h3 style="font-size:14px;margin-bottom:8px">✅ 通过并分发（${esc(id)}）</h3>`
     + `<div class="detail" style="margin-bottom:8px">指定分发目标与用料（都可留自动匹配）；指定槽位在分发时刻不可用会滞留等人工</div>`
     + `<label>目标打印机</label><select id="apPrinter" onchange="renderApTrays()"><option value="">自动匹配（按材料/颜色选机）</option>${opts}</select>`
     + `<label>AMS 槽位（用料）</label><select id="apTray" disabled><option value="">自动匹配（按材料/颜色）</option></select>`
     + `<div id="apNozzleRow" style="display:none"><label>喷嘴</label><select id="apNozzle"><option value="">自动</option></select></div>`
-    + `<label style="display:flex;align-items:center;gap:6px;margin-top:8px;cursor:pointer"><input type="checkbox" id="apSample" style="width:auto;margin:0">📚 入库为训练样本<span class="detail">（打印完成后自动回填成功/失败；无工况勾选或 3D 标注的单会被拒入库）</span></label>`
+    + (canSample
+        ? `<label style="display:flex;align-items:center;gap:6px;margin-top:8px;cursor:pointer"><input type="checkbox" id="apSample" style="width:auto;margin:0">📚 入库为训练样本<span class="detail">（打印完成后自动回填成功/失败）</span></label>`
+        : `<div class="detail" style="margin-top:8px">📚 入库训练样本：本单无工况勾选——切片参数由工况×几何共同决定，无标注的纯切片件入库无训练意义（如需入库请在提交时补齐工况/标注）</div>`)
     + `<label>审批意见（可空）</label><input type="text" id="apComment" placeholder="如：优先打这个件">`
     + `<div class="actions" style="margin-top:10px">`
     + `<button class="ok" id="apGo">通过并分发</button>`
@@ -1097,7 +1110,7 @@ function openApproveDialog(id) {
     if (trayRaw) { try { dispatch.tray = JSON.parse(trayRaw); } catch { /* 忽略坏值 */ } }
     const nz = dlg.querySelector('#apNozzleRow').style.display !== 'none' ? dlg.querySelector('#apNozzle').value : '';
     if (nz !== '') dispatch.nozzleId = Number(nz);
-    const sampleEntry = dlg.querySelector('#apSample').checked; // 📚 入库为训练样本（2026-10-16）
+    const sampleEntry = !!(dlg.querySelector('#apSample') && dlg.querySelector('#apSample').checked); // 📚 入库为训练样本（2026-10-16；无底料的单不渲染此勾选）
     const comment = dlg.querySelector('#apComment').value.trim();
     dlg.close();
     doReview(id, 'approve', comment, dispatch, sampleEntry);

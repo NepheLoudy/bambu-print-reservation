@@ -142,7 +142,7 @@ check('垫圈管：亏格 1 + 孔口拟圆 r≈3 + 贴底环面 + 曲面占比',
   assert.ok(f.contact.footprintPct > 60, '环面接触占比应高');
   assert.ok(f.overhang.severePct < 2, `贴底面不计悬空，实际 ${f.overhang.severePct}%`);
   assert.ok(f.curvedPct > 25 && f.curvedPct < 50, `内外圆柱算曲面，实际 ${f.curvedPct}%`);
-  assert.equal(f.suggestions.selection.through_holes, true, '应建议通孔补偿');
+  assert.equal(f.suggestions.selection.hole_comp_z, true, '应建议通孔补偿·Z 向');
   assert.equal(f.suggestions.selection.curved_surface, true, '应建议曲面保护');
   assert.equal(f.suggestions.selection.overhang_heavy, undefined, '不应建议悬空支撑');
   assert.equal(f.suggestions.selection.small_footprint, undefined, '不应建议加裙边');
@@ -161,7 +161,7 @@ check('平板盒：无孔无悬空无建议（贴底不算悬空）', () => {
 check('细高柱：接触面积小+件高 → 建议加裙边', () => {
   const f = analyzeStl(stlBinary(boxTris(0, 0, 0, 8, 8, 50)));
   assert.equal(f.suggestions.selection.small_footprint, true, '64mm² 接触 × 50mm 高应触发');
-  assert.equal(f.suggestions.selection.through_holes, undefined);
+  assert.equal(f.suggestions.selection.hole_comp_z, undefined);
 });
 
 check('悬臂 L 件（双盒拼合）：上半程悬空 → 建议悬空支撑', () => {
@@ -186,7 +186,7 @@ check('4 个几何体检字段规则映射（勾选 → 引擎参数）', () => 
   const processRules = require('../src/services/processRules');
   // 孔补偿已随 2026-10-15 曼波定原则撤出种子（学习型因果一律动态拟合，
   // 从样本库经 ruleFitter 产出进待审池）——此处断言：种子无手写孔补偿
-  assert.equal(processRules.applyRules({ through_holes: true }).params.xyHoleComp, 0, '孔补偿不手写（拟合产出）');
+  assert.equal(processRules.applyRules({ hole_comp_z: true }).params.xyHoleComp, 0, '孔补偿不手写（拟合产出）');
   assert.equal(processRules.applyRules({ overhang_heavy: true }).params.supportDensity, 30, '支撑加密');
   assert.equal(processRules.applyRules({ curved_surface: true }).params.supportThresholdAngle, 40, '曲面支撑疤防护');
   const r = processRules.applyRules({ small_footprint: true });
@@ -204,7 +204,7 @@ check('4 个几何体检字段规则映射（勾选 → 引擎参数）', () => 
 check('suggestFromFeatures：阈值分支与零打扰口径', () => {
   const base = { ok: true, holes: { count: 0, radii: [] }, overhang: { severePct: 0, upperOverhangPct: 0 }, curvedPct: 0, contact: { areaMm2: 400, footprintPct: 100 }, bbox: { z: 4 } };
   assert.deepEqual(suggestFromFeatures(base).selection, {}, '全常规零建议');
-  assert.equal(suggestFromFeatures({ ...base, holes: { count: 2, radii: [1.5] } }).selection.through_holes, true);
+  assert.equal(suggestFromFeatures({ ...base, holes: { count: 2, radii: [1.5] } }).selection.hole_comp_z, true);
   assert.equal(suggestFromFeatures({ ...base, overhang: { severePct: 9, upperOverhangPct: 0 } }).selection.overhang_heavy, true, '重悬空达标');
   assert.equal(suggestFromFeatures({ ...base, overhang: { severePct: 0, upperOverhangPct: 6 } }).selection.overhang_heavy, true, '悬端单独达标');
   assert.equal(suggestFromFeatures({ ...base, curvedPct: 35 }).selection.curved_surface, true);
@@ -271,7 +271,7 @@ check('3mf 双零件工程：逐件独立分析（盒 + 垫圈），各归各特
   assert.equal(washer.mesh.genus, 1, '垫圈件亏格 1');
   assert.equal(washer.holes.count, 1);
   assert.ok(washer.holes.radii[0] > 2.7 && washer.holes.radii[0] < 3.3, `垫圈孔径应≈3，实际 ${washer.holes.radii[0]}`);
-  assert.equal(washer.suggestions.selection.through_holes, true, '垫圈件应建议通孔补偿');
+  assert.equal(washer.suggestions.selection.hole_comp_z, true, '垫圈件应建议通孔补偿·Z 向');
   assert.deepEqual(box.suggestions.selection, {}, '盒件零打扰');
 });
 

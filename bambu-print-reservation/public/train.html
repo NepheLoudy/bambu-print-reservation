@@ -170,7 +170,7 @@
       <div class="brandmark">QL</div>
       <div>
         <h1>训练录入台<span class="en">QIANLI · TRAINING WORKBENCH</span></h1>
-        <div class="sub">3D 工况标注 + 专家切片配对 → 样本库 → 规则拟合 → 反哺预约自动定档　<a href="/">← 返回预约中心</a>　<a href="/status.html">📺 设备观察台 →</a></div>
+        <div class="sub">3D 工况标注 + 切片产物配对 → 样本库 → 规则拟合 → 反哺预约自动定档　<a href="/">← 返回预约中心</a>　<a href="/status.html">📺 设备观察台 →</a></div>
       </div>
     </div>
     <div class="userbox" id="userbox"></div>
@@ -191,15 +191,15 @@
     <div class="card">
       <h2>📥 采集一条训练样本</h2>
 
-      <label>目标打印机（机型隔离：样本与专家参数按机型归档；机队档案 .printer-fleet.json 人工维护）</label>
+      <label>目标打印机（机型隔离：样本与本单切片参数按机型归档；机队档案 .printer-fleet.json 人工维护）</label>
       <select id="machineSel" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px;font-size:14px;background:#fbfcfe"><option value="">（未指定）</option></select>
 
-      <!-- 拟合度条（置顶）：引擎(工况)参数 vs 专家(切片)参数——知识库覆盖缺口直接度量 -->
+      <!-- 拟合度条（置顶）：引擎(工况)参数 vs 本单切片(实际)参数——知识库覆盖缺口直接度量 -->
       <div class="preview" id="fitBar" style="display:none;margin-top:12px"></div>
 
       <div class="row" style="margin-top:12px">
         <div><label>模型文件 *（.stl/.step/.stp/.3mf 全功能——STEP 经 CAD 内核网格化后同链体检与 3D 标注）</label><input type="file" id="modelFile" accept=".stl,.3mf,.step,.stp"></div>
-        <div><label>已切片产物（.3mf 工程/已切片——自动提专家参数，选填）</label><input type="file" id="sliceFile" accept=".3mf"></div>
+        <div><label>已切片产物（.3mf 工程/已切片——自动提取本单切片参数，选填）</label><input type="file" id="sliceFile" accept=".3mf"></div>
       </div>
       <div class="preview" id="modelPanel" style="display:none"></div>
       <div class="preview" id="slicePanel" style="display:none"></div>
@@ -265,22 +265,14 @@
       <div class="statChips" id="statChips"></div>
       <div style="margin-bottom:8px" id="exportLine"></div>
       <table>
-        <thead><tr><th>样本号</th><th>模型</th><th>工况标注</th><th>专家参数 diff / 拟合</th><th>机型 / 空间标注</th><th>打印结果</th><th>录入</th><th></th></tr></thead>
+        <thead><tr><th>样本号</th><th>模型</th><th>工况标注</th><th>切片参数 diff / 拟合</th><th>机型 / 空间标注</th><th>打印结果</th><th>录入</th><th></th></tr></thead>
         <tbody id="sampleRows"><tr><td colspan="8" class="hint">加载中…</td></tr></tbody>
       </table>
   <div class="card" id="reviewCard" style="display:none">
-    <h2>🎓 规则学习治理 <span class="sub" style="display:inline">(审批人)——专家作品导入 / 建议待审池</span></h2>
-    <div class="row" style="margin-bottom:8px">
-      <div style="flex:2">
-        <label>导入专家手工切片 3mf（提取参数 → 与勾选工况组合生成候选规则，经待审池确认后生效）</label>
-        <input type="file" id="expert3mf" accept=".3mf">
-      </div>
-      <div style="flex:0; align-self:flex-end"><button class="mini" onclick="importExpert3mf()">提取并生成候选</button></div>
-    </div>
-    <div class="hint" id="extractHint"></div>
+    <h2>🎓 规则学习治理 <span class="sub" style="display:inline">(审批人)——样本拟合 / 建议待审池</span></h2>
     <div class="row" style="margin:8px 0">
       <button class="primary" onclick="runRuleFit()">🧪 从样本库拟合规则</button>
-      <span class="hint" id="fitHint">按「几何特征 × 专家参数」统计拟合（每特征 ≥3 条样本才有统计意义）；候选进下方待审池</span>
+      <span class="hint" id="fitHint">按「工况 × 几何特征 × 样本实际参数」统计拟合（每特征 ≥3 条样本才有统计意义）；预约勾选入库的真单也在样本池内；候选进下方待审池</span>
     </div>
     <div id="sugList"></div>
   </div>
@@ -493,7 +485,7 @@ async function analyzeSlice() {
   const panel = $('slicePanel');
   if (!file) { panel.style.display = 'none'; scheduleFit(); return; }
   panel.style.display = 'block';
-  panel.innerHTML = '🧈 专家参数提取中…';
+  panel.innerHTML = '🧈 切片参数提取中…';
   try {
     const fd = new FormData(); fd.append('file', file);
     const res = await fetch('/api/training/analyze-slice', { method: 'POST', body: fd });
@@ -501,7 +493,7 @@ async function analyzeSlice() {
     if (!res.ok) { panel.innerHTML = '🧈 提取失败：' + esc(data.error || '失败') + '（可去掉切片文件继续录入纯工况样本）'; scheduleFit(); return; }
     SLICE_EXTRACTION = data;
     const diffEntries = Object.entries(data.diff || {});
-    panel.innerHTML = `<b>🧈 专家切片参数</b>（来源 ${esc(data.source)}${data.estMinutes ? '｜预计 ' + data.estMinutes + ' 分钟' : ''}）
+    panel.innerHTML = `<b>🧈 切片产物参数</b>（来源 ${esc(data.source)}${data.estMinutes ? '｜预计 ' + data.estMinutes + ' 分钟' : ''}）
       <div class="mfNotes">${diffEntries.length
         ? diffEntries.map(([k, v]) => `• ${esc(k)} = ${esc(Array.isArray(v) ? v.join('|') : v)}`).join('<br>')
         : '• 与基线一致，无差异参数'}</div>`;
@@ -509,7 +501,7 @@ async function analyzeSlice() {
   scheduleFit();
 }
 
-// ---------- 拟合度条（2026-10-12 曼波纠正语义：引擎(工况) vs 专家(切片) 的贴合程度；
+// ---------- 拟合度条（2026-10-12 曼波纠正语义：引擎(工况) vs 本单切片(实际) 的贴合程度；
 // 差异项 = 可被记忆的参数，一键转规则候选进待审池） ----------
 let FIT = null;
 let fitTimer = null;
@@ -521,7 +513,7 @@ async function computeFit() {
   if (!expertParams || Object.keys(sel).length === 0) {
     FIT = null;
     bar.style.display = 'block';
-    bar.innerHTML = '<b>🎯 拟合度</b>——需两样东西：①勾选工况（人工标注）②上传切片产物（专家参数）。两者齐了，这里显示<b>规则库对这个 case 的覆盖程度</b>：拟合高=规则库已解释你的切法；拟合低=差异项就是可被记忆的新知识。';
+    bar.innerHTML = '<b>🎯 拟合度</b>——需两样东西：①勾选工况（人工标注）②上传切片产物（实际参数）。两者齐了，这里显示<b>规则库对这个 case 的覆盖程度</b>：拟合高=规则库已解释你的切法；拟合低=差异项就是可被记忆的新知识。';
     return;
   }
   bar.style.display = 'block';
@@ -536,7 +528,7 @@ async function computeFit() {
     const mism = data.rows.filter((r) => !r.match);
     const diffTable = mism.length
       ? `<div class="mfNotes" style="margin-top:6px">${mism.map((r) =>
-          `• <b>${esc(r.key)}</b>：引擎=${esc(r.engine === null ? '（无规则覆盖）' : r.engine)} ↔ 专家=${esc(r.expert)}`).join('<br>')}</div>
+          `• <b>${esc(r.key)}</b>：引擎=${esc(r.engine === null ? '（无规则覆盖）' : r.engine)} ↔ 切片=${esc(r.expert)}`).join('<br>')}</div>
         <div style="margin-top:8px"><button class="ok" onclick="memorizeFit()">🧠 把 ${mism.length} 项差异记忆为规则候选（进待审池，采纳后规则库学会此 case）</button></div>`
       : '<div class="mfNotes">✅ 全参数拟合——规则库已完整解释此切法，无新知识可记</div>';
     bar.innerHTML = `<b>🎯 拟合度</b>
@@ -947,31 +939,6 @@ async function decide(id, action) {
   const data = await res.json();
   if (!res.ok) return toast('❌ ' + data.error);
   toast(action === 'adopt' ? '✅ 已转正为生效规则 ' + (data.ruleId || '') : '✅ 已拒绝');
-  loadSuggestions();
-}
-
-async function importExpert3mf() {
-  const file = document.getElementById('expert3mf').files[0];
-  if (!file) return toast('选择专家切片的 3mf');
-  const sel = collectSelection();
-  if (!Object.keys(sel).length) return toast('请先在上方勾选该作品的工况需求（将作为候选规则的条件）');
-  const fd = new FormData();
-  fd.append('file', file);
-  const hint = document.getElementById('extractHint');
-  hint.textContent = '解析中…';
-  const res = await fetch('/api/print/slicer-extract', { method: 'POST', body: fd });
-  const data = await res.json();
-  if (!res.ok) { hint.className = 'hint bad'; hint.textContent = data.error; return; }
-  const diffKeys = Object.keys(data.diff || {});
-  if (!diffKeys.length) { hint.className = 'hint'; hint.textContent = '提取成功但与出厂基线无差异，无需生成候选'; return; }
-  const res2 = await fetch('/api/print/rule-suggestions', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ when: sel, set: data.diff, reason: '专家作品提取（' + data.source + '）：' + file.name, source: 'extraction', sourceRef: file.name }),
-  });
-  const data2 = await res2.json();
-  if (!res2.ok) { hint.className = 'hint bad'; hint.textContent = '候选提交失败: ' + data2.error; return; }
-  hint.className = 'hint';
-  hint.textContent = '✅ 已生成候选：' + diffKeys.map(k => (PARAM_LABELS[k] || k) + '=' + data.diff[k]).join('、') + '——待审池确认后生效';
   loadSuggestions();
 }
 

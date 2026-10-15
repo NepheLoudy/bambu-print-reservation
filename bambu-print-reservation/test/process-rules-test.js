@@ -103,7 +103,7 @@ check('multi 字段 when 任一命中（ torsion 单独成规则可触发）', (
 check('输出带双版本号（rulesVersion + taxonomyVersion）', () => {
   const r = applyRules({});
   assert.match(r.rulesVersion, /^r-[0-9a-f]{8}$/);
-  assert.equal(r.taxonomyVersion, 'v4');
+  assert.equal(r.taxonomyVersion, 'v5');
 });
 
 // ---------- 写窗口操作 ----------

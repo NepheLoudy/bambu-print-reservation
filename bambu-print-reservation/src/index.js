@@ -633,18 +633,18 @@ app.post('/api/reservations', requireUser(), upload.single('file'), async (req, 
     const isSliced = /\.(3mf|gcode|gx|g)$/i.test(fileName);
     const is3mf = /\.3mf$/i.test(fileName);
 
+    // 工况勾选与 3D 标注：**切片直通单同样收集**（2026-10-16 曼波定：切片参数由工况×几何
+    // 共同决定——纯 3mf 无标注工况，入库训练无意义；直通单的勾选不作定档，仅作样本底料）
     let selection = {};
     let spatial = [];
-    if (!isSliced) {
-      try {
-        selection = body.selection ? JSON.parse(body.selection) : {};
-        // 3D 标注随单存档（v56）：载荷工况由标注驱动，标注底料与训练样本同构入库
-        spatial = require('./utils/spatialSanitize').sanitizeSpatial(
-          body.spatial ? JSON.parse(body.spatial) : []
-        );
-      } catch {
-        return res.status(400).json({ error: 'selection/spatial 不是合法 JSON' });
-      }
+    try {
+      selection = body.selection ? JSON.parse(body.selection) : {};
+      // 3D 标注随单存档（v56）：载荷工况由标注驱动，标注底料与训练样本同构入库
+      spatial = require('./utils/spatialSanitize').sanitizeSpatial(
+        body.spatial ? JSON.parse(body.spatial) : []
+      );
+    } catch {
+      return res.status(400).json({ error: 'selection/spatial 不是合法 JSON' });
     }
 
     // 需求链路才定档；3mf 直通（参数内嵌，快照置空并在页面标注）。
