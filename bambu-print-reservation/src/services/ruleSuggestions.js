@@ -65,6 +65,8 @@ function normalizeWhen(when) {
     if (v === true) out[fieldId] = [true];
     else if (v === false || v === undefined || v === null || v === '') continue;
     else if (Array.isArray(v)) { if (v.length > 0) out[fieldId] = v; }
+    // {min,max} 范围条件原样保留（2026-10-15 拟合链路实锤：包成数组会致 whenMatches 不命中）
+    else if (v && typeof v === 'object') out[fieldId] = v;
     else out[fieldId] = [v];
   }
   return out;

@@ -62,6 +62,8 @@
   /* 机器助手报错事件区（HMS/错误码） */
   .errBox { margin: 6px 0; padding: 8px 12px; background: rgba(255, 93, 93, .07); border: 1px solid rgba(255, 93, 93, .4);
     border-left: 3px solid var(--bad); border-radius: 3px; font-size: 12px; color: #ffb3b3; line-height: 1.8; }
+  .coldBox { margin: 6px 0; padding: 5px 12px; background: rgba(126, 138, 153, .06); border: 1px solid var(--line2);
+    border-radius: 3px; font-size: 11px; color: var(--dim); line-height: 1.7; }
   .tempRow { display: flex; align-items: center; gap: 8px; font-size: 12px; margin: 6px 0; }
   .tempRow input[type=number] { width: 90px; background: var(--inset); border: 1px solid var(--line); color: var(--txt); border-radius: 6px; padding: 4px 8px; }
   .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 4px 0; }
@@ -383,17 +385,41 @@ const HMS_KNOWN = {
   '84082688-196649': '检查打印机（历史通知码，如仍在屏上提示请跟随屏指导）',
 };
 
-/** 机器助手报错事件区（2026-10-15 曼波令）：HMS 通知 + 打印错误/失败码上界面 */
+/** HMS ts_unix（"20261007142817"）→ 毫秒；无法解析返回 0 */
+function hmsTs(h) {
+  const m = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/.exec(String(h.ts_unix || h.ts || ''));
+  if (!m) return 0;
+  return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime();
+}
+
+/**
+ * 机器助手报错事件区（实时性口径，2026-10-15 晚修）：
+ *   - print_error/fail_reason 是「最后一次打印的错误」——打印机持久保留不清，
+ *     仅在**活动打印或失败态**（PRINTING/PAUSE/PREPARE/FAILED）展示，空闲/完成隐藏
+ *     （否则停了测试件后旧错误码会一直挂着 = 曼波反馈的「实时性差」）
+ *   - HMS 通知按时间戳过滤：超 24h 的历史码折叠为灰色一行，活跃码醒目显示
+ */
 function errorSection(p) {
-  const parts = [];
-  if (p.printError) parts.push(`⛔ 打印错误码 <b>${p.printError}</b>（详情见打印机屏幕）`);
-  if (p.failReason) parts.push(`⚠️ 失败原因码 <b>${p.failReason}</b>`);
+  const active = ['打印中', '暂停', '准备中', '故障'].includes(p.status);
+  const hot = [];
+  const cold = [];
+  if (active) {
+    if (p.printError) hot.push(`⛔ 打印错误码 <b>${p.printError}</b>（详情见打印机屏幕）`);
+    if (p.failReason && p.failReason !== p.printError) hot.push(`⚠️ 失败原因码 <b>${p.failReason}</b>`);
+  }
+  const now = Date.now();
   for (const h of (p.hms || [])) {
     const known = HMS_KNOWN[`${h.attr}-${h.code}`];
-    parts.push(`🔔 HMS ${h.attr}-${h.code}${known ? '：' + esc(known) : '（未收录码——看打印机屏幕获取详情）'}`);
+    const ts = hmsTs(h);
+    const line = `🔔 HMS ${h.attr}-${h.code}${known ? '：' + esc(known) : '（未收录码——看打印机屏幕获取详情）'}`;
+    if (ts && now - ts > 24 * 3600 * 1000) cold.push(line);
+    else hot.push(line);
   }
-  if (!parts.length) return '';
-  return `<div class="errBox">${parts.map((s) => `<div>${s}</div>`).join('')}</div>`;
+  if (!hot.length && !cold.length) return '';
+  const parts = [];
+  if (hot.length) parts.push(`<div class="errBox">${hot.map((s) => `<div>${s}</div>`).join('')}</div>`);
+  if (cold.length) parts.push(`<div class="coldBox">📋 历史通知（>24h 折叠）：${cold.join('；')}</div>`);
+  return parts.join('');
 }
 
 function cardHtml(p) {

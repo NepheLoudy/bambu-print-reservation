@@ -184,7 +184,9 @@ check('法线整体翻转的网格：朝向自愈，接触面仍在底部', () =
 
 check('4 个几何体检字段规则映射（勾选 → 引擎参数）', () => {
   const processRules = require('../src/services/processRules');
-  assert.equal(processRules.applyRules({ through_holes: true }).params.xyHoleComp, -0.1, '孔负补偿');
+  // 孔补偿已随 2026-10-15 曼波定原则撤出种子（学习型因果一律动态拟合，
+  // 从样本库经 ruleFitter 产出进待审池）——此处断言：种子无手写孔补偿
+  assert.equal(processRules.applyRules({ through_holes: true }).params.xyHoleComp, 0, '孔补偿不手写（拟合产出）');
   assert.equal(processRules.applyRules({ overhang_heavy: true }).params.supportDensity, 30, '支撑加密');
   assert.equal(processRules.applyRules({ curved_surface: true }).params.supportThresholdAngle, 40, '曲面支撑疤防护');
   const r = processRules.applyRules({ small_footprint: true });
@@ -192,6 +194,9 @@ check('4 个几何体检字段规则映射（勾选 → 引擎参数）', () => 
   assert.equal(r.params.brimWidth, 5);
   // 与显式规则共存：外观件（priority 100）覆盖曲面保护（60）
   assert.equal(processRules.applyRules({ curved_surface: true, appearance: true }).params.supportThresholdAngle, 45, '显式外观优先于几何默认');
+  // 拟合规则可经 feat 条件生效（featureDerive 产出 → applyRules 消费）
+  const viaFeat = processRules.applyRules({}, { feat: { holes_z: 2 } });
+  assert.equal(typeof viaFeat.params.xyHoleComp, 'number', 'feat 条件通道可用（当前无手写规则命中则保持基线）');
 });
 
 // ---------- 建议映射层 ----------

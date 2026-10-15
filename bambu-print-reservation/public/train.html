@@ -278,6 +278,10 @@
       <div style="flex:0; align-self:flex-end"><button class="mini" onclick="importExpert3mf()">提取并生成候选</button></div>
     </div>
     <div class="hint" id="extractHint"></div>
+    <div class="row" style="margin:8px 0">
+      <button class="primary" onclick="runRuleFit()">🧪 从样本库拟合规则</button>
+      <span class="hint" id="fitHint">按「几何特征 × 专家参数」统计拟合（每特征 ≥3 条样本才有统计意义）；候选进下方待审池</span>
+    </div>
     <div id="sugList"></div>
   </div>
     </div>
@@ -906,6 +910,18 @@ async function submitCorrection(id, dlg) {
   toast(data.merged ? '✅ 已合并到既有建议（累计 ' + data.suggestion.count + ' 次）' : '✅ 建议已入待审池');
   dlg.close();
   loadSuggestions();
+}
+
+async function runRuleFit() {
+  const hint = document.getElementById('fitHint');
+  hint.textContent = '拟合中（读取样本库统计）…';
+  try {
+    const res = await fetch('/api/training/rule-fit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const data = await res.json();
+    if (!res.ok) { hint.textContent = '❌ ' + (data.error || '拟合失败'); return; }
+    hint.textContent = '✅ 样本 ' + data.stats.samples + ' 条 / 特征 ' + data.stats.features + ' 个 → 新候选 ' + data.added + ' 条' + (data.note ? '｜' + data.note : '');
+    loadSuggestions();
+  } catch (e) { hint.textContent = '❌ ' + e.message; }
 }
 
 async function loadSuggestions() {

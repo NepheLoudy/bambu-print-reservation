@@ -350,6 +350,34 @@ app.post('/api/training/fit', requireUser(), (req, res) => {
   }
 });
 
+// 规则拟合（2026-10-15 曼波定原则）：从「优秀切片样本 × 几何特征」统计拟合学习型因果规则，
+// 候选进待审池（source='fit'）——采纳后进规则库生效；不手写工艺因果（手写已撤）
+app.post('/api/training/rule-fit', requireUser('reviewer', 'admin'), (req, res) => {
+  try {
+    const trainingStore = require('./services/trainingStore');
+    const { fitRules } = require('./services/ruleFitter');
+    const { deriveFeatures } = require('./services/featureDerive');
+    const result = fitRules(deriveFeatures, trainingStore.list(), req.body || {});
+    const suggestions = require('./services/ruleSuggestions');
+    let added = 0;
+    for (const c of result.candidates) {
+      suggestions.add({
+        when: c.when,
+        set: c.set,
+        reason: c.reason,
+        source: 'fit',
+        sourceRef: `fit:${c.stats.feature}×${c.stats.param}`,
+        suggestedBy: req.user.displayName,
+      });
+      added += 1;
+    }
+    res.json({ ...result, added, note: added ? `已产出 ${added} 条候选（待审池确认后生效）` : '暂无显著特征-参数关联（样本量或差异不足）' });
+  } catch (err) {
+    console.error('规则拟合失败:', err);
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // 网格下发（3D 标注工房用）：模型文件 → 抽稀网格 JSON（≤12 万面，浏览器可渲染）
 app.post('/api/training/mesh', requireUser(), upload.single('file'), (req, res) => {
   try {
@@ -585,10 +613,37 @@ app.post('/api/reservations', requireUser(), upload.single('file'), async (req, 
       }
     }
 
-    // 需求链路才定档；3mf 直通（参数内嵌，快照置空并在页面标注）
+    // 需求链路才定档；3mf 直通（参数内嵌，快照置空并在页面标注）。
+    // 定档需 modelFeatures（特征派生输入）——故快照解析先行（无副作用，原位置在下方）
+    // 需求链路单的几何体检快照解析（2026-10-11 引入；2026-10-15 挪前供依据）：
+    // 只收白名单数值键，防伪造膨胀；无/解析失败为 null
+    let modelFeatures = null;
+    if (!isSliced && body.modelFeatures) {
+      try {
+        const raw = JSON.parse(body.modelFeatures);
+        if (raw && raw.ok === true) {
+          modelFeatures = {
+            triangles: Number(raw.triangles) || 0,
+            vertices: Number(raw.vertices) || 0,
+            bbox: raw.bbox || null,
+            volumeCm3: Number(raw.volumeCm3) || 0,
+            overhang: raw.overhang || null,
+            contact: raw.contact || null,
+            curvedPct: Number(raw.curvedPct) || 0,
+            holes: raw.holes || null,
+            mesh: raw.mesh || null,
+            suggested: (raw.suggestions && raw.suggestions.selection) || {},
+          };
+        }
+      } catch { /* 非法 JSON 忽略，不阻塞提交 */ }
+    }
+
     let applied = null;
     if (!isSliced) {
-      applied = processRules.applyRules(selection, { material: body.materialType });
+      // 特征派生（2026-10-15）：spatial 标注 + 几何体检 → feat 字典进规则条件
+      // （拟合规则引用 feat.*；载荷→勾选折算仍在前端完成）
+      const feat = require('./services/featureDerive').deriveFeatures(spatial, modelFeatures, selection);
+      applied = processRules.applyRules(selection, { material: body.materialType, feat });
       if (applied.blocked) {
         try { fs.unlinkSync(req.file.path); } catch { /* 已不存在 */ }
         return res.status(400).json({ error: '需求勾选存在硬冲突', details: applied.errors, warnings: applied.warnings });
@@ -612,30 +667,6 @@ app.post('/api/reservations', requireUser(), upload.single('file'), async (req, 
           console.warn(`[提交] 3mf 参数提取失败（不影响提交）: ${err.message}`);
         }
       }
-    }
-
-    // STL 几何体检快照随单入档（2026-10-11）：前端体检结果原样存档（compact 数值集），
-    // 与 selection 同级信任——将来学习回路的「人工修正 vs 自动建议」差值分析吃这个数据。
-    // 只收白名单数值键，防伪造膨胀；无/解析失败为 null
-    let modelFeatures = null;
-    if (!isSliced && body.modelFeatures) {
-      try {
-        const raw = JSON.parse(body.modelFeatures);
-        if (raw && raw.ok === true) {
-          modelFeatures = {
-            triangles: Number(raw.triangles) || 0,
-            vertices: Number(raw.vertices) || 0,
-            bbox: raw.bbox || null,
-            volumeCm3: Number(raw.volumeCm3) || 0,
-            overhang: raw.overhang || null,
-            contact: raw.contact || null,
-            curvedPct: Number(raw.curvedPct) || 0,
-            holes: raw.holes || null,
-            mesh: raw.mesh || null,
-            suggested: (raw.suggestions && raw.suggestions.selection) || {},
-          };
-        }
-      } catch { /* 非法 JSON 忽略，不阻塞提交 */ }
     }
 
     // 指定打印机校验（2026-10-08）：自由文本填错名字此前会静默走自动匹配或永远排队——

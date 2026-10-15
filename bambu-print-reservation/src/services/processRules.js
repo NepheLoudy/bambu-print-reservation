@@ -16,6 +16,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const taxonomy = require('./taxonomy');
+const { FEATURE_NAMES } = require('./featureDerive');
 
 // ---------- 参数白名单（切片器 CLI 可消费的核心参数，映射目标全集） ----------
 const BASELINE = {
@@ -109,9 +110,9 @@ const DEFAULT_RULES = [
     { wallLoops: 3 },
     '螺钉/嵌件连接：孔周需 ≥2 圈实壁，全局墙数抬到 3 保底'),
   // 几何体检种子（2026-10-11，模型特征自拟合；priority 60 = 让位显式外观/重载勾选，压过默认档）
-  seed('holes-comp', 60, { through_holes: [true] },
-    { xyHoleComp: -0.1 },
-    '模型检出孔特征：FDM 孔径收缩，孔负补偿 -0.1 保装配（螺孔规格明确时由配合规则取更深补偿）'),
+  // 注（2026-10-15 曼波定原则）：**学习型工艺因果一律动态拟合**——从「优秀切片样本 ×
+  // 其几何特征」（featureDerive 产出）统计得出，经待审池采纳后进本规则库（ruleFitter.js）。
+  // 孔补偿等因果不得手写（本轮曾短暂误加三条已撤，保留此注防再犯）。
   seed('overhang-support', 60, { overhang_heavy: [true] },
     { supportType: 'auto', supportDensity: 30 },
     '模型检出重悬空/悬端：支撑加密到 30%；悬端过高朝向不合理时转人工确认摆向'),
@@ -145,8 +146,15 @@ function validateRule(rule) {
 
   if (rule.when) {
     for (const [fieldId, cond] of Object.entries(rule.when)) {
-      const field = taxonomy.groups.flatMap((g) => g.fields).find((f) => f.id === fieldId);
-      if (!field) { problems.push(`when 引用了池外字段 ${fieldId}`); continue; }
+      // feat.* = 派生特征（featureDerive.js）：校验键在已知特征清单内（池内字段走 taxonomy）
+      if (fieldId.startsWith('feat.')) {
+        const fname = fieldId.slice(5);
+        // annot_* = 空间标注工具计数（deriveFeatures 动态产出，任意工具名合法）；其余查固定清单
+        if (!fname.startsWith('annot_') && !FEATURE_NAMES.includes(fname)) { problems.push(`when 引用了未知派生特征 ${fieldId}`); continue; }
+      } else {
+        const field = taxonomy.groups.flatMap((g) => g.fields).find((f) => f.id === fieldId);
+        if (!field) { problems.push(`when 引用了池外字段 ${fieldId}`); continue; }
+      }
       const isEnum = Array.isArray(cond) && cond.length > 0;
       const isRange = cond && typeof cond === 'object' && !Array.isArray(cond)
         && (cond.min !== undefined || cond.max !== undefined);
@@ -219,9 +227,12 @@ function rulesVersion() {
 
 // ---------- 应用引擎 ----------
 // 条件值：数组=枚举（multi 任一命中）；{min,max}=数值范围（标尺类字段，如挠度标尺）
-function whenMatches(when, selection) {
+// feat.* 前缀 = 派生特征（featureDerive.js 产出：孔轴向/孔径/悬垂%/空间标注计数等），
+// 让「Z 向孔 → XY 孔补偿」这类空间因果可被规则条件引用（2026-10-15 曼波令）
+function whenMatches(when, selection, feat = {}) {
   return Object.entries(when).every(([fieldId, cond]) => {
-    const v = selection[fieldId];
+    const isFeat = fieldId.startsWith('feat.');
+    const v = isFeat ? feat[fieldId.slice(5)] : selection[fieldId];
     if (Array.isArray(cond)) {
       if (Array.isArray(v)) return v.some((x) => cond.includes(x));
       return cond.includes(v);
@@ -252,8 +263,9 @@ function applyRules(selection, opts = {}) {
 
   const params = { ...BASELINE, materialExclude: [], materialPrefer: [] };
   const applied = [];
+  const feat = opts.feat || {};
   for (const rule of rules) {
-    if (!whenMatches(rule.when, selection)) continue;
+    if (!whenMatches(rule.when, selection, feat)) continue;
     Object.assign(params, rule.set);
     applied.push({ id: rule.id, priority: rule.priority, reason: rule.reason });
   }
