@@ -646,13 +646,12 @@ async function loadAnnotator() {
   } catch (err) { $('toolRow').innerHTML = '<span class="hint">3D 标注初始化失败：' + esc(err.message) + '</span>'; }
 }
 
-/** 载荷手勾组可见性：STL（可 3D 标注）时隐藏（由标注驱动）；step/obj 等不可标注格式回退手勾 */
+/** 载荷手勾组**永久退役**（2026-10-15 曼波令：与 3D 标注重叠）——载荷工况全部由
+ *  3D 标注驱动（stl/step 皆可标注；obj 需另存）；load_* 数据机制保留（标注折算照写），
+ *  仅手勾 UI 永不再现（曾有的「不可标注格式回退手勾」已删——那是手勾组复活的根源） */
 function updateLoadGroupMode() {
   const g = document.getElementById('group_load');
-  if (!g) return;
-  const file = $('file').files[0];
-  const meshCapable = !!file && /\.(stl|step|stp)$/i.test(file.name) && !isSlicedFile();
-  g.style.display = meshCapable ? 'none' : 'block';
+  if (g) g.style.display = 'none';
 }
 
 // ---------- 训练样本库 JS 已迁回录入台（train.html，v56 复查批） ----------
@@ -702,8 +701,8 @@ async function loadTaxonomy() {
     const div = document.createElement('div');
     div.className = 'group';
     div.id = 'group_' + g.id;
-    // 载荷组隐藏（v56）：工况由 3D 标注驱动（loadAnnotator/syncLoadsToSelection 折算进
-    // 隐藏勾选），step/obj 等不可标注格式由 updateLoadGroupMode 回退显示手勾
+    // 载荷组永久隐藏（2026-10-15 曼波令）：手勾与 3D 标注重叠，彻底退役——
+    // 全部由 3D 标注驱动折算（load_* 数据机制保留，仅 UI 不现）
     if (g.id === 'load') div.style.display = 'none';
     const opts = g.fields.map(f => {
       if (f.type === 'scale') {
