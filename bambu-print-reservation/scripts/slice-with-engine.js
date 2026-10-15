@@ -26,6 +26,7 @@ const { execFileSync } = require('child_process');
 // 本地切片桥：Orca 安装路径两机不同，环境变量优先；缺省按常见安装位置探测，探测不到在使用时报错并给指引
 const ORCA_CANDIDATES = [
   process.env.ORCA_SLICER_EXE,
+  'C:/qianli/opt/OrcaSlicer/orca-slicer.exe', // 生产机（2026-10-15 台式机整目录搬迁落位）
   'D:/Programs/OrcaSlicer/orca-slicer.exe',
   'C:/Program Files/OrcaSlicer/orca-slicer.exe',
 ].filter(Boolean);
