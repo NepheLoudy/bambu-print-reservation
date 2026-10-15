@@ -3,6 +3,7 @@ const { Client: SSHClient } = require('ssh2');
 const ftp = require('ftp');
 const { Client: FTPSClient } = require('basic-ftp');
 const net = require('net');
+const { Readable } = require('stream');
 const RtpsSession = require('./rtsps');
 
 // gcodeState（打印机上报的 gcode_state）→ 统一中文状态
@@ -578,7 +579,10 @@ class PrinterClient {
         const timer = setTimeout(() => {
           reject(new Error(`FTPS 上传超时（${FTPS_TIMEOUT_MS / 1000}s）: ${remotePath}`));
         }, FTPS_TIMEOUT_MS);
-        client.uploadFrom(Buffer.from(buffer), remotePath).then(
+        // basic-ftp uploadFrom 只接受 Readable | 本地路径字符串——传 Buffer 会报
+        // 「source.once is not a function」静默炸整条分发链（2026-10-15 真机首验实锤，
+        // 此前上传通道从无真机验证，桩测试mock掉了这层）
+        client.uploadFrom(Readable.from(Buffer.from(buffer)), remotePath).then(
           () => { clearTimeout(timer); resolve(); },
           (err) => { clearTimeout(timer); reject(err); }
         );

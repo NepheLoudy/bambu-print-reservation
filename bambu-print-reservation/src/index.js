@@ -1137,10 +1137,11 @@ app.get('/api/printers/:id/camera/mjpeg', requireUser(), (req, res) => {
 // 拓竹画面 H.264 中继：P1/A1=TCP 6000 裸流 / X1-H2D=RTSPS 322（rtsps.js 归一 Annex-B）
 // → WebSocket 二进制（前端 WebCodecs 解码）。upgrade 不走 express 中间件，cookie 会话在此手动校验
 const wssCamera = new WebSocketServer({ noServer: true });
-// 每打印机并发观看上限（v56 复查批）：前端泄漏页/多开标签会按连接数吃打印机 RTSP 会话额，
-// 封顶后多余的直接拒绝——新连接永远抢得到额度，泄漏页不再能饱和打印机
+// 每打印机并发观看上限（v56 复查批 + 踢旧迎新修订）：前端泄漏页/多开标签/半开 TCP
+// 会按连接数占打印机 RTSP 会话额——超过上限时**踢掉最早的一条**（而非拒绝新连接）：
+// 用户点击永远能立即接通，僵尸连接被自然淘汰（2026-10-15 实证：半开连接致 429 间歇拒绝）
 const CAMERA_MAX_PER_PRINTER = 3;
-const cameraRelayCount = new Map(); // printerId → 当前中继数
+const cameraRelays = new Map(); // printerId → [{ ws, upstream, createdAt }]（新→旧序无关，按 createdAt 踢）
 function handleCameraUpgrade(req, socket, head) {
   const m = /^\/api\/printers\/(\d+)\/camera\/h264(\?.*)?$/.exec(req.url || '');
   if (!m) { socket.destroy(); return; }
@@ -1156,18 +1157,25 @@ function handleCameraUpgrade(req, socket, head) {
     socket.destroy();
     return;
   }
-  const relayCount = cameraRelayCount.get(p.id) || 0;
-  if (relayCount >= CAMERA_MAX_PER_PRINTER) {
-    socket.write('HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\n\r\n');
-    socket.destroy();
-    console.log(`[画面] ${p.name} 中继数已达上限 ${CAMERA_MAX_PER_PRINTER}，拒绝新连接（有泄漏页未关？）`);
-    return;
-  }
-  cameraRelayCount.set(p.id, relayCount + 1);
   wssCamera.handleUpgrade(req, socket, head, (ws) => {
+    const relays = cameraRelays.get(p.id) || [];
+    // 踢旧迎新：超上限先关闭最早的一条（僵尸/旧页面被淘汰，新观看永远优先）
+    while (relays.length >= CAMERA_MAX_PER_PRINTER) {
+      const oldest = relays.reduce((a, b) => (a.createdAt <= b.createdAt ? a : b));
+      console.log(`[画面] ${p.name} 中继达上限 ${CAMERA_MAX_PER_PRINTER}，踢除最旧连接（${Math.round((Date.now() - oldest.createdAt) / 1000)}s 前建立）`);
+      try { oldest.ws.close(1012, 'replaced by newer viewer'); } catch { /* 已关 */ }
+      try { oldest.upstream.destroy(); } catch { /* 已销毁 */ }
+      const at = relays.indexOf(oldest);
+      if (at >= 0) relays.splice(at, 1);
+    }
     const upstream = printerManager.openCameraStream(p.id);
-    const release = () => {
-      cameraRelayCount.set(p.id, Math.max(0, (cameraRelayCount.get(p.id) || 1) - 1));
+    const entry = { ws, upstream, createdAt: Date.now() };
+    relays.push(entry);
+    cameraRelays.set(p.id, relays);
+    const detach = () => {
+      const arr = cameraRelays.get(p.id) || [];
+      const at = arr.indexOf(entry);
+      if (at >= 0) arr.splice(at, 1);
     };
     upstream.on('data', (chunk) => {
       // 背压保护：慢客户端（浏览器后台标签页）的缓冲超 4MB 就丢帧，防服务端内存被撑爆
@@ -1176,15 +1184,15 @@ function handleCameraUpgrade(req, socket, head) {
       ws.send(chunk, { binary: true });
     });
     upstream.on('error', (err) => {
-      release();
+      detach();
       try { ws.close(1011, err.message.slice(0, 100)); } catch { /* 已关 */ }
     });
     upstream.on('close', () => {
-      release();
+      detach();
       try { ws.close(1000); } catch { /* 已关 */ }
     });
-    ws.on('close', () => { release(); try { upstream.destroy(); } catch { /* 已销毁 */ } });
-    ws.on('error', () => { release(); try { upstream.destroy(); } catch { /* 已销毁 */ } });
+    ws.on('close', () => { detach(); try { upstream.destroy(); } catch { /* 已销毁 */ } });
+    ws.on('error', () => { detach(); try { upstream.destroy(); } catch { /* 已销毁 */ } });
   });
 }
 
