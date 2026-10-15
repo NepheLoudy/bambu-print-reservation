@@ -250,7 +250,10 @@ class RtpsSession extends EventEmitter {
       return;
     }
     if (status !== 200) {
-      this._fail(new Error(`RTSP ${this._stage} 失败（HTTP ${status}）`));
+      const isAuth = status === 401 || status === 403;
+      this._fail(new Error(
+        `RTSP ${this._stage} 失败（HTTP ${status}）${isAuth ? '——凭据被拒：Access Code 可能已轮换/失效，请到打印机屏幕「设置→网络」抄新码并更新 .env 后重启（2026-10-15 实案）' : ''}`
+      ));
       return;
     }
     const sess = (hdr.session || '').split(';')[0];

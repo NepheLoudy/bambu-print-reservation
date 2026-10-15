@@ -86,7 +86,11 @@ class PrinterClient {
       });
 
       this.client.on('error', (err) => {
-        console.error(`[打印机] ${this.config.name} 错误:`, err.message);
+        // 认证类错误的诊断提示（2026-10-15 实案：Access Code 轮换致 MQTT/RTSPS 同拒）
+        const authHint = /not author|unauthor|401/i.test(err.message || '')
+          ? '——凭据被拒：Access Code 可能已轮换/失效，请到打印机屏幕「设置→网络」抄新码并更新 .env 后重启'
+          : '';
+        console.error(`[打印机] ${this.config.name} 错误:${err.message}${authHint}`);
         this.notifyListeners('error', err);
       });
 
