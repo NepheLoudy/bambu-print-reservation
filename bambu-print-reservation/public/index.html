@@ -267,6 +267,11 @@
 <div id="toast"></div>
 <script src="/annotator.js"></script>
 <script>
+// 全局错误遥测（必须最先挂载）：异步静默失败=「界面没反应」类事故总根源，现场留痕
+window.__errs = [];
+window.addEventListener('error', (e) => window.__errs.push('ERR: ' + e.message + ' @' + (e.filename || '').split('/').pop() + ':' + e.lineno));
+window.addEventListener('unhandledrejection', (e) => window.__errs.push('REJ: ' + ((e.reason && e.reason.message) || e.reason)));
+
 let TAXONOMY = null;
 let ME = null;
 let authMode = 'login';
@@ -345,6 +350,36 @@ function renderIdentity() {
     <button onclick="logout()">退出</button>`;
   $('adminCard').style.display = isAdmin() ? 'block' : 'none';
   loadUsers();
+}
+
+async function loadUsers() {
+  if (!isAdmin()) return;
+  const res = await fetch('/api/auth/users');
+  if (!res.ok) return;
+  const users = await res.json();
+  $('userList').innerHTML = `<table><tr><th>用户名</th><th>姓名</th><th>角色</th><th>最后登录</th><th>操作</th></tr>` +
+    users.map(u => `<tr><td>${esc(u.username)}</td><td>${esc(u.displayName)}</td>
+      <td><select class="roleSel" onchange="setRole('${u.id}', this.value)">
+        ${['member','reviewer','admin'].map(r => `<option ${u.role === r ? 'selected' : ''}>${r}</option>`).join('')}
+      </select></td>
+      <td class="detail">${esc((u.lastLoginAt || '').replace('T', ' ').slice(0, 16)) || '从未登录'}</td>
+      <td><button class="mini" onclick="resetPwd('${u.id}')">重置密码</button></td></tr>`).join('') + '</table>';
+}
+
+async function resetPwd(id) {
+  if (!confirm('重置该用户的密码？（生成随机临时密码，会话全清，请转告本人登录后修改）')) return;
+  const res = await fetch(`/api/auth/users/${id}/reset-password`, { method: 'POST' });
+  const data = await res.json().catch(() => ({}));
+  if (res.ok) {
+    prompt(`✅ 已重置 ${data.username} 的密码，临时密码如下（只显示这一次，请复制转告）：`, data.tempPassword);
+    loadUsers();
+  } else toast('❌ ' + (data.error || '失败'));
+}
+
+async function setRole(id, role) {
+  const res = await fetch(`/api/auth/users/${id}/role`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role }) });
+  const data = await res.json();
+  toast(res.ok ? `✅ 已调整为 ${data.role}` : '❌ ' + data.error);
 }
 
 // ---------- 参数中文名表（列表参数快照渲染用；学习链路 UI 已于 v56 退役） ----------
@@ -618,8 +653,19 @@ function restoreSelMemory() {
 }
 
 async function loadTaxonomy() {
-  const res = await fetch('/api/print/taxonomy');
-  TAXONOMY = await res.json();
+  try {
+    const res = await fetch('/api/print/taxonomy');
+    TAXONOMY = await res.json();
+    if (!res.ok || !TAXONOMY || !Array.isArray(TAXONOMY.groups)) {
+      throw new Error('接口返回异常（HTTP ' + res.status + '）');
+    }
+  } catch (err) {
+    // 静默异步失败=「工况区消失」这类事故的根源（v56 复查批教训）：失败必须可见
+    const box = $('taxonomy');
+    box.innerHTML = '<div class="hint bad">⛔ 工况加载失败：' + esc(err.message) + '——请刷新重试；持续失败联系管理员查服务日志</div>';
+    console.error('[taxonomy] 加载失败:', err);
+    return;
+  }
   $('convention').textContent = 'ℹ️ ' + TAXONOMY.convention;
   const box = $('taxonomy');
   for (const g of TAXONOMY.groups) {
