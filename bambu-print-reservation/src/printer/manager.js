@@ -346,7 +346,7 @@ class PrinterManager {
     return remotePath;
   }
 
-  async startProjectOnPrinter(printerId, fileName, subtaskName, useAms = true) {
+  async startProjectOnPrinter(printerId, fileName, subtaskName, useAms = true, prefTray = null) {
     const client = this.clients[printerId];
     if (!client || !client.connected) {
       throw new Error('打印机未连接');
@@ -354,7 +354,7 @@ class PrinterManager {
     if (this.printerStates[printerId].brand === 'flashforge') {
       return client.startFile(fileName);
     }
-    await client.startProjectFile(fileName, subtaskName, useAms);
+    await client.startProjectFile(fileName, subtaskName, useAms, prefTray);
   }
 
   /** 灯控制（观察台指令条；两品牌各走各的协议；lamp 仅拓竹区分腔灯/工作灯） */

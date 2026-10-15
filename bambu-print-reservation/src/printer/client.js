@@ -368,11 +368,16 @@ class PrinterClient {
    *     ams_mapping2 等），命令走 request topic（_patchCommandTopic）
    *   老世代 P1/A1：url=ftp:///sdcard/<name>、简版帧、report 单 topic
    */
-  async startProjectFile(fileName, subtaskName, useAms = true) {
+  async startProjectFile(fileName, subtaskName, useAms = true, prefTray = null) {
     if (!this.client || !this.connected) {
       throw new Error('打印机未连接');
     }
     const isNewGen = /H2|X1/.test(String(this.config.model || '').toUpperCase());
+    // 审批分发指定槽位（2026-10-16 曼波令）：ams_mapping2 指向指定 AMS/槽位——
+    // 未指定时维持默认 [{ams_id:0, slot_id:0}]（打印机按切片/自动映射）
+    const mapAms = prefTray && Number.isInteger(prefTray.amsId) && Number.isInteger(prefTray.trayId)
+      ? { ams_id: prefTray.amsId, slot_id: prefTray.trayId }
+      : { ams_id: 0, slot_id: 0 };
     const sequenceId = ++this.projectSeq;
     const payload = isNewGen
       ? {
@@ -403,7 +408,7 @@ class PrinterClient {
             subtask_id: String(sequenceId),
             task_id: String(sequenceId),
             ams_mapping: [0],
-            ams_mapping2: [{ ams_id: 0, slot_id: 0 }],
+            ams_mapping2: [mapAms],
           },
         }
       : {

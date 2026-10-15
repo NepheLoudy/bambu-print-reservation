@@ -539,7 +539,18 @@ class Dispatcher {
     // 1. 指定打印机
     if (task.assignedPrinter) {
       const named = candidates.find((p) => p.name === task.assignedPrinter);
-      if (named) return named;
+      if (named) {
+        // 审批分发指定（2026-10-16）：审批人指定的槽位在分发时刻仍须实装——
+        // 换料/抽走导致槽位不可用时滞留等人工（不静默换槽，尊重审批指定）
+        if (task.prefTray && task.prefTray.slot) {
+          const stillThere = (named.ams || []).some((t) => t.slot === task.prefTray.slot && t.type);
+          if (!stillThere) {
+            console.warn(`[分发] ${task.applicationNo} 审批指定槽位「${task.prefTray.slot}」在 ${named.name} 已不可用——滞留等待人工处理`);
+            return null;
+          }
+        }
+        return named;
+      }
     }
 
     const needMaterial = String(task.materialType || '').trim().toUpperCase();
@@ -697,7 +708,8 @@ class Dispatcher {
         printer.id,
         remoteName,
         task.fileName || task.applicationNo || remoteName,
-        config.dispatch.useAms
+        config.dispatch.useAms,
+        task.prefTray || null // 审批分发指定（2026-10-16）：指定槽位随帧下发
       );
 
       task.startedAt = Date.now();

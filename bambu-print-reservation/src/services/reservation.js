@@ -83,8 +83,13 @@ class ReservationService {
 
   // ---------- 审批（管理动作，端点侧挂 X-API-Token） ----------
 
-  /** 审批通过：状态流转 + 群播结果卡 + 入队（本地任务，fileSource=local） */
-  async approveReservation(id, reviewer, comment) {
+  /**
+   * 审批通过：状态流转 + 群播结果卡 + 入队（本地任务，fileSource=local）。
+   * dispatch（2026-10-16 曼波令「审批人应能选槽位/喷嘴」）：
+   *   { assignedPrinter?: name, tray?: {amsId, trayId}, nozzleId?: number }——都可空（空=自动匹配，保持原能力）。
+   *   指定值**审批时硬校验**（打印机在册/槽位实装/喷头存在），fail 即 400 不落审批。
+   */
+  async approveReservation(id, reviewer, comment, dispatch = {}) {
     const reservation = store.get(id);
     if (!reservation) throw new Error('预约记录不存在');
     // 显式状态门槛：仅「待审批」可批。不能只依赖状态机——排队中→已通过是
@@ -97,15 +102,54 @@ class ReservationService {
       throw new Error(`「${reservation.fileName}」${UNSLICED_HINT}`);
     }
 
-    store.updateStatus(id, config.status.REVIEW_APPROVED, `审批人：${reviewer || '未署名'}${comment ? `｜意见：${comment}` : ''}`);
-    store.setReview(id, { reviewer: reviewer || '', comment: comment || '', result: config.reviewResult.APPROVED });
+    // 分发配置硬校验（指定即权威，但不放行明显无效值）
+    const printerManager = require('../printer/manager');
+    const pref = {};
+    if (dispatch.assignedPrinter) {
+      const pr = config.printers.find((p) => p.name === dispatch.assignedPrinter);
+      if (!pr) throw new Error(`指定打印机「${dispatch.assignedPrinter}」未登记`);
+      pref.assignedPrinter = dispatch.assignedPrinter;
+      if (dispatch.tray && (dispatch.tray.amsId !== undefined || dispatch.tray.trayId !== undefined)) {
+        const apiState = printerManager.getApiStates().find((p) => p.id === pr.id);
+        const trays = (apiState && apiState.ams) || [];
+        const wantSel = String(dispatch.tray.slot || '');
+        const hit = trays.find((t) => t.slot === wantSel) || null;
+        if (!hit) {
+          throw new Error(`槽位「${wantSel || '未指定'}」在 ${pr.name} 上不存在或未实装（可选：${trays.map((t) => t.slot).join('、') || '无料站信息'}）`);
+        }
+        pref.tray = { amsId: Number(dispatch.tray.amsId) || 0, trayId: Number(dispatch.tray.trayId), slot: wantSel };
+      }
+      if (dispatch.nozzleId !== undefined && dispatch.nozzleId !== null && dispatch.nozzleId !== '') {
+        const apiState = printerManager.getApiStates().find((p) => p.id === pr.id);
+        const nozzles = (apiState && apiState.nozzles) || [];
+        const nid = Number(dispatch.nozzleId);
+        if (nozzles.length < 2) throw new Error(`${pr.name} 非多喷头机型，无法指定喷嘴`);
+        if (!nozzles.some((n) => n.id === nid)) throw new Error(`喷头 ${nid + 1} 不存在于 ${pr.name}`);
+        pref.nozzleId = nid;
+      }
+    }
+    const prefNote = pref.tray || pref.nozzleId || pref.assignedPrinter
+      ? `｜分发指定：${pref.assignedPrinter || '自动机'}${pref.tray ? `·${pref.tray.slot}` : ''}${pref.nozzleId != null ? `·喷头${pref.nozzleId + 1}` : ''}`
+      : '';
+
+    store.updateStatus(id, config.status.REVIEW_APPROVED, `审批人：${reviewer || '未署名'}${comment ? `｜意见：${comment}` : ''}${prefNote}`);
+    store.setReview(id, {
+      reviewer: reviewer || '',
+      comment: comment || '',
+      result: config.reviewResult.APPROVED,
+      dispatch: (pref.assignedPrinter || pref.tray || pref.nozzleId != null) ? pref : null, // 审批分发指定（审计+复刻参考）
+    });
 
     // 入队关键路径内不得有 await（v56 竞态修复）：JS 单线程，无 await 即无取消插窗。
     // 此前 await 群播卡在「已通过落库」与「入队」之间开了窗口——用户取消可合法插队
     // （已通过→已取消），恢复执行后照常入队+写排队中失败，最终「已取消单真机开打」。
     const dispatcher = require('./dispatcher');
     const fresh = store.get(id);
-    const enqueued = dispatcher.enqueue(dispatcher.buildLocalTask(fresh));
+    const task = dispatcher.buildLocalTask(fresh);
+    if (pref.assignedPrinter) task.assignedPrinter = pref.assignedPrinter;
+    if (pref.tray) task.prefTray = pref.tray;
+    if (pref.nozzleId != null) task.prefNozzleId = pref.nozzleId;
+    const enqueued = dispatcher.enqueue(task);
     if (!enqueued) {
       // 幂等命中（known/queue 已有该单）——不再静默滞留「已通过」
       throw new Error('该任务已在分发队列中（幂等拦截），请刷新列表核对单据状态');
