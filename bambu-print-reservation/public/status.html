@@ -434,11 +434,14 @@ async function loadFleet() {
   if (!Array.isArray(printers) || !printers.length) { $('fleet').innerHTML = '<div class="detail">暂无登记打印机（.env PRINTER_HOSTS）</div>'; return; }
   FLEET = printers;
   $('fleet').innerHTML = printers.map(cardHtml).join('');
-  // h264 会话保持：卡片重渲染会重画 DOM，正在观看的流重连
+  // h264 会话保持：5s 重渲染会重画 DOM——活会话不重建（解码器动态寻址新画布，
+  // 下一帧自动续画），只复活真正死掉的会话；v56 修复：原实现每轮删掉重建，
+  // 旧 WS 不关 → 每 5s 泄漏一条 WS+RTSPS 会话，打满 LIVE555 会话额后新会话被拒
   for (const [id, ses] of h264Sessions) {
     const alive = printers.find((p) => p.id === id && (p.camera === 'p1stream' || p.camera === 'rtsp'));
     if (!alive) { closeH264Stream(id); continue; }
-    if (ses.wantWatch) { h264Sessions.delete(id); startH264Stream(id, true); }
+    const wsDead = !ses.ws || ses.ws.readyState > 1; // CLOSING/CLOSED
+    if (ses.wantWatch && wsDead) { h264Sessions.delete(id); startH264Stream(id, true); }
   }
 }
 
@@ -497,7 +500,15 @@ function toggleH264Stream(id, btn) {
 }
 
 async function startH264Stream(id, auto = false) {
-  const ph = $(`camPh${id}`), btn = $(`camBtn${id}`), cv = $(`camCv${id}`);
+  // 活会话防重入（v56）：WS 还在连/开就只重绑按钮——重渲染不会再走到这（loadFleet 只复活死会话）
+  const existing = h264Sessions.get(id);
+  if (existing && existing.ws && existing.ws.readyState <= 1) {
+    const b = $(`camBtn${id}`);
+    if (b) { b.textContent = '⏹ 断开'; b.onclick = () => closeH264Stream(id); }
+    return;
+  }
+  if (existing) closeH264Stream(id);
+  const ph = $(`camPh${id}`), btn = $(`camBtn${id}`);
   if (!ph) return;
   const ses = { wantWatch: true, ws: null, decoder: null, pending: [], sps: null, pps: null, keySeen: false, ts: 0, frameCount: 0 };
   h264Sessions.set(id, ses);
@@ -516,11 +527,12 @@ async function startH264Stream(id, auto = false) {
   ses.ws = ws;
   ws.binaryType = 'arraybuffer';
 
-  ws.onopen = () => { ph.textContent = '📡 已连接中继，等待打印机推流…（若长期无数据：检查打印机 LAN 模式/画面端口）'; };
-  ws.onerror = () => { ph.textContent = '❌ 中继连接失败（登录态失效或打印机不可达）'; };
+  ws.onopen = () => { const p = $(`camPh${id}`); if (p) p.textContent = '📡 已连接中继，等待打印机推流…（若长期无数据：检查打印机 LAN 模式/画面端口）'; };
+  ws.onerror = () => { const p = $(`camPh${id}`); if (p) p.textContent = '❌ 中继连接失败（登录态失效或打印机不可达）'; };
   ws.onclose = () => {
     if (h264Sessions.get(id) === ses) {
-      ph.textContent = '⏹ 画面已断开';
+      const p = $(`camPh${id}`);
+      if (p) p.textContent = '⏹ 画面已断开';
       try { ses.decoder && ses.decoder.close(); } catch { /* 已关 */ }
       h264Sessions.delete(id);
       const b = $(`camBtn${id}`);
@@ -538,17 +550,21 @@ async function startH264Stream(id, auto = false) {
   ses.decoder = new VideoDecoder({
     output: (frame) => {
       ses.frameCount++;
-      cv.style.display = 'block';
-      ph.style.display = 'none';
+      // 画布/占位动态寻址：5s 重渲染会替换 DOM，解码器持有的旧引用会失效——
+      // 每帧按 id 取当前元素，活会话跨重渲染无缝续画（v56 修复）
+      const cvNow = $(`camCv${id}`), phNow = $(`camPh${id}`);
+      if (!cvNow) { frame.close(); return; }
+      cvNow.style.display = 'block';
+      if (phNow) phNow.style.display = 'none';
       // 首帧起按实际分辨率校准画布
-      if (cv.width !== frame.displayWidth || cv.height !== frame.displayHeight) {
-        cv.width = frame.displayWidth; cv.height = frame.displayHeight;
+      if (cvNow.width !== frame.displayWidth || cvNow.height !== frame.displayHeight) {
+        cvNow.width = frame.displayWidth; cvNow.height = frame.displayHeight;
       }
-      cv.getContext('2d').drawImage(frame, 0, 0);
+      cvNow.getContext('2d').drawImage(frame, 0, 0);
       frame.close();
       if (ses.frameCount === 1) toast(`✅ ${id} 号机画面已接通`);
     },
-    error: (e) => { console.error('decoder', e); ph.textContent = '❌ 解码失败：' + e.message; },
+    error: (e) => { console.error('decoder', e); const p = $(`camPh${id}`); if (p) p.textContent = '❌ 解码失败：' + e.message; },
   });
 
   ws.onmessage = (ev) => {
