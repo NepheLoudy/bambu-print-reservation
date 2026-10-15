@@ -1258,6 +1258,29 @@ function startServer() {
   // express 路由，鉴权在 handleCameraUpgrade 内做 cookie 会话校验）
   server.on('upgrade', handleCameraUpgrade);
 
+  // HTTPS 镜像（3443，v56 追加）：WebCodecs 要求 secure context——纯 HTTP 非 localhost
+  // 访问时浏览器不暴露 VideoDecoder，画面永远黑屏（2026-10-15 实锤）。自签证书在
+  // certs/（不入 git），存在才启用：用户看画面走 https://<ip>:3443，其余功能 HTTP 照旧；
+  // 内部调用（gateway/hub 的 localhost:3001）零改动
+  try {
+    const certDir = path.join(__dirname, '..', 'certs');
+    const certFile = process.env.HTTPS_CERT_FILE || path.join(certDir, 'cert.pem');
+    const keyFile = process.env.HTTPS_KEY_FILE || path.join(certDir, 'key.pem');
+    if (fs.existsSync(certFile) && fs.existsSync(keyFile)) {
+      const httpsPort = Number(process.env.HTTPS_PORT || 3443);
+      const httpsServer = require('https').createServer(
+        { cert: fs.readFileSync(certFile), key: fs.readFileSync(keyFile) },
+        app
+      );
+      httpsServer.on('upgrade', handleCameraUpgrade);
+      httpsServer.listen(httpsPort, () => {
+        console.log(`🔐 HTTPS 镜像已启用: https://localhost:${httpsPort}（浏览器首访需信任自签证书；画面低延迟链路走此端口）`);
+      });
+    }
+  } catch (err) {
+    console.warn('[HTTPS] 镜像启动失败（不影响 HTTP）:', err.message);
+  }
+
   // 2026-10-05 路线 A：startEventSubscription()（审批/表格事件订阅 + 审批对账）已退役；
   // 2026-10-10 修复：当时把 dispatcher.start() 一并弄丢（原挂在事件订阅启动里），
   // 分发引擎此后从未启动——队列恢复、jobEvent 完成收尾/失败重排/份数续打、幽灵巡检、

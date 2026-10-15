@@ -549,9 +549,13 @@ async function startH264Stream(id, auto = false) {
     }
   };
 
-  // WebCodecs 能力检查（老浏览器降级提示）
+  // WebCodecs 能力检查：不可用多为**非安全上下文**（HTTP 非 localhost 不暴露
+  // VideoDecoder，2026-10-15 实锤）——引导用户走 HTTPS 端口而非笼统报「浏览器太老」
   if (!('VideoDecoder' in window)) {
-    ph.textContent = '⚠️ 此浏览器不支持 WebCodecs，无法解 H.264 裸流（建议 Chrome/Edge 94+）';
+    const httpsHint = location.protocol === 'https:'
+      ? '（当前已是 HTTPS，可能是浏览器版本过旧——建议 Chrome/Edge 94+）'
+      : `（HTTP 非 localhost 访问不开放 WebCodecs！请改用 https://${location.hostname}${location.port === '3001' ? ':3443' : ':' + location.port}${location.pathname} 访问——自签证书首访需点「继续访问」）`;
+    ph.textContent = '⚠️ 此浏览器环境不支持 WebCodecs 视频解码' + httpsHint;
     ws.close();
     return;
   }

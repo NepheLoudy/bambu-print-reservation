@@ -28,3 +28,4 @@ backup/
 # 训练集样本库索引（训练资产本体在 bambu-data/training，勿提交）
 .training-samples.json
 .rule-suggestions.json
+certs/
