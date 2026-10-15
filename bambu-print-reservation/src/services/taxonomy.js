@@ -13,7 +13,7 @@
 //   （CAD 导出的设计姿态通常是使用姿态）。Z 向受力 ≈ 层间受力（最弱方向）。
 // ============================================================
 
-const TAXONOMY_VERSION = 'v5'; // v5（2026-10-16 曼波细化令）：孔补偿轴向拆分（Z 向/XY 向）+ 环境扩充（暴晒/低温/粉尘/防水/食品）+ 新增「使用场景」「工艺特征」组 + 失效后果/公差/后续加工等补齐
+const TAXONOMY_VERSION = 'v6'; // v6（2026-10-16 曼波删减令）：移除低温环境/80°C 以上高温档（t120/t120p）/抗冲击/耐磨——超出机队常规能力的档位与冗余项退场
 
 /** 选项：{ id, label }；bool/number 字段无 options */
 const groups = [
@@ -133,22 +133,6 @@ const groups = [
           '≤-2 柔性区 → 排除 CF（脆）、低填充、壁薄化、疏支撑便于脱弹臂',
           '≥+2 刚性区 → 优先 CF 增强系、高填充方向',
         ],
-      },
-      {
-        id: 'impact_resistance',
-        type: 'bool',
-        title: '抗冲击',
-        formTitle: '抗冲击',
-        tooltip: '要求承受磕碰/跌落不断裂（耐久口径，与载荷性质里的「冲击」勾一处即可，引擎取并集）',
-        mapsHint: ['材料 PETG/韧性系优先、墙数+；PLA-CF 类脆性组合需确认'],
-      },
-      {
-        id: 'wear_resistance',
-        type: 'bool',
-        title: '耐磨',
-        formTitle: '耐磨',
-        tooltip: '滑动摩擦件：滑块、齿轮、凸轮面。长期干摩擦',
-        mapsHint: ['PA 系优先；提示嵌金属衬套/轴承的复合设计'],
       },
       {
         id: 'electrical_insulation',
@@ -296,17 +280,13 @@ const groups = [
         type: 'single',
         title: '耐温等级',
         formTitle: '耐温等级',
-        tooltip: '零件工作环境最高温度。常温≤50°C；中温 50–80°C（引擎舱旁、夏天车内）；高温 80–120°C（电机座）；超高温 >120°C 转人工评审',
+        tooltip: '零件工作环境最高温度。常温≤50°C；中温 50–80°C（引擎舱旁、夏天车内）。≥80°C 超出常规机队耗材能力——走人工评审（可能需改材料/机加工）',
         options: [
           { id: 't50', label: '常温（≤50°C）' },
           { id: 't80', label: '中温（50–80°C）' },
-          { id: 't120', label: '高温（80–120°C）' },
-          { id: 't120p', label: '超高温（>120°C）' },
         ],
         mapsHint: [
-          't80+ → 排除 PLA（60°C 玻璃化软化），PETG 起步',
-          't120 → 排除 PETG（80°C），ABS/PA 系',
-          't120p → 超出常规耗材能力，转人工评审（可能需改机加工）',
+          't80 → 排除 PLA（60°C 玻璃化软化），PETG 起步；≥80°C 需求转人工评审（2026-10-16 曼波令移除高温档）',
         ],
       },
       {
@@ -363,14 +343,6 @@ const groups = [
         formTitle: '暴晒强日照',
         tooltip: '长期露天暴晒（含玻璃后直晒）。UV+高温双杀：PLA 脆化发白、ABS 泛黄——材料层直接排除',
         mapsHint: ['排除 PLA（UV 脆化）；ASA/PC 优先，PETG 次之'],
-      },
-      {
-        id: 'low_temp',
-        type: 'bool',
-        title: '低温环境（≤0°C）',
-        formTitle: '低温环境',
-        tooltip: '冬季户外/冷库/高空使用。低温下材料变脆，PLA 尤其耐冲击性骤降',
-        mapsHint: ['排除 PLA；PETG/PA 韧性系优先；叠加抗冲击规则'],
       },
       {
         id: 'dusty',
@@ -554,9 +526,9 @@ const CONFLICTS = [
   {
     id: 'temp-vs-pla',
     level: 'block',
-    when: { temp_class: ['t80', 't120', 't120p'] },
+    when: { temp_class: ['t80'] },
     materialMatch: /^PLA/i,
-    message: '耐温 ≥80°C 与 PLA 系冲突（PLA 60°C 即软化），请换 PETG/ABS/PA 或下调耐温等级',
+    message: '耐温档（50–80°C）与 PLA 系冲突（PLA 60°C 即软化），请换 PETG/ABS/PA 或下调耐温等级',
   },
   {
     id: 'insulation-vs-cf',

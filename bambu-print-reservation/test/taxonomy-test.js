@@ -26,7 +26,7 @@ function check(name, fn) {
 // ---------- 结构完整性 ----------
 
 check('标签池版本为 v4（几何体检组批）', () => {
-  assert.equal(TAXONOMY_VERSION, 'v5');
+  assert.equal(TAXONOMY_VERSION, 'v6');
 });
 
 check('几何体检（自动检测）组：4 个 bool 字段齐备', () => {
@@ -111,7 +111,7 @@ check('multi 非数组 / number 越界报错', () => {
 });
 
 check('硬冲突：耐温≥80°C × PLA 拦截（需提供材料）', () => {
-  const sel = { temp_class: 't120' };
+  const sel = { temp_class: 't80' };
   assert.deepEqual(validateSelection(sel).errors, [], '未提供材料时不判材料类冲突');
   const r = validateSelection(sel, { material: 'PLA-CF' });
   assert.equal(r.errors.length, 1);

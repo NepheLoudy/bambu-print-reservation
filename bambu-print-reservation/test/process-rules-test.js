@@ -74,17 +74,17 @@ check('高速(200) 覆盖外观(100) 的层高——用户显式选快', () => {
   assert.equal(r.warnings.length, 1); // taxonomy 冲突警告透传
 });
 
-check('材料排除：耐温高温 × PETG → excluded=true；× ABS 不排除', () => {
-  // t120 × PLA 会被 taxonomy 的 temp-vs-pla 硬拦截（block 优先）——materialVerdict
-  // 是引擎端兜底，服务「材料在表单后/分发链中被人工改过」的场景，用例用非拦截组合
-  const hot = { temp_class: 't120' };
-  assert.equal(applyRules(hot, { material: 'PETG' }).materialVerdict.excluded, true);
-  assert.equal(applyRules(hot, { material: 'ABS' }).materialVerdict.excluded, false);
-  assert.equal(applyRules(hot, { material: 'PLA' }).blocked, true);
+check('材料排除：柔顺件 × CF → excluded=true；× PETG 不排除', () => {
+  // flexible-vs-cf 为 warn 级（非拦截）——materialVerdict 是引擎端兜底，
+  // 服务「材料在表单后/分发链中被人工改过」的场景，用例用非拦截组合
+  const soft = { deflection_scale: -2 };
+  assert.equal(applyRules(soft, { material: 'PAHT-CF' }).materialVerdict.excluded, true);
+  assert.equal(applyRules(soft, { material: 'PETG' }).materialVerdict.excluded, false);
+  assert.equal(applyRules({ temp_class: 't80' }, { material: 'PLA' }).blocked, true, 't80 × PLA 硬拦截仍在（v6 收窄后）');
 });
 
-check('材料优先：耐磨 × PAHT → preferred=true', () => {
-  const r = applyRules({ wear_resistance: true }, { material: 'PAHT' });
+check('材料优先：滚压接触 × PAHT → preferred=true', () => {
+  const r = applyRules({ load_type: ['contact'] }, { material: 'PAHT' });
   assert.equal(r.materialVerdict.preferred, true);
 });
 
@@ -103,7 +103,7 @@ check('multi 字段 when 任一命中（ torsion 单独成规则可触发）', (
 check('输出带双版本号（rulesVersion + taxonomyVersion）', () => {
   const r = applyRules({});
   assert.match(r.rulesVersion, /^r-[0-9a-f]{8}$/);
-  assert.equal(r.taxonomyVersion, 'v5');
+  assert.equal(r.taxonomyVersion, 'v6');
 });
 
 // ---------- 写窗口操作 ----------

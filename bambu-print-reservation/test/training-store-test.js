@@ -59,7 +59,7 @@ check('正常录入：id 递增、选择与特征与切片参数三方合成', (
 });
 
 check('模型分析失败（features=null）不阻塞录入——负样本也是数据', () => {
-  const s = store.create({ createdBy: 't', selection: { wear_resistance: true }, model: { originalName: 'c.stl', buffer: Buffer.from('z'), features: null } });
+  const s = store.create({ createdBy: 't', selection: { repeated_assembly: true }, model: { originalName: 'c.stl', buffer: Buffer.from('z'), features: null } });
   assert.equal(s.model.features, null);
   assert.equal(s.autoSuggestion, null);
 });
