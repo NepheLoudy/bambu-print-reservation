@@ -258,6 +258,15 @@ function analyze3mf(buffer) {
 
 /** 索引网格 → 几何特征 + taxonomy 预勾选建议（STL/3mf 共用核心）。
  *  分析不了返回 { ok:false, skipped:true, reason }（调用方降级，不阻塞提交）。 */
+/** STEP/IGES Buffer → 几何特征（2026-10-15 曼波令；occt WASM 网格化，async）。
+ *  与 STL/3mf 走同一 analyzeMesh 核心。 */
+async function analyzeStep(buffer, fileName = '') {
+  if (buffer.length > MAX_BYTES) return { ok: false, skipped: true, reason: `文件 ${Math.round(buffer.length / 1048576)}MB 超过体检上限 80MB` };
+  const parsed = await require('../utils/stepMesh').parseCadToParsed(buffer, fileName);
+  if (parsed.error) return { ok: false, skipped: true, reason: parsed.error };
+  return analyzeMesh(parsed);
+}
+
 function analyzeMesh(parsed) {
   const { positions, faces, triangles, vertices, bodies: nBodies = 1 } = parsed;
 
@@ -539,4 +548,4 @@ function suggestFromFeatures(features) {
   return { selection, notes };
 }
 
-module.exports = { analyzeStl, analyze3mf, analyzeMesh, suggestFromFeatures, fitCircle2d, parseStl, parse3mfModel, parse3mfObjectXml, THRESHOLDS, MAX_TRIANGLES, MAX_BYTES };
+module.exports = { analyzeStl, analyze3mf, analyzeStep, analyzeMesh, suggestFromFeatures, fitCircle2d, parseStl, parse3mfModel, parse3mfObjectXml, THRESHOLDS, MAX_TRIANGLES, MAX_BYTES };

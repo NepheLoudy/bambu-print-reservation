@@ -198,7 +198,7 @@
       <div class="preview" id="fitBar" style="display:none;margin-top:12px"></div>
 
       <div class="row" style="margin-top:12px">
-        <div><label>模型文件 *（.stl/.3mf 全功能；.step/.stp 可归档但特征与 3D 标注降级）</label><input type="file" id="modelFile" accept=".stl,.3mf,.step,.stp"></div>
+        <div><label>模型文件 *（.stl/.step/.stp/.3mf 全功能——STEP 经 CAD 内核网格化后同链体检与 3D 标注）</label><input type="file" id="modelFile" accept=".stl,.3mf,.step,.stp"></div>
         <div><label>已切片产物（.3mf 工程/已切片——自动提专家参数，选填）</label><input type="file" id="sliceFile" accept=".3mf"></div>
       </div>
       <div class="preview" id="modelPanel" style="display:none"></div>
@@ -433,8 +433,8 @@ async function analyzeModel() {
   if (!file) { panel.style.display = 'none'; return; }
   panel.style.display = 'block';
   if (isStepFile(file)) {
-    panel.innerHTML = '📐 STEP 已接受（随样本归档）。⚠️ STEP 几何解析暂不支持：特征提取与 3D 标注不可用——需要标注请另存 STL/3MF 再传';
-    return;
+    // STEP 全功能（2026-10-15 occt WASM 支持）：直接进体检（端点按扩展名分派）
+    panel.innerHTML = '🔍 STEP 网格化中（CAD 内核解析）…';
   }
   panel.innerHTML = '🔍 模型特征分析中…';
   try {
@@ -716,7 +716,7 @@ function deleteSel() {
 async function loadAnnotator() {
   const file = $('modelFile').files[0];
   const box = $('annotatorBox');
-  if (!file || isStepFile(file)) { box.style.display = 'none'; return; }
+  if (!file) { box.style.display = 'none'; return; }
   box.style.display = 'block';
   initAnnotatorTools();
   // 画布尺寸要在容器可见后量（隐藏容器 clientWidth=0），否则 WebGL 视口错

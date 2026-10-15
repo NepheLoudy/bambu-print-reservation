@@ -195,7 +195,7 @@
         <div><label>指定打印机（可空，默认自动匹配）</label><input type="text" id="assignedPrinter" list="printerNameList" placeholder="如 X1C-01，留空自动"><datalist id="printerNameList"></datalist></div>
       </div>
       <div class="row">
-        <div><label>模型 / 切片文件 *（.stl 走需求链路+<b>3D 工况标注</b>：载荷/支撑/受弯在 3D 视图点选，自动定档；.step/.obj 手勾工况；.3mf=拓竹直通 / .gcode=闪铸直通）</label><input type="file" id="file" accept=".stl,.step,.stp,.3mf,.obj,.gcode,.gx,.g"></div>
+        <div><label>模型 / 切片文件 *（.stl/.step/.stp 走需求链路+<b>3D 工况标注</b>：载荷/支撑/受弯在 3D 视图点选，自动定档；.obj 手勾工况；.3mf=拓竹直通 / .gcode=闪铸直通）</label><input type="file" id="file" accept=".stl,.step,.stp,.3mf,.obj,.gcode,.gx,.g"></div>
       </div>
       <div class="preview" id="slicedNotice" style="display:none">📦 <b>切片产物审批直通模式</b>——3mf（拓竹）/ gcode（闪铸）的切片参数已内嵌文件，无需工况勾选；材料/颜色栏仅用于选机匹配。注意：3mf 只能去拓竹机、gcode 只能去闪铸机，选错品牌会被自动匹配忽略</div>
       <div class="preview" id="modelPanel" style="display:none"></div>
@@ -450,7 +450,14 @@ function updateLoadBtnColor() {
   btn.style.borderColor = c;
 }
 /** 载荷箭头 → 隐藏工况勾选组（load_*）联动：载荷工况不再手勾，由 3D 标注驱动，
- *  与训练工坊同一套折算口径（同一条拟合链进 applyRules） */
+ *  与训练工坊同一套折算口径（同一条拟合链进 applyRules）。
+ *  工况界限重整（2026-10-15 曼波令）：全部空间工具的联动都在此——
+ *    load 箭头 → load_*（覆盖语义：该组完全由标注驱动）
+ *    appearance_face → 外观件（只增不减，不夺用户手勾）
+ *    hole_rim → 通孔补偿（同上）
+ *    support_need → 重悬空（同上）
+ *    bending_zone → load_type 受弯（受弯轴线的空间表达并入载荷类型）
+ */
 function syncLoadsToSelection() {
   const anns = ANNOTATOR ? ANNOTATOR.getAnnotations() : [];
   const loads = anns.filter((a) => a.type === 'load');
@@ -459,11 +466,21 @@ function syncLoadsToSelection() {
     dirs.add(dominantAxis([-L.dir[0], -L.dir[1], -L.dir[2]])); // 力压入面 = -法向 → 受力方向取主轴
     types.add(L.loadType);
   }
+  // 受弯轴线标注 → 载荷类型并入「受弯」
+  if (anns.some((a) => a.tool === 'bending_zone')) types.add('bending');
   const sync = (fieldId, values) => {
     document.querySelectorAll('.opt[data-field=' + fieldId + ']').forEach((label) => {
       const on = values.includes(label.dataset.opt);
       label.querySelector('input').checked = on;
       label.classList.toggle('on', on);
+    });
+  };
+  /** 只增不减联动：标注存在→勾上；不存在不动（不夺用户手勾） */
+  const syncAdd = (fieldId, opt) => {
+    document.querySelectorAll('.opt[data-field=' + fieldId + ']').forEach((label) => {
+      if (label.dataset.opt !== opt) return;
+      label.querySelector('input').checked = true;
+      label.classList.add('on');
     });
   };
   sync('load_direction', [...dirs]);
@@ -473,6 +490,10 @@ function syncLoadsToSelection() {
     const mags = loads.map((L) => L.loadMagnitude).filter(Boolean);
     sync('load_magnitude', mags.length ? [mags[0]] : []);
   }
+  // 空间标注 → 属性类勾选的只增联动（工况界限重整：能在 3D 标的都自动带出勾选）
+  if (anns.some((a) => a.tool === 'appearance_face')) syncAdd('appearance', '__bool_on');
+  if (anns.some((a) => a.tool === 'hole_rim')) syncAdd('through_holes', '__bool_on');
+  if (anns.some((a) => a.tool === 'support_need')) syncAdd('overhang_heavy', '__bool_on');
   renderLoadSummary(loads);
 }
 /** 载荷工况只读摘要（手勾区已退役） */
@@ -549,7 +570,7 @@ function deleteSel() {
 async function loadAnnotator() {
   const file = $('file').files[0];
   const box = $('anno3dBox');
-  const meshCapable = !!file && /\.stl$/i.test(file.name) && !isSlicedFile();
+  const meshCapable = !!file && /\.(stl|step|stp)$/i.test(file.name) && !isSlicedFile();
   // 录入台常显（v56 复查批）：需求链路模式下区块永远可见，按状态给引导——
   // 入口不可见=「找不到标注在哪」的直接根源
   box.style.display = isSlicedFile() ? 'none' : 'block';
@@ -560,15 +581,15 @@ async function loadAnnotator() {
   document.getElementById('annoCanvasWrap').style.display = meshCapable ? 'block' : 'none';
   if (!file) {
     hint.style.display = 'block';
-    hint.innerHTML = '📐 选择 <b>.stl</b> 模型后，此处出现 3D 标注视图——载荷/悬垂支撑/受弯轴线/接触面/外观面点选即标，自动折算工况并定档。';
+    hint.innerHTML = '📐 选择 <b>.stl / .step / .stp</b> 模型后，此处出现 3D 标注视图——载荷/悬垂支撑/受弯轴线/接触面/外观面点选即标，自动折算工况并定档。';
     $('annoList').textContent = '';
     updateLoadGroupMode();
     syncLoadsToSelection();
     return;
   }
-  if (!isSlicedFile() && !/\.stl$/i.test(file.name)) {
+  if (!isSlicedFile() && !/\.(stl|step|stp)$/i.test(file.name)) {
     hint.style.display = 'block';
-    hint.innerHTML = '📐 3D 工况标注仅支持 <b>.stl</b> 模型（当前 ' + esc(file.name) + '）——step/obj 可用切片软件另存 STL，或直接在下方手勾工况（载荷组已展开回退）。';
+    hint.innerHTML = '📐 3D 工况标注支持 <b>.stl / .step / .stp</b>（当前 ' + esc(file.name) + '）——obj 等可用切片软件另存 STL/STEP，或直接在下方手勾工况（载荷组已展开回退）。';
     $('loadTypeRow').style.display = 'none';
     $('annoList').textContent = '';
     updateLoadGroupMode();
@@ -621,7 +642,7 @@ function updateLoadGroupMode() {
   const g = document.getElementById('group_load');
   if (!g) return;
   const file = $('file').files[0];
-  const meshCapable = !!file && /\.stl$/i.test(file.name) && !isSlicedFile();
+  const meshCapable = !!file && /\.(stl|step|stp)$/i.test(file.name) && !isSlicedFile();
   g.style.display = meshCapable ? 'none' : 'block';
 }
 
@@ -795,7 +816,7 @@ async function analyzeModel() {
   const file = $('file').files[0];
   MODEL_FEATURES = null;
   const panel = $('modelPanel');
-  if (!file || isSlicedFile() || !/\.stl$/i.test(file.name)) { panel.style.display = 'none'; panel.innerHTML = ''; return; }
+  if (!file || isSlicedFile() || !/\.(stl|step|stp)$/i.test(file.name)) { panel.style.display = 'none'; panel.innerHTML = ''; return; }
   panel.style.display = 'block';
   panel.innerHTML = '🔍 模型体检中…（几何特征分析）';
   try {

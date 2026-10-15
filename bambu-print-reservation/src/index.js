@@ -300,7 +300,7 @@ app.post('/api/print/slicer-extract', requireUser('reviewer', 'admin'), upload.s
 // STL/3mf 几何体检（登录即可；2026-10-11 模型特征自拟合）：解析上传的裸模型，
 // 返回几何特征 + taxonomy「几何体检」组预勾选建议——体检是提效不设卡：
 // 失败/超限不阻塞提交，前端按「无建议」降级。2026-10-12 扩 3mf（训练录入页复用）
-app.post('/api/print/model-features', requireUser(), upload.single('file'), (req, res) => {
+app.post('/api/print/model-features', requireUser(), upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: '缺少模型文件（multipart 字段名 file）' });
     const name = req.file.originalname || '';
@@ -316,8 +316,14 @@ app.post('/api/print/model-features', requireUser(), upload.single('file'), (req
       clean();
       return res.json(result);
     }
+    // STEP/IGES（2026-10-15 曼波令）：occt WASM 网格化后走同一体检核心
+    if (require('./utils/stepMesh').isCadFile(name)) {
+      const result = await mf.analyzeStep(fs.readFileSync(req.file.path), name);
+      clean();
+      return res.json(result);
+    }
     clean();
-    return res.status(400).json({ error: '几何体检目前仅支持 .stl / .3mf（step/obj 按需求勾选走）' });
+    return res.status(400).json({ error: '几何体检目前仅支持 .stl / .3mf / .step / .stp（obj 按需求勾选走）' });
   } catch (err) {
     if (req.file) { try { fs.unlinkSync(req.file.path); } catch { /* 已不存在 */ } }
     res.status(400).json({ ok: false, skipped: true, error: `模型解析失败: ${err.message}` });
@@ -379,7 +385,7 @@ app.post('/api/training/rule-fit', requireUser('reviewer', 'admin'), (req, res) 
 });
 
 // 网格下发（3D 标注工房用）：模型文件 → 抽稀网格 JSON（≤12 万面，浏览器可渲染）
-app.post('/api/training/mesh', requireUser(), upload.single('file'), (req, res) => {
+app.post('/api/training/mesh', requireUser(), upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: '缺少模型文件' });
     if (req.file.size > 80 * 1024 * 1024) {
@@ -388,17 +394,22 @@ app.post('/api/training/mesh', requireUser(), upload.single('file'), (req, res) 
     }
     const clean = () => { try { fs.unlinkSync(req.file.path); } catch { /* 已不存在 */ } };
     const mf = require('./services/modelFeatures');
-    const parsed = /\.3mf$/i.test(req.file.originalname || '')
-      ? (() => {
-          // 注意：用 parse3mfModel 拿原始网格（analyze3mf 的对象是分析结果，不含几何）
-          const r = mf.parse3mfModel(fs.readFileSync(req.file.path));
-          if (r.error || !r.objects.length) throw new Error(r.error || '3mf 内无可渲染网格');
-          // 多零件取首件（v1 标注以主零件为界，多零件逐件标注待下批）
-          return r.objects[0];
-        })()
-      : mf.parseStl(fs.readFileSync(req.file.path));
+    const fileName = req.file.originalname || '';
+    let parsed;
+    if (/\.3mf$/i.test(fileName)) {
+      // 注意：用 parse3mfModel 拿原始网格（analyze3mf 的对象是分析结果，不含几何）
+      const r = mf.parse3mfModel(fs.readFileSync(req.file.path));
+      if (r.error || !r.objects.length) { clean(); return res.status(400).json({ error: r.error || '3mf 内无可渲染网格' }); }
+      // 多零件取首件（v1 标注以主零件为界，多零件逐件标注待下批）
+      parsed = r.objects[0];
+    } else if (require('./utils/stepMesh').isCadFile(fileName)) {
+      // STEP/IGES：occt WASM 网格化（2026-10-15 支持 step 解析）
+      parsed = await require('./utils/stepMesh').parseCadToParsed(fs.readFileSync(req.file.path), fileName);
+    } else {
+      parsed = mf.parseStl(fs.readFileSync(req.file.path));
+    }
     clean();
-    if (parsed.error) { clean(); return res.status(400).json({ error: parsed.error }); }
+    if (parsed.error) return res.status(400).json({ error: parsed.error });
     const { positions, faces, triangles } = parsed;
     const MAX_VIEW_FACES = 120000;
     const skip = Math.max(1, Math.ceil(triangles / MAX_VIEW_FACES));
