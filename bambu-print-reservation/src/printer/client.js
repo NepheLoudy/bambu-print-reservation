@@ -18,6 +18,20 @@ const GCODE_STATE_MAP = {
   IDLE: '空闲',
 };
 
+// 板型：切片产物 curr_bed_type（显示名）→ 开打帧 bed_type token（2026-10-16 曼波真单批）。
+// 必须与切片一致：错配触发 H2 板检测警告/暂停（[0500-8051]，textured_plate 硬编码教训）；
+// token 从 OrcaSlicer.dll 实锤：cool_plate / hot_plate / textured_plate / supertack_plate；
+// 「Smooth PEI Plate」为高温板新名，同 hot_plate
+const BED_TYPE_TOKENS = {
+  'Textured PEI Plate': 'textured_plate',
+  'High Temp Plate': 'hot_plate',
+  'Smooth PEI Plate': 'hot_plate',
+  'Cool Plate': 'cool_plate',
+  'Cool Plate SuperTack': 'supertack_plate',
+  'Supertack Plate': 'supertack_plate',
+  'Engineering Plate': 'engineering_plate',
+};
+
 // 文件传输超时：挂起的上传会把分发引擎的串行匹配段永久卡死
 const SFTP_TIMEOUT_MS = 120 * 1000;
 const FTP_TIMEOUT_MS = 60 * 1000;
@@ -284,6 +298,10 @@ class PrinterClient {
             diameter: Number(spec.diameter) || null,
             type: spec.type || null,
             active: isActive,
+            // 左右喷嘴语义（2026-10-16 曼波口径 + 官方打印区实锤）：H2D extruder 0 =
+            // 左喷嘴（区 0..325、限高 320）、extruder 1 = 右喷嘴（区 25..350、限高 325、
+            // master_extruder_id=2）；单喷头机型不标
+            side: exs.length >= 2 ? (Number(e.id) === 0 ? 'left' : Number(e.id) === 1 ? 'right' : null) : null,
           };
         });
       })(),
@@ -333,19 +351,47 @@ class PrinterClient {
           colorHex: tray.colorHex ? String(tray.colorHex).slice(0, 6) : '',
           active: trayNow === tray.id,
           external: false,
+          amsId: 0,     // AMS 单元 id（开打帧 ams_mapping2 用；单台 AMS 恒 0）
+          trayId: tray.id, // 单元内槽位（0..3）
           remain: tray.remain ?? null, // 剩余料量（百分比，AMS UI 显示）
         });
       }
     }
 
+    // H2 新世代外部料位（2026-10-16 曼波令）：不在 AMS 域，走 print.vir_slot——
+    // 254=外挂料盘·左 / 255=外挂料盘·右（虚拟料位，Bambuddy 同口径）；
+    // 老世代（X1/P1）单外部料架仍在 ams 域 vt_tray，保留兜底
+    const vir = state.raw && state.raw.print ? state.raw.print.vir_slot : null;
+    let extFound = false;
+    if (Array.isArray(vir)) {
+      for (const v of vir) {
+        const vid = Number(v && v.id);
+        if (!Number.isFinite(vid) || vid < 254) continue;
+        const cols = Array.isArray(v.cols) && v.cols[0] ? String(v.cols[0]).slice(0, 6) : '';
+        if (!v.tray_type && !cols) continue; // 空位不展示
+        extFound = true;
+        trays.push({
+          slot: vid === 254 ? '外挂料盘·左' : vid === 255 ? '外挂料盘·右' : `外挂料盘·${vid}`,
+          type: v.tray_type || '',
+          colorHex: cols,
+          active: trayNow === vid,
+          external: true,
+          amsId: vid, // 开打帧虚拟料位 id（254=左 / 255=右）
+          trayId: 0,
+          remain: Number.isFinite(Number(v.remain)) && Number(v.remain) > 0 ? Number(v.remain) : null,
+        });
+      }
+    }
     const vt = state.vtTray;
-    if (vt && vt.type) {
+    if (!extFound && vt && vt.type) {
       trays.push({
         slot: '外部料架',
         type: vt.type || '',
         colorHex: vt.colorHex ? String(vt.colorHex).slice(0, 6) : '',
-        active: trayNow === 254 || trayNow === 0,
+        active: trayNow === 254,
         external: true,
+        amsId: 254, // 老世代外部料架按虚拟料位 254 映射
+        trayId: 0,
       });
     }
 
@@ -368,7 +414,7 @@ class PrinterClient {
    *     ams_mapping2 等），命令走 request topic（_patchCommandTopic）
    *   老世代 P1/A1：url=ftp:///sdcard/<name>、简版帧、report 单 topic
    */
-  async startProjectFile(fileName, subtaskName, useAms = true, prefTray = null) {
+  async startProjectFile(fileName, subtaskName, useAms = true, prefTray = null, frameOpts = {}) {
     if (!this.client || !this.connected) {
       throw new Error('打印机未连接');
     }
@@ -378,6 +424,18 @@ class PrinterClient {
     const mapAms = prefTray && Number.isInteger(prefTray.amsId) && Number.isInteger(prefTray.trayId)
       ? { ams_id: prefTray.amsId, slot_id: prefTray.trayId }
       : { ams_id: 0, slot_id: 0 };
+    // 开打参数（2026-10-16 曼波真单批）：bed_type 取切片 curr_bed_type 映射（板型与切片
+    // 一致是硬要求）；ams_mapping2 支持逐用料映射（dispatcher 按文件用料清单算出，见 buildAmsMapping）
+    const bedTok = BED_TYPE_TOKENS[String(frameOpts.bedTypeName || '').trim()] || null;
+    if (frameOpts.bedTypeName && !bedTok) {
+      console.warn(`[打印机] 未知板型「${frameOpts.bedTypeName}」——按 textured_plate 下发，可能触发板检测提示`);
+    }
+    const mapping2 = Array.isArray(frameOpts.amsMapping2) && frameOpts.amsMapping2.length
+      ? frameOpts.amsMapping2
+      : [mapAms];
+    const legacyMap = Array.isArray(frameOpts.amsMapping) && frameOpts.amsMapping.length
+      ? frameOpts.amsMapping
+      : mapping2.map((m) => (m.ams_id >= 254 ? m.ams_id : m.ams_id * 4 + m.slot_id));
     const sequenceId = ++this.projectSeq;
     const payload = isNewGen
       ? {
@@ -388,9 +446,10 @@ class PrinterClient {
             url: `ftp:///${fileName}`,
             file: fileName,
             md5: '',
-            // 板型必须与切片产物 curr_bed_type 一致（auto 在 H2 上仍触发板检测警告
-            // [0500-8051 223015] 暂停——2026-10-15 真机实锤）
-            bed_type: 'textured_plate',
+            // 板型必须与切片产物 curr_bed_type 一致（错配在 H2 上触发板检测
+            // [0500-8051] 暂停——2026-10-15 真机实锤；2026-10-16 起按文件动态取，
+            // 硬编码仅作无元数据兜底）
+            bed_type: bedTok || 'textured_plate',
             timelapse: false,
             bed_leveling: true,
             auto_bed_leveling: 1,
@@ -407,8 +466,8 @@ class PrinterClient {
             project_id: String(sequenceId),
             subtask_id: String(sequenceId),
             task_id: String(sequenceId),
-            ams_mapping: [0],
-            ams_mapping2: [mapAms],
+            ams_mapping: legacyMap,
+            ams_mapping2: mapping2,
           },
         }
       : {
@@ -605,11 +664,12 @@ class PrinterClient {
   async amsChangeFilament(amsId, trayId) {
     const a = Number(amsId);
     const t = Number(trayId);
-    if (!Number.isInteger(a) || a < 0 || a > 3) {
-      throw new Error('AMS 单元号必须是 0-3');
+    const extSlot = a === 254 || a === 255;
+    if (!Number.isInteger(a) || a < 0 || (a > 3 && !extSlot)) {
+      throw new Error('AMS 单元号必须是 0-3（254/255=外挂料盘·左/右）');
     }
-    if (!Number.isInteger(t) || t < 0 || (t > 3 && t !== 254)) {
-      throw new Error('AMS 槽位必须是 0-3（254=外部料架）');
+    if (!Number.isInteger(t) || t < 0 || t > 3 || (extSlot && t !== 0)) {
+      throw new Error('AMS 槽位必须是 0-3（外挂料位固定槽 0）');
     }
     if (!this.client || !this.connected) throw new Error('打印机未连接');
     const sequenceId = ++this.projectSeq;

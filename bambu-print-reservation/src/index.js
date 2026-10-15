@@ -695,7 +695,11 @@ app.post('/api/reservations', requireUser(), upload.single('file'), async (req, 
       } else {
         try {
           const extracted = require('./services/slicerExtract').extractFrom3mf(fs.readFileSync(req.file.path));
-          embeddedParams = { source: extracted.source, params: extracted.params, estMinutes: extracted.estMinutes };
+          // 板型/用料清单随单入档（2026-10-16 真单批）：分发帧 bed_type 与 ams 映射的底料
+          embeddedParams = {
+            source: extracted.source, params: extracted.params, estMinutes: extracted.estMinutes,
+            bedType: extracted.bedType || null, filaments: extracted.filaments || [],
+          };
           estMinutes = extracted.estMinutes; // 预计时长随单入档（队列 ETA 用）
         } catch (err) {
           console.warn(`[提交] 3mf 参数提取失败（不影响提交）: ${err.message}`);

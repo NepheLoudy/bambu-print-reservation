@@ -109,15 +109,21 @@ class ReservationService {
       const pr = config.printers.find((p) => p.name === dispatch.assignedPrinter);
       if (!pr) throw new Error(`指定打印机「${dispatch.assignedPrinter}」未登记`);
       pref.assignedPrinter = dispatch.assignedPrinter;
-      if (dispatch.tray && (dispatch.tray.amsId !== undefined || dispatch.tray.trayId !== undefined)) {
+      if (dispatch.tray && String(dispatch.tray.slot || '').trim()) {
         const apiState = printerManager.getApiStates().find((p) => p.id === pr.id);
         const trays = (apiState && apiState.ams) || [];
-        const wantSel = String(dispatch.tray.slot || '');
+        const wantSel = String(dispatch.tray.slot).trim();
         const hit = trays.find((t) => t.slot === wantSel) || null;
         if (!hit) {
-          throw new Error(`槽位「${wantSel || '未指定'}」在 ${pr.name} 上不存在或未实装（可选：${trays.map((t) => t.slot).join('、') || '无料站信息'}）`);
+          throw new Error(`槽位「${wantSel}」在 ${pr.name} 上不存在或未实装（可选：${trays.map((t) => t.slot).join('、') || '无料站信息'}）`);
         }
-        pref.tray = { amsId: Number(dispatch.tray.amsId) || 0, trayId: Number(dispatch.tray.trayId), slot: wantSel };
+        // 槽位 id 以服务端料位清单为准（2026-10-16）：外挂料盘 ams_id=254/255、槽 0；
+        // AMS 槽 ams_id=单元号/槽位——前端只传槽位名，防两侧口径漂移
+        pref.tray = {
+          amsId: Number.isInteger(hit.amsId) ? hit.amsId : 0,
+          trayId: Number.isInteger(hit.trayId) ? hit.trayId : 0,
+          slot: hit.slot,
+        };
       }
       if (dispatch.nozzleId !== undefined && dispatch.nozzleId !== null && dispatch.nozzleId !== '') {
         const apiState = printerManager.getApiStates().find((p) => p.id === pr.id);
@@ -126,10 +132,15 @@ class ReservationService {
         if (nozzles.length < 2) throw new Error(`${pr.name} 非多喷头机型，无法指定喷嘴`);
         if (!nozzles.some((n) => n.id === nid)) throw new Error(`喷头 ${nid + 1} 不存在于 ${pr.name}`);
         pref.nozzleId = nid;
+        // 展示名（H2D 左右口径，2026-10-16 实锤）：id0=左（外挂料盘）、id1=右（AMS）
+        const nz = nozzles.find((n) => n.id === nid);
+        pref.nozzleLabel = nz && nz.side === 'left' ? '左喷嘴（外挂料盘）'
+          : nz && nz.side === 'right' ? '右喷嘴（AMS）'
+          : `喷头${nid + 1}`;
       }
     }
     const prefNote = pref.tray || pref.nozzleId || pref.assignedPrinter
-      ? `｜分发指定：${pref.assignedPrinter || '自动机'}${pref.tray ? `·${pref.tray.slot}` : ''}${pref.nozzleId != null ? `·喷头${pref.nozzleId + 1}` : ''}`
+      ? `｜分发指定：${pref.assignedPrinter || '自动机'}${pref.tray ? `·${pref.tray.slot}` : ''}${pref.nozzleId != null ? '·' + (pref.nozzleLabel || `喷头${pref.nozzleId + 1}`) : ''}`
       : '';
 
     store.updateStatus(id, config.status.REVIEW_APPROVED, `审批人：${reviewer || '未署名'}${comment ? `｜意见：${comment}` : ''}${prefNote}`);

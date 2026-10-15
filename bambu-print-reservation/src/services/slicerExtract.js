@@ -109,8 +109,36 @@ function extractRawParams(files) {
 }
 
 /**
+ * 打印用料清单（2026-10-16 曼波真单批）：slice_info.config 的 <filament> 元素——
+ * 切片器记录的「本板实际用料」（类型/颜色/用量），开打帧 ams_mapping2 的匹配底料。
+ * 未用料槽（used_m/used_g 均 0 且 used_for_object!=true）剔除；解析失败按空清单处理。
+ */
+function parseFilaments(zip) {
+  const out = [];
+  try {
+    const e = zip.getEntry('Metadata/slice_info.config');
+    if (!e) return out;
+    const xml = e.getData().toString('utf8');
+    for (const m of xml.matchAll(/<filament\s([^>]*?)\/?>/g)) {
+      const attrs = {};
+      for (const a of m[1].matchAll(/([\w-]+)="([^"]*)"/g)) attrs[a[1]] = a[2];
+      const usedM = Number(attrs.used_m) || 0;
+      const usedG = Number(attrs.used_g) || 0;
+      if (attrs.used_for_object !== 'true' && usedM <= 0 && usedG <= 0) continue;
+      out.push({
+        type: attrs.type || '',
+        colorHex: String(attrs.color || '').replace('#', '').slice(0, 6),
+        trayIdx: attrs.tray_info_idx || '',
+      });
+    }
+  } catch { /* 解析失败按无清单处理 */ }
+  return out;
+}
+
+/**
  * 提取 3mf（Buffer）→ 可映射参数 + 与 baseline 的 diff（候选规则 set 草稿）+ 预计时长
- * @returns {{ source, params: Object, raw: Object, diff: Object, estMinutes: number|null }}
+ * @returns {{ source, params: Object, raw: Object, diff: Object, estMinutes: number|null,
+ *             filaments: Array<{type,colorHex,trayIdx}>, bedType: string|null }}
  */
 function extractFrom3mf(buffer) {
   const zip = new AdmZip(buffer);
@@ -135,7 +163,11 @@ function extractFrom3mf(buffer) {
     if (JSON.stringify(processRules.BASELINE[k]) !== JSON.stringify(v)) diff[k] = v;
   }
 
-  return { source, params, raw, diff, estMinutes };
+  // 开打帧底料：用料清单 + 板型（curr_bed_type，板型与切片不一致是打印失败/暂停的已知诱因）
+  const filaments = parseFilaments(zip);
+  const bedType = String(raw.curr_bed_type || '').trim() || null;
+
+  return { source, params, raw, diff, estMinutes, filaments, bedType };
 }
 
-module.exports = { extractFrom3mf, BAMBU_PARAM_MAP, parseEstimatedMinutes };
+module.exports = { extractFrom3mf, BAMBU_PARAM_MAP, parseEstimatedMinutes, parseFilaments };

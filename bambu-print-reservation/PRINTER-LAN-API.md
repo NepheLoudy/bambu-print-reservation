@@ -68,7 +68,7 @@
 
 - 官方端口表将局域网 FTP 记为 **990 + 50000~50100**（FTPS，TLS 加密数据口），未区分机型。
 - **2026-10-15 真机 H2D 勘误（v56 批）**：X1/H2D 新固件 **22/21 同样全关（ECONNREFUSED）、990 为唯一文件通道**——与 P1 系 10-07 实测一致，「X1/H2D → SFTP:22」系老假设作废；uploadBuffer 全系统一 FTPS 990 优先、21 回退。本系统 SFTP 代码保留但不再是任何机型的主通道。
-- 本系统按机型走（`src/printer/client.js` `uploadBuffer`）：**X1/H2D → SFTP:22**；**P1/A1 → FTPS:990 优先（implicit TLS），失败回退 FTP:21 兼容老固件**；凭证同为 `bblp` + Access Code，远端目录 `/sdcard/`。
+- 本系统现状（`src/printer/client.js` `uploadBuffer`）：**全机系统一 FTPS:990 优先（implicit TLS）、FTP:21 回退兼容老固件**——「X1/H2D → SFTP:22」老假设已作废（见 §1.4 勘误）；凭证同为 `bblp` + Access Code。
 - **2026-10-07 实测批（4A 隔离区两台 P1 系真机，云模式+局域网端口集并开）**：两台 990/8883/6000 常开、**21/22 明文/SSH 口全部 REFUSED**——新固件已砍社区明文通道，官方 990 FTPS（vsFTPd 3.0.5，TLSv1.2）为唯一文件通道；本系统同批从 node-ftp（无 TLS）引入 `basic-ftp` 实现 `ftpsPut`，21 回退保留。**历史注记**：此前版本仅走 22/21 社区通道（当时实机可用）；22/21 不在官方端口表内属社区实现事实，官方 990 通道现为首选。
 
 ---
@@ -84,12 +84,18 @@
 | 实现位 | `src/printer/rtsps.js`（RTSPS 会话 + RTP 拆包 → Annex-B 字节流，零新依赖）；经 `/api/printers/:id/camera/h264` WS 中继给前端 WebCodecs |
 | 实测 | 真机 H2D ≈2.1Mbps，GOP ~5s（IDR 约 165KB）；TLS 1.3 |
 
-实现注记（踩坑即文档）：RTSP 响应与 interleaved 二进制在同一条 TLS 流混跑，且 **PLAY 响应回来前 RTCP SR 就先到**——解析必须按缓冲区首字节分流（`RTSP`=响应 / `# 打印机局域网接入查证与逻辑链路 · bambu-print-reservation
+实现注记（踩坑即文档）：RTSP 响应与 interleaved 二进制在同一条 TLS 流混跑，且 **PLAY 响应回来前 RTCP SR 就先到**——解析必须按缓冲区首字节分流（`RTSP`=响应 / `$`=interleaved 二进制），两种节奏在 PLAY 前后不同，任何「先读固定长度再解析」的假设都会错位。
 
-> 覆盖范围：拓竹（Bambu Lab）与闪铸（FlashForge）打印机「局域网接入」方式的官方/社区资料查证（查证日 2026-09-06），以及本系统当前打印机链路的完整现状。
-> 行号以 2026-09-06 工作区代码为准；代码改动后请同步更新本文件。
-> 本文只描述「现在是什么」。官方口径与社区事实逐条标注；对接入决策、协议选型的改动决策记在各项目 DEVLOG.md。
-> 资料核验程度约定：✔ = 已抓取原文核对正文；△ = 检索结果/摘要条目（未逐一抓取正文，谨慎引用）。
+### 1.6 H2D 双喷嘴 / 外部料位 / 开打帧事实（2026-10-16 真单批）
+
+| 项 | 事实 |
+|---|---|
+| 左右喷嘴 | **extruder id 0 = 左喷嘴**（打印区 x 0..325、限高 320mm）；**id 1 = 右喷嘴**（区 25..350、限高 325mm、`master_extruder_id=2`）。官方 wiki 打印范围页 + Orca H2D 机档 `extruder_printable_area/height` 双源实锤 |
+| 料源（本机口径） | 左喷嘴 ← 外挂料盘；右喷嘴 ← AMS（曼波 2026-10-16 口径；单色件切片默认走 master=右喷嘴） |
+| 外部料位编码 | H2D 外部料位 = 虚拟料位：**254=外挂料盘·左 / 255=外挂料盘·右**（各为独立虚拟 AMS 单元、槽 0；Bambuddy 同口径）。数据位：`print.vir_slot`（打印域，非 AMS 域） |
+| 开打帧 bed_type | 必须与切片产物 `curr_bed_type` 一致（错配触发 H2 板检测警告/暂停 0500-8051）。token：Textured PEI Plate→`textured_plate`、High Temp Plate / Smooth PEI Plate→`hot_plate`、Cool Plate→`cool_plate`、SuperTack→`supertack_plate`（OrcaSlicer.dll 实锤）；**2026-10-16 起按文件动态取**，硬编码仅兜底 |
+| 用料映射 | `ams_mapping2` 逐用料 `{ams_id, slot_id}`（旧 `ams_mapping` legacy 值：AMS=ams*4+slot、外挂=虚拟料位原值）。分发引擎按 slice_info.config 用料清单自动匹配（材料+颜色 redmean），审批指定槽位优先 |
+| fail_reason 50348044 | = 0x0300400C = **HMS 0300-400C「打印已取消」**（非硬件故障；屏幕手停/外部打断/被新任务取消均落此码） |
 
 ---
 
@@ -153,7 +159,7 @@
 ### 1.4 文件上传通道（本系统现状 + 与官方表差异注记）
 
 - 官方端口表将局域网 FTP 记为 **990 + 50000~50100**（FTPS，TLS 加密数据口），未区分机型。
-- 本系统按机型走（`src/printer/client.js` `uploadBuffer`）：**X1/H2D → SFTP:22**；**P1/A1 → FTPS:990 优先（implicit TLS），失败回退 FTP:21 兼容老固件**；凭证同为 `bblp` + Access Code，远端目录 `/sdcard/`。
+- 本系统现状（`src/printer/client.js` `uploadBuffer`）：**全机系统一 FTPS:990 优先（implicit TLS）、FTP:21 回退兼容老固件**——「X1/H2D → SFTP:22」老假设已作废（见 §1.4 勘误）；凭证同为 `bblp` + Access Code。
 - **2026-10-07 实测批（4A 隔离区两台 P1 系真机，云模式+局域网端口集并开）**：两台 990/8883/6000 常开、**21/22 明文/SSH 口全部 REFUSED**——新固件已砍社区明文通道，官方 990 FTPS（vsFTPd 3.0.5，TLSv1.2）为唯一文件通道；本系统同批从 node-ftp（无 TLS）引入 `basic-ftp` 实现 `ftpsPut`，21 回退保留。**历史注记**：此前版本仅走 22/21 社区通道（当时实机可用）；22/21 不在官方端口表内属社区实现事实，官方 990 通道现为首选。
 
 ---
@@ -267,12 +273,12 @@
 
 ### 4.4 状态事件分级（manager）
 
-- `handleStateChange`（`manager.js:99-135`）：先 `updateState` 全字段刷新（仅变化时发 `statusChange`，`manager.js:142-151`）；再按 gcodeState 变迁发 `jobEvent`——PRINTING（非 RESUME 而来）→ `start`、FINISH → `finish`、FAILED → `failed`、PRINTING→IDLE/FINISH → `idle`（`manager.js:121-134`）。
+- `handleStateChange`（`manager.js:99-135`）：先 `updateState` 全字段刷新（仅变化时发 `statusChange`，`manager.js:142-151`）；再按 gcodeState 变迁发 `jobEvent`——PRINTING（非 RESUME 而来）→ `start`、FINISH → `finish`、FAILED → `failed`、**任何非空闲态 → IDLE 均发 `idle`**（2026-10-16 起；含 FAILED→IDLE「屏幕消除故障态」恢复路径——此前仅认 PRINTING→IDLE，导致恢复后队列静默卡死）。
 - `jobEvent` 只被 dispatcher 消费（`bindPrinterEvents`，`dispatcher.js:117-128`）；`statusChange` 供查询接口/页面使用。
 
 ### 4.5 分发引擎（dispatcher，单例 `dispatcher.js:728`）
 
-- 启动 `start`（`dispatcher.js:87-115`）：主通道开启（`approval.enabled` 默认 true）时**关闭预约镜像表对账**（防重复入队），仅靠事件秒级驱动；主通道关闭时退回分钟级对账兜底（`reconcile` `dispatcher.js:206-231`，幂等补漏 + 重启后恢复打印中映射）。路线 A 后事件链已退役，现行入队来自本地审批端点（approve → enqueue），该开关现仅控制旧镜像对账兜底是否运行。
+- 启动 `start`（`dispatcher.js:87-115`）：主通道开启（`approval.enabled` 默认 true）时**关闭预约镜像表对账**（防重复入队），仅靠事件秒级驱动；主通道关闭时退回分钟级对账兜底（`reconcile` `dispatcher.js:206-231`，幂等补漏 + 重启后恢复打印中映射）。路线 A 后事件链已退役，现行入队来自本地审批端点（approve → enqueue），该开关现仅控制旧镜像对账兜底是否运行。另有**队列兜底扫描**（2026-10-16）：队列非空时每 60s 补一轮匹配 trigger——事件缺失/恢复无事件时防卡死。
 - 队列与幂等：`queue + known Set + printing Map`；入队三查（known/queue）防事件与对账重复（`dispatcher.js:236-254`）。
 - 匹配串行化：`matching` 锁 + 完成后按需 `setImmediate` 重跑（`trigger` `dispatcher.js:274-296`）；队首匹配不到不阻塞后续任务（`findAnyMatch`），全队列缺料才发缺料提醒（节流 `materialRemindMinutes`，`dispatcher.js:399-413`）。
 - 分发执行链（`dispatch` `dispatcher.js:418-525`）：见总图；失败处理为「回滚表状态 → 重试计数 → 冷却 `nextMatchAt` → 重新入队 → 冷却后定时再触发」，达 `maxRetries` 退出队列并发人工介入卡片（`dispatcher.js:487-525`）。

@@ -265,10 +265,12 @@ function controlPanelHtml(p) {
   // 双喷头（H2D，2026-10-16）：nozzles 数组时按喷头卡渲染；单喷头保持原行
   const multiNozzle = Array.isArray(p.nozzles) && p.nozzles.length >= 2;
   const activeNz = multiNozzle ? (p.nozzles.find((n) => n.active) || p.nozzles[0]) : null;
+  // 左右喷嘴命名（2026-10-16 官方打印区实锤）：ext0=左（外挂料盘）、ext1=右（AMS）
+  const nzName = (nz) => (nz.side === 'left' ? '左喷嘴（外挂料盘）' : nz.side === 'right' ? '右喷嘴（AMS）' : `喷头 ${nz.id + 1}`);
   const nozzleBlock = multiNozzle
     ? `<div class="nozzleGrid">${p.nozzles.map((nz) => `
         <div class="nozzleCard${nz.active ? ' active' : ''}">
-          <b>喷头 ${nz.id + 1}</b>${nz.active ? ' <span class="detail">◀ 当前</span>' : ''}
+          <b>${nzName(nz)}</b>${nz.active ? ' <span class="detail">◀ 当前</span>' : ''}
           <div><b style="font-size:16px">${nz.temp != null ? nz.temp + '°' : '—'}</b>${nz.target != null ? ` <span class="detail">/ ${nz.target}°</span>` : ''}</div>
           <div class="detail">${nz.diameter != null ? nz.diameter + 'mm' : '—'} ${esc(nz.type || '')}</div>
         </div>`).join('')}</div>`
@@ -276,14 +278,17 @@ function controlPanelHtml(p) {
   const tempSection = `<div class="panel"><h4>🌡 温度（打印中可调）</h4>
     ${nozzleBlock}
     ${tempRow('bed', '热床', 'bt', p.bedTemp, p.bedTargetTemp, 120)}
-    ${multiNozzle ? '<div class="detail">双喷头机型：目标温度设定作用于当前喷头（' + (activeNz ? activeNz.id + 1 : '?') + ' 号）</div>' : ''}</div>`;
+    ${multiNozzle ? '<div class="detail">双喷头机型：目标温度设定作用于当前喷头（' + (activeNz ? nzName(activeNz) : '?') + '）</div>' : ''}</div>`;
 
   // 📦 AMS（原生风格：色块 + 材料 + 余量）
   const trays = p.ams || [];
   const hum = p.deviceInfo && p.deviceInfo.amsHumidity;
   const trayCards = trays.length ? trays.map((t) => {
+    // 切槽参数（2026-10-16）：外挂料盘 ams_id=254/255、槽 0；AMS 按名称解析单元/槽位
     const m = /AMS (\d+)/.exec(t.slot || '');
-    const trayId = t.external ? 254 : (m ? Number(m[1]) : null);
+    const switchArgs = t.external
+      ? { amsId: Number.isInteger(t.amsId) ? t.amsId : 254, trayId: 0 }
+      : { amsId: 0, trayId: m ? Number(m[1]) : 0 };
     const remain = t.remain != null && t.remain > 0 ? Math.round(t.remain) : null;
     return `<div class="tray${t.active ? ' active' : ''}" style="min-width:124px">
       <div style="display:flex;align-items:center;gap:6px">
@@ -293,7 +298,7 @@ function controlPanelHtml(p) {
       <div class="detail" style="margin-top:2px">${esc(t.type || '空')}</div>
       ${remain != null ? `<div class="pbar" style="height:4px;margin-top:3px"><div style="width:${Math.min(100, remain)}%"></div></div><div class="detail">剩余 ${remain}%</div>` : ''}
       <div style="margin-top:4px"><button class="mini" ${idle && !t.active ? '' : 'disabled'} title="${idle ? '切到此槽进料' : '非空闲态/当前槽不可切'}"
-        onclick="cmdPost(${p.id},'ams/switch',{amsId:0,trayId:${trayId}},'切到 ${esc(t.slot)} 进料？（先退旧料再进新料）')">切此槽</button></div></div>`;
+        onclick="cmdPost(${p.id},'ams/switch',{amsId:${switchArgs.amsId},trayId:${switchArgs.trayId}},'切到 ${esc(t.slot)} 进料？（先退旧料再进新料）')">切此槽</button></div></div>`;
   }).join('') : '<span class="detail">无料站信息</span>';
   // AMS 单元级数据（2026-10-16 全量排查）：湿度双值/AMS 内温/烘干倒计时
   const amsU = Array.isArray(p.amsUnits) ? p.amsUnits[0] : null;

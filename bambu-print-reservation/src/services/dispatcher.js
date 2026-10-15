@@ -9,6 +9,7 @@ const { isUnslicedFileName } = require('../utils/fileTypes');
 const printerManager = require('../printer/manager');
 const reservationService = require('./reservation');
 const reservationStore = require('./reservationStore');
+const slicerExtract = require('./slicerExtract');
 
 const isUnslicedFile = (r) => isUnslicedFileName(r && r.fileName);
 const plaza = require('./plaza');
@@ -85,6 +86,63 @@ function trayPreferred(tray, preferSrc) {
   return preferSrc.some((src) => {
     try { return new RegExp(src, 'i').test(String(tray.type || '')); } catch { return false; }
   });
+}
+
+/** 单条用料 → 料位映射（材料精确/家族 + 颜色 redmean 最近；无匹配回落 AMS0 槽 0 并告警） */
+function autoMapEntry(f, trays) {
+  const want = String((f && f.type) || '').trim().toUpperCase();
+  const pick = (level) => {
+    let best = null;
+    let bestD = Infinity;
+    for (const t of trays) {
+      if (want && materialMatch(want, t.type) !== level) continue;
+      const d = f.colorHex && t.colorHex ? colorDistance(t.colorHex, f.colorHex) : 0;
+      if (d < bestD) { bestD = d; best = t; }
+    }
+    return best;
+  };
+  const hit = pick('exact') || pick('family') || (!want ? trays[0] : null);
+  if (!hit) {
+    console.warn(`[分发] 用料「${(f && f.type) || '未知'}」在本机料位无匹配，回落 AMS0 槽 0`);
+    return { ams_id: 0, slot_id: 0 };
+  }
+  return {
+    ams_id: Number.isInteger(hit.amsId) ? hit.amsId : 0,
+    slot_id: Number.isInteger(hit.trayId) ? hit.trayId : 0,
+  };
+}
+
+/**
+ * 开打用料映射（2026-10-16 曼波真单批）：把切片文件的用料清单映射到打印机实际料位——
+ *   ① 审批指定槽位：首条用料映射到该槽（指定即权威；多色件其余用料自动补齐）；
+ *   ② 未指定：逐条按 autoMapEntry 匹配（AMS + 外挂料盘，避开 materialExclude 排除项）；
+ *   ③ 无清单（旧文件/解析失败）：维持旧默认 [{ams_id:0, slot_id:0}]。
+ * 返回 { amsMapping2, amsMapping }——ams_mapping2 用 {ams_id, slot_id}（外挂料盘
+ * ams_id=254/255）；legacy ams_mapping 值：AMS = ams*4+slot、外挂 = 虚拟料位原值。
+ */
+function buildAmsMapping(task, printer, fileMeta) {
+  const filaments = fileMeta && Array.isArray(fileMeta.filaments) && fileMeta.filaments.length
+    ? fileMeta.filaments
+    : null;
+  const trays = (printer.ams || []).filter((t) => t.type && trayAllowed(t, task.materialExclude));
+  const entries = [];
+  const pref = task.prefTray;
+  if (pref && Number.isInteger(pref.amsId) && Number.isInteger(pref.trayId)) {
+    entries.push({ ams_id: pref.amsId, slot_id: pref.trayId });
+    if (filaments && filaments.length > 1) {
+      for (let i = 1; i < filaments.length; i++) {
+        entries.push(autoMapEntry(filaments[i], trays));
+      }
+    }
+  } else if (filaments) {
+    for (const f of filaments) {
+      entries.push(autoMapEntry(f, trays));
+    }
+  } else {
+    entries.push({ ams_id: 0, slot_id: 0 });
+  }
+  const amsMapping = entries.map((e) => (e.ams_id >= 254 ? e.ams_id : e.ams_id * 4 + e.slot_id));
+  return { amsMapping2: entries, amsMapping };
 }
 
 /** 按任务来源取切片/模型文件 buffer */
@@ -180,6 +238,7 @@ class Dispatcher {
     this.timer = null;
     this.saveTimer = null;        // 落盘防抖
     this.exitHooked = false;      // 进程退出冲刷只挂一次
+    this.queueSweepTimer = null;  // 队列兜底推进定时器（事件缺失时防卡死）
   }
 
   start() {
@@ -192,6 +251,14 @@ class Dispatcher {
       this.staleTimer = setInterval(() => {
         this.sweepStalePrinting().catch((err) => console.error('[分发] printing 巡检失败:', err.message));
       }, 10 * 60 * 1000);
+    }
+    // 队列兜底推进（2026-10-16 曼波真单卡滞修复）：事件驱动的匹配在「状态恢复但事件缺失」
+    // （FAILED→IDLE 恢复、重连后首报文、报文丢包）下会静默停摆——队列非空时每分钟补一轮；
+    // 匹配侧有串行闸与多重门控，空转只读无副作用
+    if (!this.queueSweepTimer) {
+      this.queueSweepTimer = setInterval(() => {
+        if (this.queue.length > 0) this.trigger('queue-sweep');
+      }, 60 * 1000);
     }
     if (config.approval.enabled) {
       // 审批直连主通道：事件秒级且可靠，镜像表对账只会造成重复入队，关闭
@@ -701,15 +768,31 @@ class Dispatcher {
       const remoteName = `print_${task.recordId}.${srcExt}`;
       if (await checkCancelled('上传')) return;
       const buffer = await loadTaskFile(task);
+      // 切片元数据（用料清单/板型，2026-10-16 曼波真单批）：分发时刻现读文件——
+      // 对老单（提交时未提取）同样生效；读不出回落提交时快照 embeddedParams
+      let fileMeta = task.embeddedParams || null;
+      if (/\.3mf$/i.test(task.fileName || '')) {
+        try {
+          fileMeta = { ...(fileMeta || {}), ...slicerExtract.extractFrom3mf(buffer) };
+        } catch (err) {
+          console.warn(`[分发] ${task.recordId} 切片元数据读取失败，按默认参数下发: ${err.message}`);
+        }
+      }
       await printerManager.uploadFileToPrinter(printer.id, buffer, remoteName);
 
       if (await checkCancelled('下发')) return;
+      const amsFrame = buildAmsMapping(task, printer, fileMeta);
       await printerManager.startProjectOnPrinter(
         printer.id,
         remoteName,
         task.fileName || task.applicationNo || remoteName,
         config.dispatch.useAms,
-        task.prefTray || null // 审批分发指定（2026-10-16）：指定槽位随帧下发
+        task.prefTray || null, // 审批分发指定（2026-10-16）：指定槽位随帧下发
+        {
+          bedTypeName: (fileMeta && fileMeta.bedType) || null, // 板型随切片产物（防板检测错配暂停）
+          amsMapping2: amsFrame.amsMapping2,
+          amsMapping: amsFrame.amsMapping,
+        }
       );
 
       task.startedAt = Date.now();
@@ -1086,3 +1169,4 @@ module.exports.materialMatch = materialMatch;
 module.exports.buildLocalTask = buildLocalTask;
 module.exports.staleThresholdMs = staleThresholdMs;
 module.exports.brandForFile = brandForFile;
+module.exports.buildAmsMapping = buildAmsMapping;

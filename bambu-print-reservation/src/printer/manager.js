@@ -51,7 +51,10 @@ function resolveJobEvent(prevState, to, hasActiveTask) {
   // 注意 FINISH → finish 分支在前，idle 分支不再判 FINISH（否则永不可达）
   if (to === 'FINISH') return 'finish';
   if (to === 'FAILED') return 'failed';
-  if (to === 'IDLE' && prevState === 'PRINTING') return 'idle';
+  // 任何非空闲态 → 空闲 = 「机器恢复可用」信号（2026-10-16 曼波真单卡滞修复）：
+  // 此前仅认 PRINTING→IDLE，打印机 FAILED（失败/取消后驻留故障态）→ 屏幕消除 → IDLE
+  // 的恢复路径不触发匹配，等待中的队列静默卡死。匹配侧有队列/空闲/槽位多重门控，多余触发幂等无害。
+  if (to === 'IDLE') return 'idle';
   return null;
 }
 
@@ -346,7 +349,7 @@ class PrinterManager {
     return remotePath;
   }
 
-  async startProjectOnPrinter(printerId, fileName, subtaskName, useAms = true, prefTray = null) {
+  async startProjectOnPrinter(printerId, fileName, subtaskName, useAms = true, prefTray = null, frameOpts = {}) {
     const client = this.clients[printerId];
     if (!client || !client.connected) {
       throw new Error('打印机未连接');
@@ -354,7 +357,7 @@ class PrinterManager {
     if (this.printerStates[printerId].brand === 'flashforge') {
       return client.startFile(fileName);
     }
-    await client.startProjectFile(fileName, subtaskName, useAms, prefTray);
+    await client.startProjectFile(fileName, subtaskName, useAms, prefTray, frameOpts);
   }
 
   /** 灯控制（观察台指令条；两品牌各走各的协议；lamp 仅拓竹区分腔灯/工作灯） */

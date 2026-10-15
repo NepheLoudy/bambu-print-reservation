@@ -190,9 +190,35 @@ check('resolveJobEvent:首报文补收尾事件(重启间隙),常规变迁口径
   assert.equal(resolveJobEvent('PRINTING', 'FINISH', true), 'finish');
   assert.equal(resolveJobEvent('PRINTING', 'FAILED', true), 'failed');
   assert.equal(resolveJobEvent('PRINTING', 'IDLE', true), 'idle');
-  assert.equal(resolveJobEvent('FINISH', 'IDLE', true), null, 'FINISH→IDLE 不再发 idle');
   assert.equal(resolveJobEvent('PRINTING', 'PRINTING', true), null, '同态不发事件');
   assert.equal(resolveJobEvent('RESUME', 'PRINTING', true), null, 'RESUME→PRINTING 不算 start');
+  // 2026-10-16 真单卡滞修复：任何非空闲态 → 空闲都发 idle（触发队列重匹配）
+  assert.equal(resolveJobEvent('FAILED', 'IDLE', false), 'idle', 'FAILED→IDLE（屏幕消除故障态）触发重匹配');
+  assert.equal(resolveJobEvent('FINISH', 'IDLE', true), 'idle', 'FINISH→IDLE 同样发 idle（幂等重试）');
+  assert.equal(resolveJobEvent('PAUSE', 'IDLE', true), 'idle', 'PAUSE→IDLE（屏幕取消暂停任务）触发重匹配');
+  assert.equal(resolveJobEvent('IDLE', 'IDLE', true), null, '同为空闲不发事件');
+});
+
+check('buildAmsMapping:指定槽/自动匹配/无清单三径,外挂虚拟料位 254/255 编码', () => {
+  const { buildAmsMapping } = require('../src/services/dispatcher');
+  const printer = {
+    ams: [
+      { slot: 'AMS 0', type: 'PETG', colorHex: 'C1C1C1', amsId: 0, trayId: 0 },
+      { slot: 'AMS 2', type: 'PLA', colorHex: 'F72323', amsId: 0, trayId: 2 },
+      { slot: '外挂料盘·左', type: 'PLA', colorHex: '161616', amsId: 254, trayId: 0, external: true },
+    ],
+  };
+  // ① 指定槽位：全部用料映射到该槽
+  const pref = buildAmsMapping({ prefTray: { amsId: 254, trayId: 0, slot: '外挂料盘·左' } }, printer, null);
+  assert.deepEqual(pref.amsMapping2[0], { ams_id: 254, slot_id: 0 });
+  assert.deepEqual(pref.amsMapping, [254], '外挂 legacy 值取虚拟料位原值');
+  // ② 自动：PLA 红 → AMS2 精确材料+颜色最近；legacy = 0*4+2
+  const auto = buildAmsMapping({}, printer, { filaments: [{ type: 'PLA', colorHex: 'F0F0F0' }] });
+  assert.deepEqual(auto.amsMapping2, [{ ams_id: 0, slot_id: 2 }]);
+  assert.deepEqual(auto.amsMapping, [2]);
+  // ③ 无清单：维持旧默认
+  const none = buildAmsMapping({}, printer, null);
+  assert.deepEqual(none.amsMapping2, [{ ams_id: 0, slot_id: 0 }]);
 });
 
 check('staleThresholdMs:有预估按×2且≥1h,无预估退回固定12h', () => {
