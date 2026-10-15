@@ -295,7 +295,12 @@ function controlPanelHtml(p) {
       <div style="margin-top:4px"><button class="mini" ${idle && !t.active ? '' : 'disabled'} title="${idle ? '切到此槽进料' : '非空闲态/当前槽不可切'}"
         onclick="cmdPost(${p.id},'ams/switch',{amsId:0,trayId:${trayId}},'切到 ${esc(t.slot)} 进料？（先退旧料再进新料）')">切此槽</button></div></div>`;
   }).join('') : '<span class="detail">无料站信息</span>';
-  const amsSection = `<div class="panel"><h4>📦 AMS 耗材 ${hum != null ? `<span class="detail">湿度 ${hum}/5</span>` : ''}</h4>
+  // AMS 单元级数据（2026-10-16 全量排查）：湿度双值/AMS 内温/烘干倒计时
+  const amsU = Array.isArray(p.amsUnits) ? p.amsUnits[0] : null;
+  const amsMeta = amsU
+    ? `<span class="detail">${amsU.humidity != null ? `湿度 ${amsU.humidity}/5${amsU.humidityRaw != null ? `（${amsU.humidityRaw}%）` : ''}` : ''}${amsU.temp != null ? ` · 内温 ${amsU.temp}°` : ''}${amsU.dryTime > 0 ? ` · 🔥 烘干中 剩 ${amsU.dryTime} 分钟` : ''}</span>`
+    : '';
+  const amsSection = `<div class="panel"><h4>📦 AMS 耗材 ${amsMeta || (hum != null ? `<span class="detail">湿度 ${hum}/5</span>` : '')}</h4>
     <div class="opts" style="display:flex;gap:6px;flex-wrap:wrap">${trayCards}</div></div>`;
 
   // 🎮 控制（速度 + 风扇——原生「控制」区）
@@ -450,8 +455,17 @@ function cardHtml(p) {
     : p.currentJob ? `<div class="detail">文件 ${esc(p.currentJob)}</div>` : '';
   const prog = (p.status === '打印中' || p.status === '暂停') && p.progress
     ? `<div class="pbar"><div style="width:${Math.min(100, p.progress)}%"></div></div><div class="detail">${p.progress}%${p.remainingMinutes ? ` · 剩余约 ${p.remainingMinutes} 分钟` : ''}</div>` : '';
+  // 数据面全量（2026-10-16）：层进度 / 速度倍率 / 任务名
+  const layerNote = (p.status === '打印中' || p.status === '暂停') && p.totalLayers
+    ? `<div class="detail">层 <b>${p.layerNum}/${p.totalLayers}</b>${p.spdMag != null ? ` · 速度 ${p.spdMag}%` : ''}${p.subtaskName ? ` · ${esc(p.subtaskName)}` : ''}</div>` : '';
   const speedNote = p.brand !== 'flashforge' && p.speedLevel ? `<span class="detail">速度：${SPEED_NAMES[p.speedLevel] || p.speedLevel}档</span>` : '';
   const dev = p.deviceInfo || {};
+  // 数据面全量（2026-10-16）：存储状态 / 机内队列 / 维护任务
+  const extras = [
+    p.sdcard === false ? '存储离线' : '',
+    p.queueTotal > 0 ? `机内队列 ${p.queueTotal}` : '',
+    p.printType === 'system' ? '维护任务运行中' : '',
+  ].filter(Boolean).join(' · ');
   const devParts = [
     dev.nozzleDiameter != null ? `喷嘴 ${dev.nozzleDiameter}${dev.nozzleType ? ' ' + dev.nozzleType : ''}` : '',
     dev.fwVersion ? `固件 ${dev.fwVersion}` : '',
@@ -468,10 +482,10 @@ function cardHtml(p) {
     </div>
     ${camSection(p)}
     ${errorSection(p)}
-    ${job}${prog}
+    ${job}${prog}${layerNote}
     <div class="temps">${temps || '<span class="detail">温度未上报</span>'}</div>
     ${amsSection(p)}
-    ${devParts ? `<div class="devLine"><span>${devParts}</span></div>` : ''}
+    ${devParts || extras ? `<div class="devLine"><span>${devParts}${devParts && extras ? ' · ' : ''}${extras}</span></div>` : ''}
     ${p.stateStale ? '<div class="meta" style="color:var(--bad)">⚠️ 超过 3 分钟无状态报文——显示的是过期快照</div>' : ''}
     ${controlPanelHtml(p)}
     ${speedNote}

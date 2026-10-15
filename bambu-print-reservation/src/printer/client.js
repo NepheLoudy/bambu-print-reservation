@@ -45,18 +45,42 @@ class PrinterClient {
     // 最近一次含 device 域的全量片段缓存（2026-10-16 双喷头）：device.extruder/nozzle
     // 只在低频全量报文中出现，state.raw 仅存最后一条增量——必须累存，否则增量一到就丢
     this.lastDevice = null;
+    // AMS 原始域缓存（2026-10-16 数据面全量排查）：ams[].{humidity,temp,dry_time,dry_setting}
+    // 等单元级字段不在归一化产物里，同样累存原始结构
+    this.lastAms = null;
     // project_file 命令的序号从高段位起，避免与 bambu-link 内部序号撞车
     this.projectSeq = 10000 + Math.floor(Math.random() * 1000);
   }
 
-  /** device 域累存（双喷头数据源）：增量报文携带 device 片段时刷新缓存 */
+  /** device/ams 域累存（增量报文携带片段时刷新缓存） */
   _cacheDevice(msg) {
     try {
       const dev = msg && msg.print && msg.print.device;
       if (dev && typeof dev === 'object') {
         this.lastDevice = { ...(this.lastDevice || {}), ...dev };
       }
+      const ams = msg && msg.print && msg.print.ams;
+      if (ams && typeof ams === 'object') {
+        this.lastAms = ams; // ams 整体替换（数组结构，逐键合并会错位）
+      }
     } catch { /* 忽略 */ }
+  }
+
+  /**
+   * AMS 单元级数据（2026-10-16 数据面全量排查）：湿度双值/AMS 内温/烘干状态与设置。
+   * 返回 [{id, humidity, humidityRaw, temp, dryTime, drySetting}]——单 AMS 或空数组
+   */
+  getAmsUnits() {
+    const amsRoot = this.lastAms || (this.getState()?.raw?.print?.ams);
+    const units = amsRoot && Array.isArray(amsRoot.ams) ? amsRoot.ams : [];
+    return units.map((u) => ({
+      id: Number(u.id) || 0,
+      humidity: u.humidity != null ? Number(u.humidity) || null : null,       // 档位 1-5
+      humidityRaw: u.humidity_raw != null ? Number(u.humidity_raw) || null : null, // 原始 %
+      temp: u.temp != null ? Number(u.temp) : null,                           // AMS 内温 °C
+      dryTime: u.dry_time != null ? Number(u.dry_time) || 0 : 0,              // 烘干剩余（分钟）
+      drySetting: u.dry_setting || null,                                      // {dry_duration, dry_filament, dry_temperature}
+    }));
   }
 
   /**
@@ -265,6 +289,14 @@ class PrinterClient {
       })(),
       printError: Number(state.raw?.print?.print_error) || 0,
       failReason: Number(state.raw?.print?.fail_reason) || 0,
+      // ---- 数据面全量排查批（2026-10-16 曼波令：打印机与 AMS 全部数据接入）----
+      layerNum: Number(state.raw?.print?.layer_num) || 0,          // 当前层
+      totalLayers: Number(state.raw?.print?.total_layer_num) || 0, // 总层数
+      subtaskName: state.raw?.print?.subtask_name || '',           // 任务名（比 gcode 文件名友好）
+      printType: state.raw?.print?.print_type || '',               // local | cloud | system（维护任务）
+      spdMag: state.raw?.print?.spd_mag != null ? Number(state.raw.print.spd_mag) || null : null, // 速度倍率 %
+      queueTotal: Number(state.raw?.print?.queue_total) || 0,      // 机内队列长度
+      sdcard: state.raw?.print?.sdcard === true,                   // 存储在线
       // 失联标注：true 表示该状态来自过期报文（幽灵空闲防护，选机侧会过滤）
       stateStale: this.isStateStale(),
     };

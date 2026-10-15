@@ -1183,7 +1183,7 @@ async function loadPrinters() {
       : '';
     const job = p.activeTask ? `<div class="detail">任务 <b>${esc(p.activeTask.applicationNo || '')}</b> ${esc(p.activeTask.fileName || '')}</div>` : p.currentJob ? `<div class="detail">文件 ${esc(p.currentJob)}</div>` : '';
     const prog = (p.status === '打印中' || p.status === '暂停') && p.progress
-      ? `<div class="pbar"><div style="width:${Math.min(100, p.progress)}%"></div></div><div class="detail">${p.progress}%${p.remainingMinutes ? '，剩余 ' + p.remainingMinutes + ' 分钟' : ''}</div>` : '';
+      ? `<div class="pbar"><div style="width:${Math.min(100, p.progress)}%"></div></div><div class="detail">${p.progress}%${p.remainingMinutes ? '，剩余 ' + p.remainingMinutes + ' 分钟' : ''}${p.totalLayers ? ' · 层 ' + p.layerNum + '/' + p.totalLayers : ''}</div>` : '';
     // 打印机控制（admin）：暂停/恢复/停止上页面（原仅 HTTP API），二次确认防误触
     const ctl = isAdmin() && ['打印中', '暂停'].includes(p.status)
       ? `<div style="margin-top:6px">
