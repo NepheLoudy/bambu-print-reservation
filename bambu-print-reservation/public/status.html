@@ -449,11 +449,18 @@ async function loadFleet() {
 
 async function cmdPost(id, path, body, confirmText, silentConfirm) {
   if (confirmText && !confirm(confirmText)) return false;
-  const res = await fetch(`/api/printers/${id}/${path}`, {
-    method: 'POST',
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let res;
+  try {
+    res = await fetch(`/api/printers/${id}/${path}`, {
+      method: 'POST',
+      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (err) {
+    // 网络不可达（服务没起/断网）绝不静默——明确告知，避免「点了没反应」
+    toast('❌ 网络错误：服务不可达（' + err.message + '）');
+    return false;
+  }
   const data = await res.json().catch(() => ({}));
   if (res.status === 401) { location.reload(); return false; }
   toast(res.ok ? '✅ 指令已下发' : '❌ ' + (data.error || (res.status === 403 ? '权限不足' : '指令失败')));

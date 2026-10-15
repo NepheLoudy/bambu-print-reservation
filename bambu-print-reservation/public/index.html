@@ -195,13 +195,14 @@
         <div><label>指定打印机（可空，默认自动匹配）</label><input type="text" id="assignedPrinter" list="printerNameList" placeholder="如 X1C-01，留空自动"><datalist id="printerNameList"></datalist></div>
       </div>
       <div class="row">
-        <div><label>模型 / 切片文件 *（.stl/.step 走需求链路：勾选工况自动定档；.3mf=拓竹直通 / .gcode=闪铸直通：切片参数已内嵌）</label><input type="file" id="file" accept=".stl,.step,.stp,.3mf,.obj,.gcode,.gx,.g"></div>
+        <div><label>模型 / 切片文件 *（.stl 走需求链路+<b>3D 工况标注</b>：载荷/支撑/受弯在 3D 视图点选，自动定档；.step/.obj 手勾工况；.3mf=拓竹直通 / .gcode=闪铸直通）</label><input type="file" id="file" accept=".stl,.step,.stp,.3mf,.obj,.gcode,.gx,.g"></div>
       </div>
       <div class="preview" id="slicedNotice" style="display:none">📦 <b>切片产物审批直通模式</b>——3mf（拓竹）/ gcode（闪铸）的切片参数已内嵌文件，无需工况勾选；材料/颜色栏仅用于选机匹配。注意：3mf 只能去拓竹机、gcode 只能去闪铸机，选错品牌会被自动匹配忽略</div>
       <div class="preview" id="modelPanel" style="display:none"></div>
       <div id="taxonomy"></div>
       <div class="preview" id="anno3dBox" style="display:none">
         <b>🖱 3D 工况标注</b>——选中工具后点击模型表面落点：标注几何链路看不出来、只有人知道的复杂特征（受弯位置、接触面、外观面、载荷…）。拖拽旋转 / 滚轮缩放，点标注点可编辑删除。
+        <div id="anno3dHint" style="display:none;margin-top:6px;font-size:12px;color:var(--amber)"></div>
         <div id="toolRow" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px"></div>        <button class="mini" onclick="clearSel()" title="取消选中标注，恢复放置模式">✕ 取消选中</button>        <div id="loadTypeRow" style="display:none;margin-top:6px;font-size:12px;color:var(--muted)">载荷工况标注——受力类型：
           <select id="loadTypeSel" onchange="updateLoadBtnColor()" style="padding:3px 6px">
             <option value="compression">受压</option>
@@ -230,7 +231,7 @@
           </select>
           <button class="mini" onclick="flipLastLoad()">⇆ 翻转上一箭头</button>（箭头即力方向，自动换算工况勾选）
         </div>
-        <div style="position:relative;margin-top:8px">
+        <div id="annoCanvasWrap" style="position:relative;margin-top:8px">
           <canvas id="annoCanvas" style="width:100%;height:400px;display:block;background:#0c1016;border:1px solid var(--line2);border-radius:4px;cursor:crosshair"></canvas>
           <div id="annoOverlay" style="position:absolute;inset:0;pointer-events:none"></div>
         </div>
@@ -523,6 +524,24 @@ async function loadAnnotator() {
   const box = $('anno3dBox');
   const meshCapable = !!file && /\.stl$/i.test(file.name) && !isSlicedFile();
   box.style.display = meshCapable ? 'block' : 'none';
+  // 非静默：明确告诉用户 3D 标注的启用条件（录入台入口可见性）——
+  // 提示写进独立元素，绝不 innerHTML 覆盖工具行/画布（否则换 STL 后标注区报废）
+  const hint = $('anno3dHint');
+  if (file && !isSlicedFile() && !/\.stl$/i.test(file.name)) {
+    box.style.display = 'block';
+    hint.style.display = 'block';
+    hint.innerHTML = '📐 3D 工况标注仅支持 <b>.stl</b> 模型（当前 ' + esc(file.name) + '）——step/obj 可用切片软件另存 STL，或直接在下方手勾工况（载荷组已展开）。';
+    $('toolRow').style.display = 'none';
+    $('loadTypeRow').style.display = 'none';
+    document.getElementById('annoCanvasWrap').style.display = 'none';
+    $('annoList').textContent = '';
+    updateLoadGroupMode();
+    syncLoadsToSelection();
+    return;
+  }
+  hint.style.display = 'none';
+  $('toolRow').style.display = 'flex';
+  document.getElementById('annoCanvasWrap').style.display = 'block';
   updateLoadGroupMode();
   if (!meshCapable) { syncLoadsToSelection(); return; }
   initAnnotatorTools();
