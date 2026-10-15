@@ -71,7 +71,15 @@ const machineName = argOf('--machine') || 'Bambu Lab H2D 0.4 nozzle';
 const processName = argOf('--process') || '0.20mm Standard @BBL H2D';
 const filamentName = argOf('--filament') || 'Bambu PLA Basic @BBL H2D';
 const paramsJson = argOf('--params');
-const engineParams = paramsJson ? JSON.parse(paramsJson) : JSON.parse(fs.readFileSync(0, 'utf8'));
+// 参数来源：--params 显式 → stdin；两者皆空（后台/服务调用常见）默认 {}——
+// 此前空 stdin 会 JSON.parse('') 崩（2026-10-15 生产首跑实锤：脚本方式运行 stdin 恒空）
+let engineParams = {};
+if (paramsJson) {
+  engineParams = JSON.parse(paramsJson);
+} else {
+  const stdinRaw = (() => { try { return fs.readFileSync(0, 'utf8').trim(); } catch { return ''; } })();
+  if (stdinRaw) engineParams = JSON.parse(stdinRaw);
+}
 
 /** 沿 inherits 拍平 vendor 档（root → leaf，叶子覆盖同名键） */
 function flattenProfile(dir, name, guard = new Set()) {
