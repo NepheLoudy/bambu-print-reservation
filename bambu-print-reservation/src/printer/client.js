@@ -46,6 +46,26 @@ class PrinterClient {
     this.projectSeq = 10000 + Math.floor(Math.random() * 1000);
   }
 
+  /**
+   * 命令 topic 按机型修正（2026-10-15 H2D 真机实锤，全链最后一公里）：
+   * H2 系新固件只处理 device/{SN}/request 上的命令——发到 report 的命令被静默忽略
+   * （只回显不执行，把「echo 回包」伪装成成功；灯控/温度/开打全中招）。
+   * P1/A1 老固件 report 单 topic 收发（既有验证保持）。X1 未实测按新一代处理。
+   * 注意时序：必须在 MQTT 订阅建立（BambuLink connect 完成）之后再 patch——
+   * dataUpdateTopic 同时管订阅与发布，早改会订错 topic。
+   */
+  _patchCommandTopic() {
+    const model = String(this.config.model || '').toUpperCase();
+    if (!/H2|X1/.test(model)) return;
+    try {
+      const mqttClient = this.client.getMqttClient();
+      mqttClient.dataUpdateTopic = `device/${this.config.serial}/request`;
+      console.log(`[打印机] ${this.config.name}（${model}）命令通道切 request topic（新固件口径）`);
+    } catch (err) {
+      console.warn(`[打印机] ${this.config.name} 命令 topic 修正失败:`, err.message);
+    }
+  }
+
   async connect() {
     if (this.connecting) return;
     if (this.connected) return;
@@ -65,6 +85,7 @@ class PrinterClient {
         this.connected = true;
         this.connecting = false;
         console.log(`[打印机] ${this.config.name} 已连接`);
+        this._patchCommandTopic();
         this.notifyListeners('connect');
       });
 
@@ -250,25 +271,59 @@ class PrinterClient {
   }
 
   /**
-   * 直接下发 3mf 打印任务（X1/H2D 支持，切片参数随文件）
-   * 标准 LAN 协议 project_file 命令：url 指向上传到 /sdcard/ 的 3mf
+   * 直接下发 3mf 打印任务（切片参数随文件）。
+   * 双口径（2026-10-15 H2D 真机实锤）：
+   *   新世代 H2/X1：url=ftp:///<name>（FTPS 根）、完整字段集（file/bed_type/校准标志/
+   *     ams_mapping2 等），命令走 request topic（_patchCommandTopic）
+   *   老世代 P1/A1：url=ftp:///sdcard/<name>、简版帧、report 单 topic
    */
   async startProjectFile(fileName, subtaskName, useAms = true) {
     if (!this.client || !this.connected) {
       throw new Error('打印机未连接');
     }
+    const isNewGen = /H2|X1/.test(String(this.config.model || '').toUpperCase());
     const sequenceId = ++this.projectSeq;
-    const payload = {
-      print: {
-        sequence_id: sequenceId,
-        command: 'project_file',
-        param: '',
-        url: `ftp:///sdcard/${fileName}`,
-        subtask_name: subtaskName || fileName,
-        use_ams: useAms,
-        md5: '',
-      },
-    };
+    const payload = isNewGen
+      ? {
+          print: {
+            sequence_id: sequenceId,
+            command: 'project_file',
+            param: 'Metadata/plate_1.gcode',
+            url: `ftp:///${fileName}`,
+            file: fileName,
+            md5: '',
+            bed_type: 'auto',
+            timelapse: false,
+            bed_leveling: true,
+            auto_bed_leveling: 1,
+            flow_cali: false,
+            vibration_cali: true,
+            layer_inspect: false,
+            use_ams: useAms,
+            cfg: '0',
+            extrude_cali_flag: 2,
+            extrude_cali_manual_mode: 0,
+            nozzle_offset_cali: 2,
+            subtask_name: subtaskName || fileName,
+            profile_id: '0',
+            project_id: String(sequenceId),
+            subtask_id: String(sequenceId),
+            task_id: String(sequenceId),
+            ams_mapping: [0],
+            ams_mapping2: [{ ams_id: 0, slot_id: 0 }],
+          },
+        }
+      : {
+          print: {
+            sequence_id: sequenceId,
+            command: 'project_file',
+            param: '',
+            url: `ftp:///sdcard/${fileName}`,
+            subtask_name: subtaskName || fileName,
+            use_ams: useAms,
+            md5: '',
+          },
+        };
     return this.client
       .getMqttClient()
       .sendCommand(JSON.stringify(payload), sequenceId, true);
@@ -479,10 +534,12 @@ class PrinterClient {
     }
   }
 
-  /** /sdcard 文件清单（仅切片产物后缀，按修改时间倒序）——FTPS 990 通道 */
+  /** 切片文件清单（按修改时间倒序）——FTPS 990；新世代 USB 根 /，老世代 /sdcard */
   async listSdcardFiles() {
+    const isNewGen = /H2|X1/.test(String(this.config.model || '').toUpperCase());
+    const dir = isNewGen ? '/' : '/sdcard';
     return this.withFtps(async (client) => {
-      const list = await client.list('/sdcard');
+      const list = await client.list(dir);
       return list
         .filter((e) => !e.isDirectory)
         .filter((e) => /\.(3mf|gcode|gx|g)$/i.test(e.name))
@@ -492,14 +549,16 @@ class PrinterClient {
     });
   }
 
-  /** 删除 /sdcard 文件（文件名白名单校验，禁路径穿越）——FTPS 990 通道 */
+  /** 删除文件（文件名白名单校验，禁路径穿越）——FTPS 990；新世代 USB 根 /，老世代 /sdcard */
   async deleteSdcardFile(name) {
     const n = String(name || '');
     if (!n || /[\\/]/.test(n) || n.includes('..') || !/\.(3mf|gcode|gx|g)$/i.test(n)) {
       throw new Error('非法文件名');
     }
+    const isNewGen = /H2|X1/.test(String(this.config.model || '').toUpperCase());
+    const full = isNewGen ? `/${n}` : `/sdcard/${n}`;
     return this.withFtps(async (client) => {
-      await client.remove(`/sdcard/${n}`);
+      await client.remove(full);
       return { deleted: n };
     });
   }
@@ -522,20 +581,22 @@ class PrinterClient {
   // ============ 文件传输（SFTP 优先，FTPS/FTP 兜底） ============
 
   /**
-   * 上传 Buffer 到打印机 /sdcard/。
-   * 2026-10-15 真机 H2D 实测：22/21 全关（ECONNREFUSED），FTPS 990 为唯一通道——
-   * 与 P1 系 2026-10-07 实测一致，「X1/H2D 走 SFTP:22」系老假设已废，全系统一
-   * FTPS 990（implicit TLS）优先、FTP 21 回退兼容老固件
+   * 上传 Buffer 到打印机存储。
+   * 2026-10-15 真机 H2D 实测：22/21 全关（ECONNREFUSED），FTPS 990 唯一通道；
+   * 且 H2 系 FTPS **只暴露外置 USB**（挂载在 FTPS 根——/sdcard 前缀会 553），
+   * 故新世代把 remotePath 的 /sdcard/ 前缀剥掉直写根；P1/A1 保持 /sdcard/
    */
   async uploadBuffer(buffer, remotePath) {
+    const isNewGen = /H2|X1/.test(String(this.config.model || '').toUpperCase());
+    const target = isNewGen ? String(remotePath).replace(/^\/sdcard\//, '/') : remotePath;
     let ftpsErr = null;
     try {
-      return await this.ftpsPut(buffer, remotePath);
+      return await this.ftpsPut(buffer, target);
     } catch (err) {
       ftpsErr = err;
     }
     try {
-      return await this.ftpPut(buffer, remotePath);
+      return await this.ftpPut(buffer, target);
     } catch (err) {
       throw new Error(
         `FTPS(990) 上传失败（${ftpsErr ? ftpsErr.message : '未知'}），FTP(21) 回退也失败（${err.message}）`
