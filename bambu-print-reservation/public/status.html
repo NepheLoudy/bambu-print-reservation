@@ -57,6 +57,9 @@
   .panel h4 { margin: 0 0 6px; font-size: 12px; color: var(--dim); font-weight: 600; }
   .dtabBody { padding: 6px 2px; }
   .devLine { display: flex; gap: 10px; flex-wrap: wrap; font-size: 11px; color: var(--dim); margin-top: 6px; }
+  .nozzleGrid { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+  .nozzleCard { border: 1px solid var(--line2); border-radius: 4px; padding: 6px 10px; font-size: 12px; background: var(--inset); min-width: 96px; }
+  .nozzleCard.active { border-color: var(--amber); box-shadow: inset 0 0 0 1px rgba(255, 176, 46, .35); }
   .fileRow { display: flex; gap: 6px; align-items: center; font-size: 12px; padding: 3px 0; border-bottom: 1px dashed #1d2530; }
   .fileRow .fname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* 机器助手报错事件区（HMS/错误码） */
@@ -259,9 +262,21 @@ function controlPanelHtml(p) {
       <button class="mini" onclick="adjustTemp(${p.id},'${kind}',-10)">−10</button>
       <button class="mini" onclick="adjustTemp(${p.id},'${kind}',10)">+10</button>
       <button class="mini" onclick="cmdPost(${p.id},'temp',{kind:'${kind}',deg:0},null,true)">归零</button></div>`;
+  // 双喷头（H2D，2026-10-16）：nozzles 数组时按喷头卡渲染；单喷头保持原行
+  const multiNozzle = Array.isArray(p.nozzles) && p.nozzles.length >= 2;
+  const activeNz = multiNozzle ? (p.nozzles.find((n) => n.active) || p.nozzles[0]) : null;
+  const nozzleBlock = multiNozzle
+    ? `<div class="nozzleGrid">${p.nozzles.map((nz) => `
+        <div class="nozzleCard${nz.active ? ' active' : ''}">
+          <b>喷头 ${nz.id + 1}</b>${nz.active ? ' <span class="detail">◀ 当前</span>' : ''}
+          <div><b style="font-size:16px">${nz.temp != null ? nz.temp + '°' : '—'}</b>${nz.target != null ? ` <span class="detail">/ ${nz.target}°</span>` : ''}</div>
+          <div class="detail">${nz.diameter != null ? nz.diameter + 'mm' : '—'} ${esc(nz.type || '')}</div>
+        </div>`).join('')}</div>`
+    : tempRow('nozzle', '喷嘴', 'nt', p.nozzleTemp, p.nozzleTargetTemp, 350);
   const tempSection = `<div class="panel"><h4>🌡 温度（打印中可调）</h4>
-    ${tempRow('nozzle', '喷嘴', 'nt', p.nozzleTemp, p.nozzleTargetTemp, 350)}
-    ${tempRow('bed', '热床', 'bt', p.bedTemp, p.bedTargetTemp, 120)}</div>`;
+    ${nozzleBlock}
+    ${tempRow('bed', '热床', 'bt', p.bedTemp, p.bedTargetTemp, 120)}
+    ${multiNozzle ? '<div class="detail">双喷头机型：目标温度设定作用于当前喷头（' + (activeNz ? activeNz.id + 1 : '?') + ' 号）</div>' : ''}</div>`;
 
   // 📦 AMS（原生风格：色块 + 材料 + 余量）
   const trays = p.ams || [];

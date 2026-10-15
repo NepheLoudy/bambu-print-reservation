@@ -42,8 +42,21 @@ class PrinterClient {
     this.ftpClient = null;
     this.ftpsClient = null;
     this.sshClient = null;
+    // 最近一次含 device 域的全量片段缓存（2026-10-16 双喷头）：device.extruder/nozzle
+    // 只在低频全量报文中出现，state.raw 仅存最后一条增量——必须累存，否则增量一到就丢
+    this.lastDevice = null;
     // project_file 命令的序号从高段位起，避免与 bambu-link 内部序号撞车
     this.projectSeq = 10000 + Math.floor(Math.random() * 1000);
+  }
+
+  /** device 域累存（双喷头数据源）：增量报文携带 device 片段时刷新缓存 */
+  _cacheDevice(msg) {
+    try {
+      const dev = msg && msg.print && msg.print.device;
+      if (dev && typeof dev === 'object') {
+        this.lastDevice = { ...(this.lastDevice || {}), ...dev };
+      }
+    } catch { /* 忽略 */ }
   }
 
   /**
@@ -115,12 +128,14 @@ class PrinterClient {
       this.client.on('state', (state) => {
         this.lastStateAt = Date.now();
         this.state = state;
+        this._cacheDevice(state);
         this.notifyListeners('state', state);
       });
 
       this.client.on('stateUpdate', (patch, previousState) => {
         // 增量报文同样证明连接存活，一并刷新新鲜度
         this.lastStateAt = Date.now();
+        this._cacheDevice(patch);
         this.notifyListeners('stateUpdate', patch, previousState);
       });
 
@@ -226,6 +241,28 @@ class PrinterClient {
       // 机器助手报错事件（2026-10-15 曼波令上界面）：HMS 硬件通知 + 打印错误/失败码
       // （原始码展示；HMS 码文本映射见前端 HMS_KNOWN 表，未知码引导看屏）
       hms: Array.isArray(state.raw?.print?.hms) ? state.raw.print.hms.slice(0, 6) : [],
+      // 多喷头（2026-10-16 曼波令；H2D 双喷头真机形态：device.extruder.info 各喷头温度、
+      // device.nozzle.info 规格、device.nozzle.tar_id 活动喷头）——单喷头机型为 null
+      nozzles: (() => {
+        const dev = this.lastDevice || (state.raw?.print?.device) || {}; // 累存优先（增量不含 device）
+        const exs = dev.extruder?.info || [];
+        if (!Array.isArray(exs) || exs.length === 0) return null;
+        const specs = dev.nozzle?.info || [];
+        const activeId = Number(dev.nozzle?.tar_id ?? NaN);
+        return exs.map((e) => {
+          const spec = specs.find((n) => Number(n.id) === Number(e.id)) || {};
+          const isActive = Number(e.id) === activeId;
+          return {
+            id: Number(e.id),
+            temp: Number.isFinite(Number(e.temp)) ? Number(e.temp) : null,
+            // 目标温度仅活动喷头有独立上报（顶层单值）；副喷头暂缺数据源
+            target: isActive ? (temps.nozzleTarget ?? null) : null,
+            diameter: Number(spec.diameter) || null,
+            type: spec.type || null,
+            active: isActive,
+          };
+        });
+      })(),
       printError: Number(state.raw?.print?.print_error) || 0,
       failReason: Number(state.raw?.print?.fail_reason) || 0,
       // 失联标注：true 表示该状态来自过期报文（幽灵空闲防护，选机侧会过滤）
