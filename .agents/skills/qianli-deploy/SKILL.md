@@ -84,6 +84,7 @@ push.js 依次做：① git add -A + commit + push（本地推 GitHub 失败不�
 | 同一应用出现第二条长连接 | 立即查该机器人 `.env` 的 FEISHU_USE_LONG_CONNECTION 并改 false 重新 push |
 | push 后配置"自己变回去" | 确认 `.github/workflows/deploy.yml` 类旧 Actions 部署已删除（各仓库已拆，别恢复） |
 | push 冲掉运维台改的名单/回答表 | 2026-09-12 事故（whitelist 18 人被本地空壳覆盖）。push.js 已有备份+守卫；如需强行覆盖设 `PUSH_FORCE_PRIVATE=1`，事后从数据备份目录可回滚（NAS 时期 `/home/qianli/<proj>-data/backup/`，小电脑侧对应目录待核实补记） |
+| push 收尾报「SSH 连接失败 read ECONNRESET」、运维台动作日志尾 `[结束] code=1`（前置已见「健康检查通过/部署完成」） | 目标机 sshd 频率保护掐断收尾 SSH 连接，误报为失败（v155、v156、2026-10-17 三度定性）——提交/同步/.env/重启实质步骤均已完成，以人工 SSH 复核 pm2 与 `/api/health` 为准；不要当部署失败重试、不要动目标机 sshd 配置 |
 
 ## 新增一个机器人项目
 

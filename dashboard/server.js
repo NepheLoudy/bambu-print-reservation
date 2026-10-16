@@ -119,7 +119,10 @@ const actionProcs = new Map(); // id -> { log, running, cmd, exitCode, startedAt
 
 function runAction(id, cmd, cwdRel, args = []) {
   if (actionProcs.get(id)?.running) return { ok: false, error: '该项目有动作正在执行' };
-  const cwd = path.join(ROOT, cwdRel || '');
+  // 调用方传入的是 path.resolve 后的绝对路径（2026-09-27 越界校验批），path.join 会把
+  // 盘符路径再拼一次前缀（D:\dev\qianli\D:\dev\qianli\...）→ 全部快捷指令 ENOENT；
+  // resolve：绝对路径原样返回，相对路径（如有）仍按 ROOT 解析
+  const cwd = path.resolve(ROOT, cwdRel || '');
   const entry = { log: [`[${new Date().toLocaleString('zh-CN')}] ${cmd} ${args.join(' ')}（cwd: ${path.relative(ROOT, cwd) || '.'}）`], running: true, cmd: `${cmd} ${args.join(' ')}`.trim(), exitCode: null, startedAt: Date.now() };
   actionProcs.set(id, entry);
 
@@ -478,7 +481,7 @@ app.post('/api/action/:id', (req, res) => {
   let entry;
   if (actionId) {
     entry = (proj.quickActions || []).find((a) => a.id === actionId);
-    // cwd 相对 proj.dir（runAction 里统一 path.join(proj.dir, entry.cwd)），这里必须留空——
+    // cwd 相对 proj.dir（route 处统一 path.resolve(ROOT, proj.dir, entry.cwd)），这里必须留空——
     // 填 proj.dir 会拼成 <root>/<proj>/<proj> 必 ENOENT
     if (actionId === 'push') entry = { cmd: 'npm', args: ['run', 'push'], cwd: '' };
   } else if (cmd === 'push') {

@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v156**（2026-10-15，随本提交落地，ticket-bot v92 + pm-robot v132 联动批——DDL 播报「📨 已指派待确认」分栏）。上一版 v155（2026-10-14，34af792，迁移后全量审查修复批——bambu v54/gateway v38/duty v55/hub v131 等六仓，头部指针本批补正）。上一版 v154（2026-10-14，575d84a，dashboard keepalive.vbs 双机路径探测批——保活脚本硬编码笔记本路径改两机探测，修台式机每 10 分钟 WSH 弹窗）。上一版 v153（2026-10-14，迁移基础设施批——顶层仓正名 NepheLoudy/qianli+ticket-bot 转正第 6 子模块+大脑记忆链路 qianli-brain/brain-sync 落地，两机一致性达成）。上一版 v152（2026-10-14，e62ce67，bambu v53 双品牌纯内网批归档，已上线小电脑）。上一版 v151（2026-10-13，f9fac9d，bambu v48+v49 归档批+5 个 gitlink 注册前置）。
+当前最新：**v157**（2026-10-17，随本提交落地，运维台 push 链路回归修复批 + 两处 gitlink 收编）。上一版 v156（2026-10-15，0ae4a37，ticket-bot v92 + pm-robot v132 联动批——DDL 播报「📨 已指派待确认」分栏）。上一版 v155（2026-10-14，34af792，迁移后全量审查修复批——bambu v54/gateway v38/duty v55/hub v131 等六仓，头部指针本批补正）。上一版 v154（2026-10-14，575d84a，dashboard keepalive.vbs 双机路径探测批——保活脚本硬编码笔记本路径改两机探测，修台式机每 10 分钟 WSH 弹窗）。上一版 v153（2026-10-14，迁移基础设施批——顶层仓正名 NepheLoudy/qianli+ticket-bot 转正第 6 子模块+大脑记忆链路 qianli-brain/brain-sync 落地，两机一致性达成）。上一版 v152（2026-10-14，e62ce67，bambu v53 双品牌纯内网批归档，已上线小电脑）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -1323,7 +1323,7 @@ dashboard keepalive.vbs 双机路径探测批：保活脚本硬编码笔记本�
 
 迁移后全量审查修复批（6 路只读审查产出，v154 时点）：**bambu v54**（4 P1：axis NOTE_OK 半成品/重置密码正则丢反斜杠/gcode 审批门未跟双品牌/载荷勾选联动断链；P2：_aid 发号/清会话真身/训练样本损坏隔离；测试 14 套全绿+gcode 审批断言锁）——e8f608d；**gateway v38**（connecting 恒挂兜底落地：死常量 WS_START_WATCHDOG_MS 本来语义实现，超 5 分钟自退交 pm2 重建；command 投递附共享 X-API-Token——approval 已挂鉴权裸转发 403；cors 死依赖清理）——cf2e12c；**duty-bot v55**（独立仓：隐私 dump .tmp-kaoqin-roster.json 清理三处+gitignore 补 .tmp-*（历史清洗待裁决）、README NAS 字样、ZKLink 模板 17 键、push.js PATH 精简、zklink 原子写，17 套全绿）——f4b1a4a；**hub v131**（独立仓：兜底策略补「确认全部已取」两处词形，11 套全绿）——7664ff0；**ticket-bot**（独立仓：DEVLOG 指针校正 v91+.env.example 补 ACCEPT_TRACE_FIELD）——8e14329；**netlog**（本机 .env 账号池路径改 D:/dev 种子；v19 补部署实际成功——pm2 online+health 全绿，push.js 末步健康检查连接被 sshd 频率保护 ECONNRESET 误报失败，人工 SSH 验证为准）；**approval-bot**（.env 补 OCR_FIELDS_FILE 到项目外；detached HEAD 归位 main）；**dashboard**（台式机 Startup 补开机自启 vbs）；顶层 AGENTS.md 使用指南 HTML 双机落点。未动待办：bambu /api/chat/command 鉴权需与 hub /print-* 两仓同批；duty git 历史清洗待裁决。测试总账：全群 9 组套件全绿。
 
-## v156 · 2026-10-15 · <本提交哈希> · feat
+## v156 · 2026-10-15 · 0ae4a37 · feat
 
 **工单×项目管理联动批：DDL 播报新增「📨 已指派待确认」分栏（曼波需求：未接单/指定负责人未确认要次日曝光并引导完成）**
 
@@ -1333,3 +1333,14 @@ dashboard keepalive.vbs 双机路径探测批：保活脚本硬编码笔记本�
 - 部署：按联动顺序先 ticket-bot 后 pm-robot（knowledge-tracker），两进程 pm2 online + health 200 + 启动关键行全绿；push.js 末步「SSH 连接失败 read ECONNRESET」复现 v155 已定性误报（sshd 频率保护），人工 SSH 验证为准。本机备注：pm-robot 仓根 node_modules 缺 ssh2 致 push 首跑 MODULE_NOT_FOUND，`npm install` 后重推成功（推送机环境问题，非代码问题）；头部指针补正（v155 批漏更，本高频复发项第 5 次）。
 - **v56 全量复查补记（同日）**：17 套 218 断言回归全绿；台式机→H2D 三通道（MQTT/FTPS/RTSPS）全 OPEN；生产 pm2 九进程 online、队列零滞留；H2D 夜间真实完成打印（plate_7.gcode 100%）；踢线实验持续安静。自审修复：观察台文件列表渲染假上下文致按钮假禁用（FLEET 全局缓存）。错误日志中「AMS 槽位必须是 0-3」为开发期坏参数探针留痕，非现场故障。
 - **v56 现场热修（同日，曼波观察台实测暴露）**：画面「已断开」根因=5s 重渲染逐轮重建会话且旧 WS 不关——每 5s 泄漏一条 WS+RTSPS 会话，打满 LIVE555 会话额后新会话被拒。修复：活会话防重入 + 解码器画布动态寻址跨重渲染续画 + loadFleet 只复活死会话。部署机侧 rtsps 实测 1.1MB/4.3s 正常（服务端无恙，纯前端会话管理锅）；生产 WS 中继 E2E 实测 STREAM PASS（1.35MB/6s）。
+
+## v157 · 2026-10-17 · 随本提交落地 · fix
+
+**运维台 push 链路回归修复批（09-27 安全加固批遗留回库）+ 两处 gitlink 收编**
+
+- **dashboard/server.js（本地运维台，不入部署）**：`runAction` 的 `path.join(ROOT, cwdRel)` 改 `path.resolve(ROOT, cwdRel)`——09-27 越界校验批把调用方 cwd 换成 `path.resolve` 绝对路径后，join 对盘符路径再拼一次前缀（`D:\dev\qianli\D:\dev\qianli\...`），运维台全部快捷指令（push/install/test）自那以后 ENOENT 全灭。resolve 对绝对路径原样返回、相对路径仍按 ROOT 解析；顺带校正 route 处陈旧注释（join→resolve 调用链表述）。修复后实测：经运维台 push 按钮链路完整推送 pm-robot v133——13 套桩测试全绿 → git commit/push → 部署目标 SFTP 直传 → .env 上传 → pm2 重启 + save，一条龙全通。
+- **gitlink 收编**：approval-bot → `6b93efe`（v75——backfill 全链修复打通：枚举三硬伤/精确匹配/附件免登直链/回溯落表即时触发金额线）；ticket-pm/project-management-robot → `2e5b4d7`（v133——关键词回答表新增「嘉豪→蔡明铮」规则 1 条 + 补推 10-15 detached HEAD 遗漏的 v132；其 GitHub 远端此前静默停在一版之前，已快进补齐）。
+- **排障备忘（防误判）**：①运维台动作日志末尾 `[结束] code=1` 为收尾 SSH 连接被目标机 sshd 频率保护掐断（ECONNRESET），实质步骤（提交/同步/.env/重启）均已完成，以人工 SSH 复核 pm2 与 /api/health 为准——v155/v156 已两次定性；②部署目标端 GitHub 拉取失败改走 SFTP 兜底为常态（小电脑够不着 GitHub），非本地推送失败。
+- **文档同步**：qianli-deploy skill「已知坑速查」补一行——push 收尾 ECONNRESET/code=1 误报，人工复核为准（同备忘①，防第四次误判）。
+- **不卷入**：duty-bot 工作区 zklink「两两配对」口径改动（10-15 曼波改定、未提交的并行产物）与其落后 origin 1 提交的状态保持原状，归其自有批次。
+- 哈希回填：v156=`0ae4a37`。
