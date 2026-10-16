@@ -21,6 +21,18 @@ const GCODE_STATE_MAP = {
   IDLE: '空闲',
 };
 
+// 喷嘴温度解码（2026-10-16 热修·打印中打包值实锤）：H2 新固件**打印中**把
+// device.extruder.info[].temp 改为 (target<<16)|current 打包值（实测：raw 14418139→14418140，
+// 低 16 位=实时当前 219→220 随温度递增、高 16 位=打印目标 220 恒定；空闲态该字段为普通数值）。
+// 大于 1000 的读数按打包解码，普通值原样返回——兼容两种固件形态
+function decodeNozzleTemp(raw) {
+  if (raw === null || raw === undefined || raw === '') return { current: null, target: null };
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return { current: null, target: null };
+  if (n > 1000) return { current: n & 0xFFFF, target: n >>> 16 };
+  return { current: n, target: null };
+}
+
 // 板型：切片产物 curr_bed_type（显示名）→ 开打帧 bed_type token（2026-10-16 曼波真单批）。
 // 必须与切片一致：错配触发 H2 板检测警告/暂停（[0500-8051]，textured_plate 硬编码教训）；
 // token 从 OrcaSlicer.dll 实锤：cool_plate / hot_plate / textured_plate / supertack_plate；
@@ -293,11 +305,12 @@ class PrinterClient {
         return exs.map((e) => {
           const spec = specs.find((n) => Number(n.id) === Number(e.id)) || {};
           const isActive = Number(e.id) === activeId;
+          const dec = decodeNozzleTemp(e.temp);
           return {
             id: Number(e.id),
-            temp: Number.isFinite(Number(e.temp)) ? Number(e.temp) : null,
-            // 目标温度仅活动喷头有独立上报（顶层单值）；副喷头暂缺数据源
-            target: isActive ? (temps.nozzleTarget ?? null) : null,
+            temp: dec.current,
+            // 目标温度：活动喷头取顶层独立上报（权威单值）；副喷头用打包值内的目标（打印中才有）
+            target: isActive ? (temps.nozzleTarget ?? dec.target) : dec.target,
             diameter: Number(spec.diameter) || null,
             type: spec.type || null,
             active: isActive,
@@ -1035,3 +1048,4 @@ class PrinterClient {
 
 module.exports = PrinterClient;
 module.exports.GCODE_STATE_MAP = GCODE_STATE_MAP;
+module.exports.decodeNozzleTemp = decodeNozzleTemp;

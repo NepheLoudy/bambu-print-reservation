@@ -110,6 +110,15 @@ checkAsync('校准/回原点/退料未连接报错', async () => {
   await assert.rejects(() => client.cleanPrintError(), /未连接/);
 });
 
+check('decodeNozzleTemp:打印中打包值与空闲普通值（2026-10-16 实测编码）', () => {
+  const { decodeNozzleTemp } = require('../src/printer/client');
+  assert.deepEqual(decodeNozzleTemp(14418139), { current: 219, target: 220 }, '打包值：低16=当前219、高16=目标220');
+  assert.deepEqual(decodeNozzleTemp(2752554), { current: 42, target: 42 }, '打包值：42/42');
+  assert.deepEqual(decodeNozzleTemp(14418140), { current: 220, target: 220 }, '实测第二采样点');
+  assert.deepEqual(decodeNozzleTemp(33), { current: 33, target: null }, '空闲普通值原样');
+  assert.deepEqual(decodeNozzleTemp(null), { current: null, target: null });
+});
+
 checkAsync('灯控 lamp 参数归一（腔灯缺省/工作灯）', async () => {
   // 未连接会在连接检查处抛错，但 lamp 归一发生在组帧前——仅验证不抛参数错
   await assert.rejects(() => client.lightControl(true), /未连接/);
