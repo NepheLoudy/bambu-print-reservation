@@ -196,7 +196,13 @@ function buildApprovedQueuedCard(reservation, comment, queueInfo = {}) {
   const material = [reservation.materialType, reservation.color].filter(Boolean).join(' × ') || '未指定（任意可用打印机）';
   const dispatch = reservation.review && reservation.review.dispatch;
   const prefLine = dispatch
-    ? [dispatch.assignedPrinter, dispatch.tray && dispatch.tray.slot, dispatch.nozzleLabel].filter(Boolean).join(' · ')
+    ? [
+        dispatch.assignedPrinter,
+        Array.isArray(dispatch.trays)
+          ? `用料 ${dispatch.trays.map((t, i) => `${i + 1}→${t ? t.slot : '自动'}`).join(' ')}`
+          : dispatch.tray && dispatch.tray.slot,
+        dispatch.nozzleLabel,
+      ].filter(Boolean).join(' · ')
     : null;
   return {
     config: { wide_screen_mode: true, enable_forward: true },

@@ -276,6 +276,54 @@ check('buildAmsMapping:指定槽/自动匹配/无清单三径,外挂虚拟料位
   // ③ 无清单：维持旧默认
   const none = buildAmsMapping({}, printer, null);
   assert.deepEqual(none.amsMapping2, [{ ams_id: 0, slot_id: 0 }]);
+  // ④ 多耗材逐条指定（2026-10-16 多耗材批）：第 1 条指定外挂料盘、第 2 条留自动 → PLA 红匹配到 AMS2
+  const multi = buildAmsMapping(
+    { prefTrays: [{ amsId: 254, trayId: 0, slot: '外挂料盘·左' }, null] },
+    printer,
+    { filaments: [{ type: 'PETG', colorHex: 'C1C1C1' }, { type: 'PLA', colorHex: 'F0F0F0' }] },
+  );
+  assert.deepEqual(multi.amsMapping2, [{ ams_id: 254, slot_id: 0 }, { ams_id: 0, slot_id: 2 }], '逐条：指定为主/留空自动');
+  assert.deepEqual(multi.amsMapping, [254, 2]);
+  // ⑤ 全空 prefTrays（UI 全留自动时不下发，服务端兜底）：退回按文件用料逐条自动
+  const allAuto = buildAmsMapping({ prefTrays: [null, null] }, printer, { filaments: [{ type: 'PETG', colorHex: 'C1C1C1' }, { type: 'PLA', colorHex: 'F0F0F0' }] });
+  assert.deepEqual(allAuto.amsMapping2, [{ ams_id: 0, slot_id: 0 }, { ams_id: 0, slot_id: 2 }]);
+});
+
+check('approveReservation:多耗材逐条槽位名服务端解析(留空=自动),坏槽位当场打回', async () => {
+  const config = require('../src/config');
+  const manager = require('../src/printer/manager');
+  const dispatcher = require('../src/services/dispatcher');
+  const testPrinter = { name: '联调测试机', id: 'test-printer-multi', model: 'H2D' };
+  config.printers.push(testPrinter);
+  const origStates = manager.getApiStates;
+  const origBrand = manager.brandOf;
+  manager.getApiStates = () => [{ id: testPrinter.id, ams: [
+    { slot: 'AMS 0', type: 'PETG', colorHex: 'C1C1C1', amsId: 0, trayId: 0 },
+    { slot: '外挂料盘·左', type: 'PLA', colorHex: '161616', amsId: 254, trayId: 0, external: true },
+  ] }];
+  manager.brandOf = () => 'bambu';
+  try {
+    const r = submitFile('multi-color.3mf', { embeddedParams: { filaments: [{ type: 'PETG' }, { type: 'PLA' }] } });
+    await reservationService.approveReservation(r.id, '测试审批人', '', {
+      assignedPrinter: '联调测试机',
+      trays: [null, { slot: '外挂料盘·左' }],
+    });
+    const rec = store.get(r.id);
+    assert.equal(rec.review.dispatch.trays[0], null, '留空条目=该条自动');
+    assert.deepEqual(rec.review.dispatch.trays[1], { amsId: 254, trayId: 0, slot: '外挂料盘·左' }, '槽位名解析为实时料位 id');
+    assert.ok(/用料 1→自动 2→外挂料盘·左/.test(rec.history.map((s) => s.note).join('|')), '状态注记带逐条用料摘要');
+    // 坏槽位名：审批硬校验当场打回（不落「已通过」）
+    const r2 = submitFile('multi-color2.3mf');
+    await assert.rejects(() => reservationService.approveReservation(r2.id, 'A', '', {
+      assignedPrinter: '联调测试机', trays: [{ slot: '不存在的槽' }],
+    }), /不存在或未实装/);
+    assert.equal(store.get(r2.id).status, '待审批', '打回后仍待审批');
+  } finally {
+    manager.getApiStates = origStates;
+    manager.brandOf = origBrand;
+    const i = config.printers.indexOf(testPrinter);
+    if (i >= 0) config.printers.splice(i, 1);
+  }
 });
 
 check('staleThresholdMs:有预估按×2且≥1h,无预估退回固定12h', () => {

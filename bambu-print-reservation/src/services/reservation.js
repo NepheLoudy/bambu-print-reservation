@@ -86,7 +86,9 @@ class ReservationService {
   /**
    * 审批通过：状态流转 + 群播结果卡 + 入队（本地任务，fileSource=local）。
    * dispatch（2026-10-16 曼波令「审批人应能选槽位/喷嘴」）：
-   *   { assignedPrinter?: name, tray?: {amsId, trayId}, nozzleId?: number }——都可空（空=自动匹配，保持原能力）。
+   *   { assignedPrinter?: name, tray?: {slot}, trays?: [{slot}|null,...], nozzleId?: number }——都可空（空=自动匹配，保持原能力）。
+   *   trays 为多耗材逐条指定（2026-10-16 曼波令「文件里有几个耗材就有几个栏位」）：与文件用料
+   *   逐条对齐，null=该条自动匹配；tray 为单槽旧路径（首条映射，多色其余自动）。
    *   指定值**审批时硬校验**（打印机在册/槽位实装/喷头存在），fail 即 400 不落审批。
    * sampleEntry（2026-10-16 曼波令「审批做两件事」之①决定要不要进样本库）：
    *   勾选即异步建训练样本（未打印态）——打印完成/失败后由分发引擎按源单回填真实结果。
@@ -118,21 +120,29 @@ class ReservationService {
         throw new Error(`「${pr.name}」是${prBrand === 'flashforge' ? '闪铸' : '拓竹'}机型，打不了${fileBrand === 'flashforge' ? '闪铸 gcode 系' : '拓竹 3mf'}格式的文件——两品牌切片格式互不兼容。请改选对应品牌机型、留空自动匹配，或用目标机型的切片软件重新导出`);
       }
       pref.assignedPrinter = dispatch.assignedPrinter;
-      if (dispatch.tray && String(dispatch.tray.slot || '').trim()) {
-        const apiState = printerManager.getApiStates().find((p) => p.id === pr.id);
-        const trays = (apiState && apiState.ams) || [];
-        const wantSel = String(dispatch.tray.slot).trim();
+      const apiState = printerManager.getApiStates().find((p) => p.id === pr.id);
+      const trays = (apiState && apiState.ams) || [];
+      // 槽位名 → 实时料位 id 解析（2026-10-16）：前端只传槽位名，amsId/trayId 以服务端
+      // 料位清单为准（外挂料盘 ams_id=254/255、AMS 槽 ams_id=单元号/槽位），防两侧口径漂移
+      const resolveTray = (slotRaw, labelPrefix) => {
+        const wantSel = String(slotRaw || '').trim();
+        if (!wantSel) return null;
         const hit = trays.find((t) => t.slot === wantSel) || null;
         if (!hit) {
-          throw new Error(`槽位「${wantSel}」在 ${pr.name} 上不存在或未实装（可选：${trays.map((t) => t.slot).join('、') || '无料站信息'}）`);
+          throw new Error(`${labelPrefix || ''}槽位「${wantSel}」在 ${pr.name} 上不存在或未实装（可选：${trays.map((t) => t.slot).join('、') || '无料站信息'}）`);
         }
-        // 槽位 id 以服务端料位清单为准（2026-10-16）：外挂料盘 ams_id=254/255、槽 0；
-        // AMS 槽 ams_id=单元号/槽位——前端只传槽位名，防两侧口径漂移
-        pref.tray = {
+        return {
           amsId: Number.isInteger(hit.amsId) ? hit.amsId : 0,
           trayId: Number.isInteger(hit.trayId) ? hit.trayId : 0,
           slot: hit.slot,
         };
+      };
+      // 多耗材（2026-10-16 曼波令「文件里有几个耗材审批界面就有几个栏位」）：trays 与文件用料
+      // 逐条对齐——该条留空的（null）分发时按该条用料类型/颜色自动匹配，逐条可混用
+      if (Array.isArray(dispatch.trays) && dispatch.trays.some((t) => t && String(t.slot || '').trim())) {
+        pref.trays = dispatch.trays.map((t, i) => resolveTray(t && t.slot, `用料 ${i + 1} 的`));
+      } else if (dispatch.tray && String(dispatch.tray.slot || '').trim()) {
+        pref.tray = resolveTray(dispatch.tray.slot, '');
       }
       if (dispatch.nozzleId !== undefined && dispatch.nozzleId !== null && dispatch.nozzleId !== '') {
         const apiState = printerManager.getApiStates().find((p) => p.id === pr.id);
@@ -148,8 +158,12 @@ class ReservationService {
           : `喷头${nid + 1}`;
       }
     }
-    const prefNote = pref.tray || pref.nozzleId || pref.assignedPrinter
-      ? `｜分发指定：${pref.assignedPrinter || '自动机'}${pref.tray ? `·${pref.tray.slot}` : ''}${pref.nozzleId != null ? '·' + (pref.nozzleLabel || `喷头${pref.nozzleId + 1}`) : ''}`
+    // 用料指定摘要：多耗材逐条「序号→槽位/自动」（2026-10-16）；单槽沿旧格式
+    const trayNote = Array.isArray(pref.trays)
+      ? `·用料 ${pref.trays.map((t, i) => `${i + 1}→${t ? t.slot : '自动'}`).join(' ')}`
+      : pref.tray ? `·${pref.tray.slot}` : '';
+    const prefNote = pref.trays || pref.tray || pref.nozzleId || pref.assignedPrinter
+      ? `｜分发指定：${pref.assignedPrinter || '自动机'}${trayNote}${pref.nozzleId != null ? '·' + (pref.nozzleLabel || `喷头${pref.nozzleId + 1}`) : ''}`
       : '';
     const sampleNote = sampleEntry ? '｜📚 已勾选入库训练样本' : '';
 
@@ -158,7 +172,7 @@ class ReservationService {
       reviewer: reviewer || '',
       comment: comment || '',
       result: config.reviewResult.APPROVED,
-      dispatch: (pref.assignedPrinter || pref.tray || pref.nozzleId != null) ? pref : null, // 审批分发指定（审计+复刻参考）
+      dispatch: (pref.assignedPrinter || pref.tray || pref.trays || pref.nozzleId != null) ? pref : null, // 审批分发指定（审计+复刻参考）
     });
 
     // 入队关键路径内不得有 await（v56 竞态修复）：JS 单线程，无 await 即无取消插窗。
@@ -169,6 +183,7 @@ class ReservationService {
     const task = dispatcher.buildLocalTask(fresh);
     if (pref.assignedPrinter) task.assignedPrinter = pref.assignedPrinter;
     if (pref.tray) task.prefTray = pref.tray;
+    if (pref.trays) task.prefTrays = pref.trays; // 多耗材逐条指定（null=该条自动，2026-10-16）
     if (pref.nozzleId != null) task.prefNozzleId = pref.nozzleId;
     const enqueued = dispatcher.enqueue(task, { silent: true }); // 排队卡并入审批合并卡（2026-10-16 曼波令）
     if (!enqueued) {

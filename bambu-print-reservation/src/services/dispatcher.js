@@ -137,7 +137,9 @@ function autoMapEntry(f, trays) {
 
 /**
  * 开打用料映射（2026-10-16 曼波真单批）：把切片文件的用料清单映射到打印机实际料位——
- *   ① 审批指定槽位：首条用料映射到该槽（指定即权威；多色件其余用料自动补齐）；
+ *   ⓪ 审批逐条指定（prefTrays，2026-10-16 多耗材批）：与文件用料**逐条对齐**——该条有指定
+ *      用指定槽位（指定即权威），null/空条目按该条用料自动匹配（逐条可留自动）；
+ *   ① 审批单槽指定（prefTray，旧路径）：首条用料映射到该槽（多色件其余自动补齐）；
  *   ② 未指定：逐条按 autoMapEntry 匹配（AMS + 外挂料盘，避开 materialExclude 排除项）；
  *   ③ 无清单（旧文件/解析失败）：维持旧默认 [{ams_id:0, slot_id:0}]。
  * 返回 { amsMapping2, amsMapping }——ams_mapping2 用 {ams_id, slot_id}（外挂料盘
@@ -149,8 +151,22 @@ function buildAmsMapping(task, printer, fileMeta) {
     : null;
   const trays = (printer.ams || []).filter((t) => t.type && trayAllowed(t, task.materialExclude));
   const entries = [];
-  const pref = task.prefTray;
-  if (pref && Number.isInteger(pref.amsId) && Number.isInteger(pref.trayId)) {
+  const prefTrays = Array.isArray(task.prefTrays) ? task.prefTrays : null;
+  if (prefTrays && prefTrays.some((t) => t && Number.isInteger(t.amsId) && Number.isInteger(t.trayId))) {
+    // 逐条对齐：条目数取 max(指定数组, 文件用料)，缺料条目按文件用料自动匹配
+    const n = Math.max(prefTrays.length, filaments ? filaments.length : 0);
+    for (let i = 0; i < n; i++) {
+      const pt = prefTrays[i];
+      if (pt && Number.isInteger(pt.amsId) && Number.isInteger(pt.trayId)) {
+        entries.push({ ams_id: pt.amsId, slot_id: pt.trayId });
+      } else if (filaments && filaments[i]) {
+        entries.push(autoMapEntry(filaments[i], trays));
+      } else if (i === 0) {
+        entries.push({ ams_id: 0, slot_id: 0 });
+      }
+    }
+  } else if (task.prefTray && Number.isInteger(task.prefTray.amsId) && Number.isInteger(task.prefTray.trayId)) {
+    const pref = task.prefTray;
     entries.push({ ams_id: pref.amsId, slot_id: pref.trayId });
     if (filaments && filaments.length > 1) {
       for (let i = 1; i < filaments.length; i++) {
@@ -655,11 +671,15 @@ class Dispatcher {
         return null;
       }
       // 审批分发指定（2026-10-16）：审批人指定的槽位在分发时刻仍须实装——
-      // 换料/抽走导致槽位不可用时滞留等人工（不静默换槽，尊重审批指定）
-      if (task.prefTray && task.prefTray.slot) {
-        const stillThere = (named.ams || []).some((t) => t.slot === task.prefTray.slot && t.type);
+      // 换料/抽走导致槽位不可用时滞留等人工（不静默换槽，尊重审批指定）。
+      // 多耗材批：prefTrays 逐条检查非空条目（留自动的条目无需检查）
+      const prefSlots = Array.isArray(task.prefTrays) && task.prefTrays.some(Boolean)
+        ? task.prefTrays.filter(Boolean)
+        : (task.prefTray && task.prefTray.slot ? [task.prefTray] : []);
+      for (const pt of prefSlots) {
+        const stillThere = (named.ams || []).some((t) => t.slot === pt.slot && t.type);
         if (!stillThere) {
-          console.warn(`[分发] ${task.applicationNo} 审批指定槽位「${task.prefTray.slot}」在 ${named.name} 已不可用——滞留等待人工处理`);
+          console.warn(`[分发] ${task.applicationNo} 审批指定槽位「${pt.slot}」在 ${named.name} 已不可用——滞留等待人工处理`);
           return null;
         }
       }
@@ -848,7 +868,7 @@ class Dispatcher {
         uploadName,
         task.fileName || task.applicationNo || uploadName,
         config.dispatch.useAms,
-        task.prefTray || null, // 审批分发指定（2026-10-16）：指定槽位随帧下发
+        task.prefTray || (Array.isArray(task.prefTrays) ? task.prefTrays.find(Boolean) : null) || null, // 审批分发指定（2026-10-16）：指定槽位随帧下发（多耗材取首条非空；实际映射以 amsMapping2 为准）
         {
           bedTypeName: (fileMeta && fileMeta.bedType) || null, // 板型随切片产物（防板检测错配暂停）
           amsMapping2: amsFrame.amsMapping2,

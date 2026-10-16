@@ -499,7 +499,9 @@ async function analyzeSlice() {
     if (!res.ok) { panel.innerHTML = '🧈 提取失败：' + esc(data.error || '失败') + '（可去掉切片文件继续录入纯工况样本）'; scheduleFit(); return; }
     SLICE_EXTRACTION = data;
     const diffEntries = Object.entries(data.diff || {});
+    const filList = Array.isArray(data.filaments) ? data.filaments : [];
     panel.innerHTML = `<b>🧈 切片产物参数</b>（来源 ${esc(data.source)}${data.estMinutes ? '｜预计 ' + data.estMinutes + ' 分钟' : ''}）
+      ${filList.length ? `<div class="detail">🧵 用料 ${filList.length} 种：${filList.map((f) => esc(f.type || '未知') + (f.colorHex ? ' #' + esc(String(f.colorHex).replace(/^#/, '')) : '')).join('、')}${filList.length > 1 ? '（预约审批将按此逐条给出槽位栏位）' : ''}</div>` : ''}
       <div class="mfNotes">${diffEntries.length
         ? diffEntries.map(([k, v]) => `• ${esc(k)} = ${esc(Array.isArray(v) ? v.join('|') : v)}`).join('<br>')
         : '• 与基线一致，无差异参数'}</div>`;
