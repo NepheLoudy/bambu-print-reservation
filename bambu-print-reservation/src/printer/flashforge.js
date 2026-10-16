@@ -15,8 +15,10 @@
 // 状态值全集（/detail.status）：ready / busy / heating / printing / pausing / pause /
 // canceling / cancel / completed / calibrate_doing / downloading / cloud_slicing /
 // sending / unzipping / error。
-// 注意：Creator 5 Pro（四喷头）协议未在社区文档覆盖，按 5M 兼容实现——真机联调时
-// 以 GET /api/printers/:id/debug 的 rawState 核对报文形状再修解析，勿盲改。
+// 注意：Creator 5 Pro（四喷头）已于 2026-10-17 真机校准（SNMUPF9801164@192.168.2.226，
+// 固件 1.9.9）——四喷头走 nozzleTemps/nozzleTargetTemps 数组（活动喷头=目标最高者）、
+// 料站走 matlStationInfo.slotInfos（四槽）、层数走 printLayer/targetPrintLayer；
+// 报文与 5M 系同构，字段差异均已按上口径归一并于 status.html 验证渲染。
 // ============================================================
 
 const fs = require('fs');
@@ -152,6 +154,26 @@ class FlashforgeClient {
   getPrintStatus() {
     if (!this.state) return null;
     const gcodeState = this.normalizedGcodeState();
+    // 喷嘴取值（2026-10-17 C5P 真机校准）：四喷头机型有 nozzleTemps/nozzleTargetTemps
+    // 等长数组，活动喷头 = 目标温度最高者（打印中即热头），全 0 时退当前温度最高者；
+    // 无数组机型回 rightTemp 旧口径（A5P 保持）
+    const pick = (() => {
+      const cur = Array.isArray(this.state.nozzleTemps) ? this.state.nozzleTemps.map(Number) : [];
+      const tgt = Array.isArray(this.state.nozzleTargetTemps) ? this.state.nozzleTargetTemps.map(Number) : [];
+      if (cur.length) {
+        let idx = 0;
+        if (tgt.some((t) => t > 0)) idx = tgt.indexOf(Math.max(...tgt));
+        else idx = cur.indexOf(Math.max(...cur));
+        return {
+          temp: Number.isFinite(cur[idx]) ? cur[idx] : null,
+          target: Number.isFinite(tgt[idx]) ? tgt[idx] : null,
+        };
+      }
+      return {
+        temp: this.state.rightTemp != null ? Number(this.state.rightTemp) : null,
+        target: this.state.rightTargetTemp != null ? Number(this.state.rightTargetTemp) : null,
+      };
+    })();
     return {
       gcodeState,
       status: GCODE_STATE_TEXT[gcodeState] || '空闲',
@@ -161,22 +183,37 @@ class FlashforgeClient {
       remainingMinutes: Math.round((Number(this.state.estimatedTime) || 0) / 60),
       currentFile: this.state.printFileName || '',
       subtaskName: this.state.printFileName || '', // 回执丢失自愈对账用（与拓竹 subtask_name 同口径）
-      nozzleTemp: this.state.rightTemp != null ? Math.round(Number(this.state.rightTemp)) : null, // 取整显示（真机回浮点 29.7000...）
+      nozzleTemp: pick.temp != null ? Math.round(pick.temp) : null, // 取整显示（真机回浮点 29.7000...）
       bedTemp: this.state.platTemp != null ? Math.round(Number(this.state.platTemp)) : null,
-      chamberTemp: null,
-      nozzleTargetTemp: this.state.rightTargetTemp != null ? Math.round(Number(this.state.rightTargetTemp)) : null,
+      chamberTemp: Number(this.state.chamberTemp) || null, // C5P 上报腔温（A5P 恒 0 → null 保持旧行为）
+      nozzleTargetTemp: pick.target != null ? Math.round(pick.target) : null,
       bedTargetTemp: this.state.platTargetTemp != null ? Math.round(Number(this.state.platTargetTemp)) : null,
+      // 层进度/速度倍率/存储在线（2026-10-17 C5P 校准时按 detail 同名字段补齐，A5P 同字段受益）
+      layerNum: Number(this.state.printLayer) || 0,
+      totalLayers: Number(this.state.targetPrintLayer) || 0,
+      spdMag: this.state.printSpeedAdjust != null ? Number(this.state.printSpeedAdjust) || null : null,
+      sdcard: this.state.remainingDiskSpace != null ? Number(this.state.remainingDiskSpace) > 0 : undefined,
       stateStale: this.isStateStale(),
     };
   }
 
   /**
-   * 闪铸没有 AMS 料站——归一为「进料口」条目保持前端统一渲染。
-   * 5M 系双进料口（left/right 各有温度与余量估计；单口机型只有 right 字段，
-   * 槽位名落「进料口」）；C5 Pro 四喷头待真机校准（协议未覆盖，报文进来再修解析）
+   * 料站信息（前端与拓竹 AMS 盘同渲染）：
+   *   C5P 四槽料站（2026-10-17 真机校准）= matlStationInfo.slotInfos → 槽1..槽4 彩色槽位，
+   *   活动槽 = currentSlot；5M 系（A5P）= 左/右进料口（单口机型只有 right 字段，槽名落「进料口」）
    */
   getAmsTrays() {
     if (!this.state) return [];
+    const ms = this.state.matlStationInfo;
+    if (ms && Array.isArray(ms.slotInfos) && ms.slotInfos.length) {
+      return ms.slotInfos.map((s) => ({
+        slot: `槽${s.slotId}`,
+        type: s.hasFilament ? (s.materialName || '未知') : '',
+        colorHex: String(s.materialColor || '').replace(/^#/, ''),
+        active: Number(ms.currentSlot) === Number(s.slotId),
+        external: false,
+      }));
+    }
     const trays = [];
     const push = (slot, weight) => trays.push({
       slot,
@@ -192,11 +229,22 @@ class FlashforgeClient {
     return trays;
   }
 
-  /** 设备信息（与 PrinterClient.getDeviceInfo 同形状；闪铸 detail 无这些字段——占位 null）
+  /** 设备信息（与 PrinterClient.getDeviceInfo 同形状）
    *  2026-10-16 真机接入修复：manager 的 handleStateChange 会直调本方法，缺失会让
-   *  每次状态事件抛 TypeError 被监听层吞掉——整台机器状态永远流不进管理面 */
+   *  每次状态事件抛 TypeError 被监听层吞掉——整台机器状态永远流不进管理面
+   *  2026-10-17 C5P 校准：固件号/喷嘴口径从 detail 直取（A5P 同字段受益；无字段机型保持 null） */
   getDeviceInfo() {
-    return { nozzleDiameter: null, nozzleType: null, wifiDbm: null, fwVersion: null, amsHumidity: null };
+    const s = this.state || {};
+    const nozzle = typeof s.nozzleModel === 'string' && s.nozzleModel
+      ? s.nozzleModel.split(';')[0].replace(/mm$/i, '')
+      : null;
+    return {
+      nozzleDiameter: nozzle || null,
+      nozzleType: null,
+      wifiDbm: null,
+      fwVersion: s.firmwareVersion || null,
+      amsHumidity: null,
+    };
   }
 
   getCameraUrl() {

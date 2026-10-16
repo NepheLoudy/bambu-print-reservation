@@ -20,16 +20,18 @@ function isAutoDispatchable(printer) {
 }
 
 /**
- * 摄像头通道类型（观察台画面区按此选渲染器，2026-10-14）：
- *   p1stream = 拓竹 P1/A1 系 TCP6000 H.264（服务端 WS 中继 + 前端 WebCodecs 解码）
- *   mjpeg    = 闪铸 8080 MJPEG（服务端 HTTP 代理，<img> 直显；无摄像头机型代理 502）
- *   rtsp     = 拓竹 X1/H2D 系 RTSP:554（暂不代理，前端标注「画面通道待接」）
+ * 摄像头通道类型（观察台画面区按此选渲染器）：
+ *   mjpeg    = JPEG 帧流经服务端代理（<img> 直显）：闪铸 8080 HTTP MJPEG；
+ *              拓竹 P1/A1 为 6000 TLS+认证包 JPEG 帧流（2026-10-17 A1 mini 实证修正，
+ *              原「P1/A1 裸 H.264 走 p1stream」是未验证假设）
+ *   rtsp     = 拓竹 X1/H2D 系 RTSPS:322（服务端 WS 中继 + 前端 WebCodecs 解码）
+ *   p1stream = 历史通道（P1/A1 已改走 mjpeg），保留代码不再映射机型
  *   null     = 未知机型
  */
 function cameraKind(printer) {
   const m = String(printer.model || '').toUpperCase();
   if (brandOf(m) === 'flashforge') return 'mjpeg';
-  if (m.includes('P1') || m.includes('A1')) return 'p1stream';
+  if (m.includes('P1') || m.includes('A1')) return 'mjpeg';
   if (m.includes('X1') || m.includes('H2D')) return 'rtsp';
   return null;
 }

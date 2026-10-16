@@ -57,8 +57,9 @@ check('未知/空状态保守拒绝', () => {
 check('机型画面通道分型', () => {
   assert.strictEqual(manager.cameraKind({ model: 'H2D' }), 'rtsp');
   assert.strictEqual(manager.cameraKind({ model: 'X1C' }), 'rtsp');
-  assert.strictEqual(manager.cameraKind({ model: 'P1S' }), 'p1stream');
-  assert.strictEqual(manager.cameraKind({ model: 'A1 mini' }), 'p1stream');
+  // 2026-10-17 A1 mini 实机实证：P1/A1 → mjpeg（6000 TLS+认证包 JPEG 帧流）
+  assert.strictEqual(manager.cameraKind({ model: 'P1S' }), 'mjpeg');
+  assert.strictEqual(manager.cameraKind({ model: 'A1 mini' }), 'mjpeg');
   assert.strictEqual(manager.cameraKind({ model: 'AD5M' }), 'mjpeg');
   assert.strictEqual(manager.cameraKind({ model: '奇形怪状' }), null);
 });

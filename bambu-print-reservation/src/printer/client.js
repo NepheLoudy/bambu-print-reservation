@@ -3,6 +3,7 @@ const { Client: SSHClient } = require('ssh2');
 const ftp = require('ftp');
 const { Client: FTPSClient } = require('basic-ftp');
 const net = require('net');
+const tls = require('tls');
 const { Readable } = require('stream');
 const RtpsSession = require('./rtsps');
 
@@ -838,18 +839,66 @@ class PrinterClient {
   }
 
   /**
-   * 本地摄像头流，按机型分通道（观察台 WS 中继消费——每个观看客户端独立一路，
-   * 断开即销毁，不在 client 内长驻）：
-   *   P1/A1 系 = TCP 6000 裸 H.264 Annex-B（LAN/云模式端口均开，无握手）
+   * 本地摄像头流（WS 中继消费——每个观看客户端独立一路，断开即销毁，不在 client 内长驻）：
    *   X1/H2D 系 = RTSPS :322（RTSP over TLS，digest 认证，RTP interleaved，
    *               rtsps.js 还原成同款 Annex-B 字节流）
+   *   P1/A1 系 = 见 openCameraJpegStream（2026-10-17 实证：非本通道）
    */
   openCameraStream() {
     const model = String(this.config.model || '').toUpperCase();
     if (model.includes('X1') || model.includes('H2D')) {
       return new RtpsSession({ host: this.config.host, password: this.config.accessCode }).connect();
     }
+    // 历史兜底：曾按「P1/A1 = TCP6000 裸 H.264」实现，2026-10-17 A1 mini 实机证伪
+    // （裸连零字节——实为 TLS+认证包的 JPEG 帧流，见 openCameraJpegStream）。
+    // P1/A1 已改走 MJPEG 通道，本分支不应再被触达
     return net.connect({ host: this.config.host, port: 6000, timeout: 8000 });
+  }
+
+  /**
+   * 拓竹 P1/A1 摄像头帧流（2026-10-17 A1 mini 真机实证；协议档案 OpenBambuAPI video.md）：
+   * TCP 6000 先 TLS（自签证书不校验），secureConnect 后即发 80 字节认证包——
+   *   16B 头（payloadSize=0x40 LE / type=0x3000 LE / 0 / 0）+ 32B "bblp" + 32B accessCode
+   *   （均 ASCII 右补 0x00）；此后为 JPEG 帧流：每帧 16B 头（payloadSize LE / itrack 0 /
+   *   flags 1 / 0）+ payloadSize 字节 JPEG（FFD8…FFD9，实拍校验）。
+   * A1 mini 实测出帧节拍约 0.45fps（每帧 ~180KB 720p）——是机器实际速率，非限流。
+   * @param {(jpeg: Buffer) => void} onFrame 完整 JPEG 帧
+   * @param {(err: Error) => void} onError 一次即终结（后续不再回调）
+   * @returns {{ close(): void }} 观看结束调 close 释放上游连接
+   */
+  openCameraJpegStream(onFrame, onError) {
+    let closed = false;
+    let buf = Buffer.alloc(0);
+    const sock = tls.connect({ host: this.config.host, port: 6000, rejectUnauthorized: false, timeout: 8000 });
+    const fail = (err) => {
+      if (closed) return;
+      closed = true;
+      try { sock.destroy(); } catch { /* 已关 */ }
+      if (onError) onError(err);
+    };
+    sock.on('secureConnect', () => {
+      const pkt = Buffer.alloc(80);
+      pkt.writeUInt32LE(0x40, 0);
+      pkt.writeUInt32LE(0x3000, 4);
+      pkt.write('bblp', 16, 'ascii');
+      pkt.write(String(this.config.accessCode || ''), 48, 'ascii');
+      sock.write(pkt);
+    });
+    sock.on('data', (d) => {
+      buf = Buffer.concat([buf, d]);
+      while (buf.length >= 16) {
+        const size = buf.readUInt32LE(0);
+        if (size <= 0 || size > 4 * 1024 * 1024) return fail(new Error(`帧头异常（size=${size}）`));
+        if (buf.length < 16 + size) break;
+        const jpeg = buf.subarray(16, 16 + size);
+        buf = buf.subarray(16 + size);
+        if (!closed) onFrame(jpeg);
+      }
+    });
+    sock.on('timeout', () => fail(new Error('拉流超时（8s 无数据）')));
+    sock.on('error', (err) => fail(err));
+    sock.on('close', () => fail(new Error('连接被打印机关闭')));
+    return { close() { closed = true; try { sock.destroy(); } catch { /* 已关 */ } } };
   }
 
   // ============ 文件传输（SFTP 优先，FTPS/FTP 兜底） ============

@@ -53,9 +53,11 @@ const DETAIL = { code: 0, detail: DETAIL_INNER };
     assert.strictEqual(printerManager.brandOf('X1 Carbon'), 'bambu');
     assert.strictEqual(printerManager.brandOf('H2D'), 'bambu');
     assert.strictEqual(printerManager.cameraKind({ model: 'AD5M Pro' }), 'mjpeg');
-    assert.strictEqual(printerManager.cameraKind({ model: 'P1S' }), 'p1stream');
+    // 2026-10-17 A1 mini 实机实证：P1/A1=6000 TLS+认证包 JPEG 帧流 → mjpeg 代理
+    // （原「p1stream 裸 H.264」假设作废）
+    assert.strictEqual(printerManager.cameraKind({ model: 'P1S' }), 'mjpeg');
     assert.strictEqual(printerManager.cameraKind({ model: 'X1C' }), 'rtsp');
-    assert.strictEqual(printerManager.cameraKind({ model: 'A1 mini' }), 'p1stream');
+    assert.strictEqual(printerManager.cameraKind({ model: 'A1 mini' }), 'mjpeg');
     assert.strictEqual(dispatcher.brandForFile('a.gcode'), 'flashforge');
     assert.strictEqual(dispatcher.brandForFile('b.GX'), 'flashforge');
     assert.strictEqual(dispatcher.brandForFile('c.g'), 'flashforge');

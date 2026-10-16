@@ -30,8 +30,8 @@
   h1 .en { display: block; font: 600 10px/1.4 var(--mono); letter-spacing: 3px; color: var(--dim); text-transform: uppercase; }
   .sub { color: var(--dim); font-size: 12px; }
   a { color: var(--cyan); text-decoration: none; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(430px, 1fr)); gap: 14px; }
-  .pcard { background: var(--card); border: 1px solid var(--line); border-radius: 4px; padding: 12px 14px; }
+  .grid { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 8px; } /* 机队单行横向滚动（2026-10-17 曼波令：一行左右转，不要多行摊开） */
+  .pcard { flex: 0 0 430px; background: var(--card); border: 1px solid var(--line); border-radius: 4px; padding: 12px 14px; }
   .pcard .top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
   .pcard b { font-size: 15px; }
   .badge { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: 11px; color: #fff; }
@@ -225,13 +225,17 @@ function camSection(p) {
   if (p.camera === 'mjpeg') {
     // 显式连接（2026-10-16 曼波反馈：此前 <img> 挂页即自动拉流、且每 5s 重绘反复重连——
     // 「无操作自己播放」；改为与拓竹侧同款的「连接/断开」按钮，不点不连）
+    // 分品牌文案（2026-10-17）：闪铸=8080 HTTP MJPEG 需显式开流；拓竹 P1/A1=6000
+    // TLS+认证包 JPEG 帧流（~0.5fps 为机器实际节拍）
     const watching = mjpegWatch.has(id);
+    const ff = p.brand === 'flashforge';
+    const srcTag = ff ? '闪铸 MJPEG（8080）' : '拓竹 MJPEG（6000）';
     return `<div class="cam" id="cam${id}">
       ${watching
         ? `<img src="/api/printers/${id}/camera/mjpeg" alt="画面" onerror="mjpegFail(${id})">`
-        : '<div class="ph">📷 闪铸 MJPEG（8080）——点「连接画面」经服务端代理拉流（不点不会自动连接）</div>'}
+        : `<div class="ph">📷 ${srcTag}——点「连接画面」经服务端代理拉流（不点不会自动连接）</div>`}
       <button class="camBtn" onclick="toggleMjpegStream(${id})">${watching ? '⏹ 断开画面' : '▶ 连接画面'}</button>
-      <span class="camTag">MJPEG · 闪铸 8080</span></div>`;
+      <span class="camTag">MJPEG · ${ff ? '闪铸 8080' : '拓竹 6000'}</span></div>`;
   }
   if (p.camera === 'p1stream' || p.camera === 'rtsp') {
     const tag = p.camera === 'rtsp' ? 'RTSPS 322 · X1/H2D' : 'TCP 6000 · P1/A1';
@@ -255,7 +259,10 @@ function toggleMjpegStream(id) {
 }
 function mjpegFail(id) {
   mjpegWatch.delete(id);
-  toast('❌ 闪铸画面拉流失败——服务端已自动尝试开启摄像头流；仍失败请检查打印机屏幕上「LAN Only 模式」与摄像头开关，稍后可重试连接');
+  const machine = (FLEET || []).find((x) => x.id === id) || {};
+  toast(machine.brand === 'flashforge'
+    ? '❌ 闪铸画面拉流失败——服务端已自动尝试开启摄像头流；仍失败请检查打印机屏幕上「LAN Only 模式」与摄像头开关，稍后可重试连接'
+    : '❌ 画面拉流失败——请检查打印机端摄像头功能（P1/A1 为选配摄像头模块），稍后可重试连接');
   loadFleet(true);
 }
 

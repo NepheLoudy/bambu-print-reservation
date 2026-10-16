@@ -1337,6 +1337,35 @@ app.get('/api/printers/:id/camera/mjpeg', requireUser(), async (req, res) => {
     };
     res.on('close', releaseStream);
   }
+  if (p.brand !== 'flashforge') {
+    // 拓竹 P1/A1 摄像头（2026-10-17 A1 mini 实机新增）：6000 TLS+认证包 JPEG 帧流 →
+    // 服务端重封装 multipart MJPEG（前端与闪铸同走 <img> 直显；~0.5fps 为机器实际出帧
+    // 节拍）。每观看客户端独立上游连接，断开即销毁
+    const camClient = printerManager.getClient(pid);
+    if (!camClient || typeof camClient.openCameraJpegStream !== 'function') {
+      return res.status(400).json({ error: `该机型（${p.model}）未实现 6000 帧流通道` });
+    }
+    let started = false;
+    const camStream = camClient.openCameraJpegStream(
+      (jpeg) => {
+        if (res.writableEnded) return;
+        if (!started) {
+          started = true;
+          res.setHeader('Content-Type', 'multipart/x-mixed-replace; boundary=bambuframe');
+          res.setHeader('Cache-Control', 'no-cache');
+        }
+        res.write(`--bambuframe\r\nContent-Type: image/jpeg\r\nContent-Length: ${jpeg.length}\r\n\r\n`);
+        res.write(jpeg);
+        res.write('\r\n');
+      },
+      (err) => {
+        if (!started) res.status(502).json({ error: `画面拉流失败（${p.name}）: ${err.message}` });
+        else res.end();
+      }
+    );
+    req.on('close', () => { try { camStream.close(); } catch { /* 已关 */ } });
+    return;
+  }
   const upstream = http.request(p.cameraUrl, { timeout: 30000 }, (up) => {
     res.setHeader('Content-Type', up.headers['content-type'] || 'multipart/x-mixed-replace; boundary=frame');
     res.setHeader('Cache-Control', 'no-cache');
