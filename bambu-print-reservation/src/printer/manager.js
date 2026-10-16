@@ -167,7 +167,8 @@ class PrinterManager {
       await client.connect();
     } catch (err) {
       console.error(`[打印机管理] 打印机 ${printerId} 连接失败:`, err.message);
-      this.updateState(printerId, { status: '故障' });
+      // 2026-10-17 X1C 掉网实案：连接失败 ≠ 机器故障，不写「故障」——链路状态由
+      // stateStale 承载（观察台渲染灰「离线」+ 快照），机器故障只认 gcodeState=FAILED
     }
   }
 
@@ -250,7 +251,10 @@ class PrinterManager {
 
   handleError(printerId, err) {
     console.error(`[打印机管理] 打印机 ${printerId} 错误:`, err.message);
-    this.updateState(printerId, { status: '故障' });
+    // 2026-10-17 X1C 掉网实案：连接级错误（重连 ETIMEDOUT 等）一律不覆写 status——
+    // 此前误置 status:'故障' 把「离线」渲染成红「故障」（机器其实在照常打印）。
+    // 语义分层：机器故障由 gcodeState=FAILED 驱动；链路状态由 stateStale 承载，
+    // 观察台据 stateStale 渲染灰「离线」+「快照: 上次状态」。
   }
 
   updateState(printerId, patch) {
@@ -300,6 +304,9 @@ class PrinterManager {
       return {
         ...p,
         stateStale: client ? client.isStateStale() : true,
+        // 最后一条 state 报文的毫秒时间戳（0=从未收到）——观察台离线标注展示
+        // 「最后 HH:MM」快照时间用（2026-10-17 X1C 掉网案）
+        lastStateAt: client ? client.lastStateAt || 0 : 0,
         // 摄像头能力（观察台画面区消费）：拓竹 P1/A1 系=TCP6000 H.264（经 WS 中继）；
         // X1/H2D 系=RTSP 暂不代理；闪铸=HTTP MJPEG 代理。机型不带摄像头则 false
         camera: cameraKind(p),

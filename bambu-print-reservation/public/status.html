@@ -37,6 +37,7 @@
   .badge { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: 11px; color: #fff; }
   .brandB { background: #e07b39; } .brandT { background: var(--amber); color: #14100a; }
   .staleTag { background: var(--bad); color: #fff; border-radius: 4px; padding: 0 6px; font-size: 10px; margin-left: 4px; }
+  .snapTag { background: #64748b; color: #fff; border-radius: 4px; padding: 0 6px; font-size: 10px; margin-left: 4px; }
   .detail { color: var(--dim); font-size: 12px; }
   .cam { position: relative; background: var(--inset); border: 1px solid var(--line); border-radius: 4px; margin: 8px 0; height: 240px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
   .cam img, .cam canvas { max-width: 100%; max-height: 100%; display: block; }
@@ -169,10 +170,38 @@ function enter() {
 
 // ---------- 机队渲染 ----------
 
+/**
+ * 状态徽章（2026-10-17 X1C 掉网实案修）：离线（超时无报文）统一渲染灰底「离线」+
+ * 「快照: 上次状态」小签——过期快照不再当实时徽章展示。此前失联只加红「失联」签、
+ * 原状态仍按彩色实时徽章显示，且服务端重连失败会误把 status 置成「故障」，
+ * 于是「机器在打但观察台大红故障」吓人。语义分层：离线看这里，真故障（gcodeState
+ * FAILED）在联网时才会以红徽章出现；快照里的故障值降级为灰签如实标注。
+ */
 function statusBadge(p) {
-  const staleIdle = p.stateStale && ['空闲', '已完成'].includes(p.status);
-  const color = staleIdle ? '#98a4b0' : ({ '空闲': 'var(--ok)', '已完成': 'var(--ok)', '打印中': 'var(--print)', '暂停': 'var(--warn)', '故障': 'var(--bad)', '准备中': 'var(--warn)', '切片中': 'var(--warn)' }[p.status] || '#5b6ee1');
-  return `<span class="badge" style="background:${color}">${esc(p.status)}${p.stateStale ? '<span class="staleTag">失联</span>' : ''}</span>`;
+  if (p.stateStale) {
+    const snap = p.status && p.status !== '未连接'
+      ? `<span class="snapTag">快照: ${esc(p.status)}</span>`
+      : '<span class="staleTag">失联</span>';
+    return `<span class="badge" style="background:#98a4b0">离线${snap}</span>`;
+  }
+  const color = ({ '空闲': 'var(--ok)', '已完成': 'var(--ok)', '打印中': 'var(--print)', '暂停': 'var(--warn)', '故障': 'var(--bad)', '准备中': 'var(--warn)', '切片中': 'var(--warn)' }[p.status] || '#5b6ee1');
+  return `<span class="badge" style="background:${color}">${esc(p.status)}</span>`;
+}
+
+/** 毫秒时间戳 → 本地 HH:MM（离线快照时刻展示） */
+function fmtClock(ms) {
+  const d = new Date(ms);
+  const p2 = (n) => String(n).padStart(2, '0');
+  return `${p2(d.getHours())}:${p2(d.getMinutes())}`;
+}
+
+/** 离线标注行：显式「离线」+ 最后报文时刻（替代原先只报「超过 3 分钟」的含糊提示） */
+function staleNoteHtml(p) {
+  if (!p.stateStale) return '';
+  const tail = p.lastStateAt
+    ? `无状态报文已 ${Math.max(1, Math.round((Date.now() - p.lastStateAt) / 60000))} 分钟（最后 ${fmtClock(p.lastStateAt)}）`
+    : '从未收到状态报文（打印机不可达或未配置）';
+  return `<div class="meta" style="color:var(--bad)">⚠️ 离线：${tail}——以下为过期快照</div>`;
 }
 
 function trayHtml(t) {
@@ -438,6 +467,9 @@ async function setTemp(id, kind) {
 const HMS_KNOWN = {
   // attr-code 组合键（原始码）
   '84082688-196649': '检查打印机（历史通知码，如仍在屏上提示请跟随屏指导）',
+  // 2026-10-17 X1C 掉网案收录（官方 wiki 实查；均提示性通知，不阻断打印）：
+  '83886336-196612': 'SD 卡剩余空间不足（HMS 0500-0100-0003-0004）——录像/延时摄影受影响，清理或换卡即可，不挡打印',
+  '201326848-65540': '微激光雷达镜头脏（HMS 0C00-0100-0001-0004）——断电后用酒精擦拭镜头与校准板绿区，不挡打印',
 };
 
 /** HMS ts_unix（"20261007142817"）→ 毫秒；无法解析返回 0 */
@@ -455,7 +487,9 @@ function hmsTs(h) {
  *     屏幕首页无报错也照样回传）——降级为「任务残留」信息条 + 一键清除；残留不清，
  *     分发匹配（白名单仅空闲/已完成）永远选不中这台机器 = 队列静默卡死的根因之一；
  *   - 已知码翻译成人话（50348044=HMS 0300-400C 取消码，实锤）；未知码保留原始值引导看屏；
- *   - HMS 通知按时间戳过滤：超 24h 的历史码折叠为灰色一行，活跃码醒目显示
+ *   - HMS 通知按时间戳过滤：超 24h 的历史码折叠为灰色一行，活跃码醒目显示；
+ *     离线（stateStale）时全部降级进快照折叠区——离线前快照的通知可能已在屏上
+ *     消除（2026-10-17 X1C 掉网案：掉线快照的两条无害 HMS 曾以红字活跃警报列出）
  */
 const FAIL_REASON_KNOWN = {
   50348044: '打印已取消（停止/外部中断，非硬件故障）',
@@ -485,6 +519,8 @@ function errorSection(p) {
     const known = HMS_KNOWN[`${h.attr}-${h.code}`];
     const ts = hmsTs(h);
     const line = `🔔 HMS ${h.attr}-${h.code}${known ? '：' + esc(known) : '（未收录码——看打印机屏幕获取详情）'}`;
+    // 离线时 HMS 来自离线前快照（可能已在屏上消除）——不进红色活跃区，降级进快照折叠区
+    if (p.stateStale) { cold.push(line); continue; }
     if (ts && now - ts > 24 * 3600 * 1000) cold.push(line);
     else hot.push(line);
   }
@@ -497,7 +533,10 @@ function errorSection(p) {
     hot.splice(residueIdx, 1);
   }
   if (hot.length) parts.push(`<div class="errBox">${hot.map((s) => `<div>${s}</div>`).join('')}</div>`);
-  if (cold.length) parts.push(`<div class="coldBox">📋 历史通知（>24h 折叠）：${cold.join('；')}</div>`);
+  if (cold.length) {
+    const coldLabel = p.stateStale ? '📋 快照通知（离线前最后上报，可能已过期）' : '📋 历史通知（>24h 折叠）';
+    parts.push(`<div class="coldBox">${coldLabel}：${cold.join('；')}</div>`);
+  }
   return parts.join('');
 }
 
@@ -573,7 +612,7 @@ function cardHtml(p) {
     ${showSummary ? `<div class="temps">${temps || '<span class="detail">温度未上报</span>'}</div>` : ''}
     ${showSummary ? amsSection(p) : ''}
     ${devParts || extras ? `<div class="devLine"><span>${devParts}${devParts && extras ? ' · ' : ''}${extras}</span></div>` : ''}
-    ${p.stateStale ? '<div class="meta" style="color:var(--bad)">⚠️ 超过 3 分钟无状态报文——显示的是过期快照</div>' : ''}
+    ${staleNoteHtml(p)}
     ${controlPanelHtml(p)}
     ${speedNote}
   </div>`;
