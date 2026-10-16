@@ -210,19 +210,37 @@ function parse3mfObjectXml(xmlText) {
 function parse3mfModel(buffer) {
   let zip;
   try { zip = new AdmZip(buffer); } catch (err) { return { error: `3mf 解包失败: ${err.message}` }; }
-  const entries = zip.getEntries().filter((e) => /^3D\/Objects\/.*\.model$/i.test(e.entryName));
-  if (entries.length === 0) return { error: '3mf 内无 3D/Objects/*.model 几何（已切片 gcode.3mf 用参数提取，不在此解析）' };
   const objects = [];
   const skipped = [];
-  for (const e of entries) {
+  const pushParsed = (name, xmlText) => {
+    const parsed = parse3mfObjectXml(xmlText);
+    if (parsed.error) { skipped.push({ name, reason: parsed.error }); return; }
+    if (parsed.triangles > MAX_TRIANGLES) { skipped.push({ name, reason: `三角数 ${parsed.triangles} 超上限 ${MAX_TRIANGLES}` }); return; }
+    objects.push({ name, ...parsed });
+  };
+  const objEntries = zip.getEntries().filter((e) => /^3D\/Objects\/.*\.model$/i.test(e.entryName));
+  for (const e of objEntries) {
     const name = e.entryName.replace(/^3D\/Objects\//i, '').replace(/\.model$/i, '');
     if (e.header.compressedSize > MAX_BYTES) { skipped.push({ name, reason: '对象过大' }); continue; }
     let xmlText;
     try { xmlText = e.getData().toString('utf8'); } catch (err) { skipped.push({ name, reason: `解压失败: ${err.message}` }); continue; }
-    const parsed = parse3mfObjectXml(xmlText);
-    if (parsed.error) { skipped.push({ name, reason: parsed.error }); continue; }
-    if (parsed.triangles > MAX_TRIANGLES) { skipped.push({ name, reason: `三角数 ${parsed.triangles} 超上限 ${MAX_TRIANGLES}` }); continue; }
-    objects.push({ name, ...parsed });
+    pushParsed(name, xmlText);
+  }
+  if (objects.length === 0) {
+    // 3MF 标准布局兜底（2026-10-16 修复）：切片器保存的工程/直通 3mf 几何在 **3D/3dmodel.model**，
+    // 而非 Bambu 内部 3D/Objects/* 目录——此前只认后者，直通单几何特征全体「未提取」（曼波真单实测）。
+    // 逐 <object> 分块解析保持各件局部坐标（components 装配/build 变换暂不施加，后续按需烘焙）
+    const spec = zip.getEntry('3D/3dmodel.model');
+    if (!spec) return { error: '3mf 内无几何（既无 3D/Objects/*.model 也无 3D/3dmodel.model）', skipped };
+    if (spec.header.compressedSize > MAX_BYTES) return { error: '3dmodel.model 过大', skipped };
+    let xmlText;
+    try { xmlText = spec.getData().toString('utf8'); } catch (err) { return { error: `3dmodel.model 解压失败: ${err.message}`, skipped }; }
+    const blocks = xmlText.match(/<object\b[\s\S]*?<\/object>/gi) || [];
+    for (const block of blocks) {
+      const nm = /<object\b[^>]*\bid\s*=\s*"([^"]+)"/i.exec(block);
+      pushParsed(nm ? `object_${nm[1]}` : 'model', block);
+    }
+    if (blocks.length === 0) pushParsed('model', xmlText); // 无 <object> 分块的极简文件：整体当一件
   }
   if (objects.length === 0) return { error: '3mf 内没有可分析的对象网格', skipped };
   return { objects, skipped };
@@ -245,6 +263,74 @@ function analyzeStl(buffer) {
   const parsed = parseStl(buffer);
   if (parsed.error) return { ok: false, skipped: true, reason: parsed.error };
   return analyzeMesh(parsed);
+}
+
+/**
+ * 已切片 3mf → 几何特征**估计**（2026-10-16 曼波令）：切片导出件（.gcode.3mf）**不含网格**
+ * （3dmodel.model 为空壳，曼波真单实测）——几何特征只能从 gcode/切片元数据估计：
+ * 包围盒（G1 移动坐标扫描 + 头注释 max_z_height）、层数、体积（切片重量 ÷ 密度）、用料数。
+ * 孔/悬垂/曲面等网格级特征无法估计（置 null）；调用方按「低权重」存档（featureSource='gcode-estimate'）。
+ */
+function estimateFromSliced3mf(buffer) {
+  if (buffer.length > MAX_BYTES) return { ok: false, skipped: true, reason: `文件 ${Math.round(buffer.length / 1048576)}MB 超过体检上限 80MB` };
+  let zip;
+  try { zip = new AdmZip(buffer); } catch (err) { return { ok: false, skipped: true, reason: `3mf 解包失败: ${err.message}` }; }
+  const gcode = zip.getEntry('Metadata/plate_1.gcode');
+  const raw = {};
+  try {
+    const ps = zip.getEntry('Metadata/project_settings.config');
+    if (ps) { const j = JSON.parse(ps.getData().toString('utf8')); for (const [k, v] of Object.entries(j)) raw[k] = String(v); }
+  } catch { /* 容忍 */ }
+  if (!gcode) return { ok: false, skipped: true, reason: '无可估计的 gcode（既无网格也无 plate_1.gcode）' };
+  let text;
+  try { text = gcode.getData().toString('utf8'); } catch (err) { return { ok: false, skipped: true, reason: `gcode 解压失败: ${err.message}` }; }
+  // 头部注释：最大高度/层数（Orca/Bambu 均有）；移动坐标：X/Y 范围
+  const zH = Number((/;\s*max_z_height:\s*([\d.]+)/.exec(text) || [])[1]) || 0;
+  const layers = Number((/;\s*total layer number:\s*(\d+)/.exec(text) || [])[1]) || 0;
+  let mnX = Infinity, mnY = Infinity, mxX = -Infinity, mxY = -Infinity;
+  const mv = /^G[01]\s([^\n]*)$/gm;
+  let m;
+  while ((m = mv.exec(text)) !== null) {
+    const seg = m[1];
+    if (seg.length > 200) continue; // 超长行（成形起始）跳过
+    const x = /X(-?[\d.]+)/.exec(seg);
+    const y = /Y(-?[\d.]+)/.exec(seg);
+    if (x) { const v = Number(x[1]); if (v < mnX) mnX = v; if (v > mxX) mxX = v; }
+    if (y) { const v = Number(y[1]); if (v < mnY) mnY = v; if (v > mxY) mxY = v; }
+  }
+  // 体积估计：切片重量 ÷ 密度（slice_info 的 weight + project_settings filament_density）
+  let volumeCm3 = 0;
+  try {
+    const si = zip.getEntry('Metadata/slice_info.config');
+    const w = si ? Number((/<metadata key="weight" value="([\d.]+)"/.exec(si.getData().toString('utf8')) || [])[1]) || 0 : 0;
+    const dens = Number(((raw.filament_density || '').match(/[\d.]+/) || [])[0]) || 0;
+    if (w > 0 && dens > 0) volumeCm3 = +(w / dens).toFixed(2);
+  } catch { /* 容忍 */ }
+  const filaments = (() => { try { return JSON.parse(raw.filament_colour || '[]').length || 1; } catch { return 1; } })();
+  return {
+    ok: true,
+    source: 'gcode-estimate',
+    layers,
+    totalLayers: layers,
+    bbox: {
+      x: Number.isFinite(mnX) ? +(mxX - mnX).toFixed(1) : null,
+      y: Number.isFinite(mnY) ? +(mxY - mnY).toFixed(1) : null,
+      z: zH || null,
+    },
+    volumeCm3: volumeCm3 || null,
+    filaments,
+    holes: null, overhang: null, contact: null, curvedPct: null, mesh: null,
+    note: '已切片 3mf 不含网格——几何特征由 gcode/切片元数据估计（孔/悬垂/曲面等网格级特征不可估计）',
+    suggestions: { selection: {}, notes: ['几何特征为 gcode 估计值（低权重）'] },
+  };
+}
+
+/** 已切片 3mf 特征获取统一入口：优先网格分析（完整工程 3mf 含网格），无网格回落 gcode 估计。
+ *  @returns {{ features, featureSource: 'auto'|'gcode-estimate' }} */
+function featuresFromSliced3mf(buffer) {
+  const mesh = analyze3mf(buffer);
+  if (mesh && mesh.ok) return { features: mesh, featureSource: 'auto' };
+  return { features: estimateFromSliced3mf(buffer), featureSource: 'gcode-estimate' };
 }
 
 /** 3mf Buffer → 逐对象几何特征（多零件工程每件一条；件级失败进 skippedObjects 不拖垮整文件） */
@@ -558,4 +644,4 @@ function suggestFromFeatures(features) {
   return { selection, notes };
 }
 
-module.exports = { analyzeStl, analyze3mf, analyzeStep, analyzeMesh, suggestFromFeatures, fitCircle2d, parseStl, parse3mfModel, parse3mfObjectXml, THRESHOLDS, MAX_TRIANGLES, MAX_BYTES };
+module.exports = { analyzeStl, analyze3mf, analyzeStep, analyzeMesh, estimateFromSliced3mf, featuresFromSliced3mf, suggestFromFeatures, fitCircle2d, parseStl, parse3mfModel, parse3mfObjectXml, THRESHOLDS, MAX_TRIANGLES, MAX_BYTES };

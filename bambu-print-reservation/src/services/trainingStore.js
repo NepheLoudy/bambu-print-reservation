@@ -139,6 +139,19 @@ const trainingStore = {
     return { ...record };
   },
 
+  /** 几何特征回填/重提取（2026-10-16 修复工具）：老样本因解析缺口特征未提取——按归档模型重算 */
+  setFeatures(id, { features, autoSuggestion, featureSource, confidence } = {}) {
+    const samples = load();
+    const s = samples.find((x) => x.id === id);
+    if (!s) throw new Error(`样本不存在: ${id}`);
+    if (s.model) s.model.features = features || null;
+    if (autoSuggestion !== undefined) s.autoSuggestion = autoSuggestion || null;
+    if (featureSource) s.featureSource = featureSource;
+    if (Number.isFinite(Number(confidence)) && s.confidence == null) s.confidence = Math.min(100, Math.max(0, Math.round(Number(confidence))));
+    save(samples);
+    return { ...s };
+  },
+
   /** 按源单回填打印结果（2026-10-16 审批入库链）：dispatcher 完成/失败钩子调用；无对应样本返回 null */
   setOutcomeBySource(sourceRecordId, outcome) {
     const s = load().find((x) => x.sourceRecordId === String(sourceRecordId || ''));

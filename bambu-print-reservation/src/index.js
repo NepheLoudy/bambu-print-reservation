@@ -588,6 +588,36 @@ app.post('/api/training/samples/:id/outcome', requireUser(), (req, res) => {
   }
 });
 
+// 几何特征重提取（reviewer+，2026-10-16 修复工具）：老样本因解析缺口特征未提取——
+// 按归档模型重算（完整网格→网格分析；切片导出件无网格→gcode 估计），补低权重标记
+app.post('/api/training/samples/:id/refit-features', requireUser('reviewer', 'admin'), (req, res) => {
+  try {
+    const tstore = require('./services/trainingStore');
+    const s = tstore.get(req.params.id);
+    if (!s) return res.status(404).json({ error: '样本不存在' });
+    if (!s.model || !s.model.storedPath) return res.status(400).json({ error: '样本无归档模型文件，无法重提取' });
+    const buf = fs.readFileSync(s.model.storedPath);
+    const mf = require('./services/modelFeatures');
+    const is3mf = s.model.kind === '3mf' || /\.3mf$/i.test(s.model.name || '');
+    const fr = is3mf ? mf.featuresFromSliced3mf(buf) : { features: mf.analyzeStl(buf), featureSource: 'auto' };
+    if (!fr.features || fr.features.ok !== true) {
+      return res.status(400).json({ error: `特征分析未成功：${(fr.features && fr.features.reason) || '未知'}` });
+    }
+    const updated = tstore.setFeatures(s.id, {
+      features: fr.features,
+      autoSuggestion: fr.features.suggestions || null,
+      featureSource: s.featureSource || fr.featureSource,
+      confidence: 40, // 自动特征低权重（曼波 2026-10-16；已有置信度的样本不覆盖）
+    });
+    res.json({
+      success: true, id: updated.id, featureSource: updated.featureSource, confidence: updated.confidence,
+      bbox: fr.features.bbox, layers: fr.features.layers, volumeCm3: fr.features.volumeCm3,
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // 训练管线消费口：JSONL 全量导出
 app.get('/api/training/export', requireUser('reviewer', 'admin'), (req, res) => {
   const store = require('./services/trainingStore');

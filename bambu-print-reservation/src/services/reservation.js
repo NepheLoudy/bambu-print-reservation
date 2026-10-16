@@ -364,12 +364,17 @@ function createSampleFromReservation(record, reviewer) {
   const buf = record.filePath ? fs.readFileSync(record.filePath) : null;
   if (!buf || buf.length === 0) throw new Error('源文件不可读（filePath 缺失或为空）');
   let features = record.modelFeatures || null;
+  let featureSource = 'auto'; // 3mf 直通：几何特征全自动（含网格→网格分析；切片导出件无网格→gcode 估计）
   let slice = null;
   if (is3mf) {
     let extraction = null;
     try { extraction = require('./slicerExtract').extractFrom3mf(buf); } catch { /* 提取失败仍入库 */ }
     if (!features) {
-      try { features = require('./modelFeatures').analyze3mf(buf); } catch { /* 体检失败照常入库 */ }
+      try {
+        const fr = require('./modelFeatures').featuresFromSliced3mf(buf);
+        features = fr.features;
+        featureSource = fr.featureSource; // 'auto'（网格分析）| 'gcode-estimate'（切片件估计）
+      } catch { /* 体检失败照常入库 */ }
     }
     slice = {
       originalName: record.fileName || 'slice.3mf',
@@ -392,7 +397,7 @@ function createSampleFromReservation(record, reviewer) {
     sourceRecordId: record.id,
     // 几何特征权重（2026-10-16 曼波令）：3mf 直通单的特征**只能全自动提取**（无人工核验环节）
     // ——标记 featureSource='auto' 并赋予额外低权重置信度（40），训练消费按低权对待
-    ...(is3mf ? { featureSource: 'auto', confidence: AUTO_FEATURE_CONFIDENCE } : {}),
+    ...(is3mf ? { featureSource, confidence: AUTO_FEATURE_CONFIDENCE } : {}), // featureSource: 'auto'（网格分析）| 'gcode-estimate'（切片件估计）
     selection: record.selection || {},
     spatial: record.spatial || [],
     materialType: record.materialType || '',

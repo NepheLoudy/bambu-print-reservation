@@ -233,6 +233,8 @@ check('createSampleFromReservation:预约单→训练样本(3mf 内嵌参数/源
     curr_bed_type: 'High Temp Plate', layer_height: '0.2', wall_loops: '3',
   })));
   zip.addFile('Metadata/slice_info.config', Buffer.from('<?xml version="1.0"?><config><plate><filament id="1" tray_info_idx="GFA00" type="PLA" color="#26A69A" used_m="10" used_for_object="true"/></plate></config>'));
+  // 切片导出件无网格：加最小 gcode 让「几何特征估计」路径可跑（2026-10-16）
+  zip.addFile('Metadata/plate_1.gcode', Buffer.from('; total layer number: 50\n; max_z_height: 10.0\nG1 X0 Y0 Z0.2\nG1 X20 Y15 E1\nG1 X0 Y0\n'));
   const f = path.join(os.tmpdir(), `bambu-test-sample-${process.pid}.3mf`);
   fs.writeFileSync(f, zip.toBuffer());
   const record = {
@@ -242,7 +244,8 @@ check('createSampleFromReservation:预约单→训练样本(3mf 内嵌参数/源
   };
   const s = createSampleFromReservation(record, '测试审批人');
   assert.equal(s.sourceRecordId, 'R20261016-999', '源单引用落档（结果回填的钩子）');
-  assert.equal(s.featureSource, 'auto', '3mf 直通：几何特征全自动提取标记（曼波 2026-10-16）');
+  assert.equal(s.featureSource, 'gcode-estimate', '切片导出件无网格 → gcode 估计标记（曼波 2026-10-16）');
+  assert.ok(s.model && s.model.features && s.model.features.ok === true, '几何特征估计成功落档');
   assert.equal(s.confidence, 40, '3mf 直通：自动提取特征赋额外低权重');
   assert.ok(/^T\d{8}-\d{3}$/.test(s.id), '样本号生成');
   assert.ok(s.slice && s.slice.extraction && s.slice.extraction.params, '内嵌切片参数已提取');
