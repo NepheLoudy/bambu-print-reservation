@@ -278,7 +278,7 @@ function controlPanelHtml(p) {
           <div class="detail">${nz.diameter != null ? nz.diameter + 'mm' : '—'} ${esc(nz.type || '')}</div>
         </div>`).join('')}</div>`
     : tempRow('nozzle', '喷嘴', 'nt', p.nozzleTemp, p.nozzleTargetTemp, 350);
-  const tempSection = `<div class="panel"><h4>🌡 温度（打印中可调）</h4>
+  const tempSection = `<div class="panel"><h4>🌡 温度（打印中可调）${p.chamberTemp != null ? ` <span class="detail">腔室 ${p.chamberTemp}°</span>` : ''}</h4>
     ${nozzleBlock}
     ${tempRow('bed', '热床', 'bt', p.bedTemp, p.bedTargetTemp, 120)}
     ${multiNozzle ? '<div class="detail">双喷头机型：目标温度设定作用于当前喷头（' + (activeNz ? nzName(activeNz) : '?') + '）</div>' : ''}</div>`;
@@ -518,11 +518,16 @@ function cardHtml(p) {
     p.queueTotal > 0 ? `机内队列 ${p.queueTotal}` : '',
     p.printType === 'system' ? '维护任务运行中' : '',
   ].filter(Boolean).join(' · ');
+  // 温度/AMS 摘要去重（2026-10-16 曼波反馈「怎么 ams 和温度出现了两次」）：reviewer+ 且拓竹机
+  // 在下方控制面板里有完整「🌡 温度」「📦 AMS 耗材」区（带控制），顶部摘要条仅对无控制面板的
+  // 角色/机型（非 reviewer、闪铸档）展示，避免同屏两份
+  const showSummary = !IS_REVIEWER || p.brand === 'flashforge';
   const devParts = [
     dev.nozzleDiameter != null ? `喷嘴 ${dev.nozzleDiameter}${dev.nozzleType ? ' ' + dev.nozzleType : ''}` : '',
     dev.fwVersion ? `固件 ${dev.fwVersion}` : '',
     dev.wifiDbm != null ? `WiFi ${dev.wifiDbm}dBm` : '',
-    dev.amsHumidity != null ? `AMS 湿度 ${dev.amsHumidity}/5` : '',
+    // 湿度移入 AMS 面板头（reviewer+）；摘要模式下由本行承载（2026-10-16 去重）
+    showSummary && dev.amsHumidity != null ? `AMS 湿度 ${dev.amsHumidity}/5` : '',
   ].filter(Boolean).join(' · ');
   return `<div class="pcard">
     <div class="top">
@@ -535,8 +540,8 @@ function cardHtml(p) {
     ${camSection(p)}
     ${errorSection(p)}
     ${job}${prog}${layerNote}
-    <div class="temps">${temps || '<span class="detail">温度未上报</span>'}</div>
-    ${amsSection(p)}
+    ${showSummary ? `<div class="temps">${temps || '<span class="detail">温度未上报</span>'}</div>` : ''}
+    ${showSummary ? amsSection(p) : ''}
     ${devParts || extras ? `<div class="devLine"><span>${devParts}${devParts && extras ? ' · ' : ''}${extras}</span></div>` : ''}
     ${p.stateStale ? '<div class="meta" style="color:var(--bad)">⚠️ 超过 3 分钟无状态报文——显示的是过期快照</div>' : ''}
     ${controlPanelHtml(p)}

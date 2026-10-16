@@ -90,8 +90,8 @@
 
 | 项 | 事实 |
 |---|---|
-| 左右喷嘴 | **extruder id 0 = 左喷嘴**（打印区 x 0..325、限高 320mm）；**id 1 = 右喷嘴**（区 25..350、限高 325mm、`master_extruder_id=2`）。官方 wiki 打印范围页 + Orca H2D 机档 `extruder_printable_area/height` 双源实锤 |
-| 料源（本机口径） | 左喷嘴 ← 外挂料盘；右喷嘴 ← AMS（曼波 2026-10-16 口径；单色件切片默认走 master=右喷嘴） |
+| 左右喷嘴 | **extruder id 1 = 左喷嘴（外挂料盘侧）、id 0 = 右喷嘴（AMS 侧）**——2026-10-16 实机实证修正：运行中打印热喷头 = id1 且料位指向外挂（snow=254），与「左喷嘴是外挂料盘」口径双重印证；旧「Orca 机档数组顺序」推导**作废**（官方打印区/限高数据只描述左右几何，数组下标↔固件 extruder id 的对应关系此前判错）。单色件切片默认走 `master_extruder_id=2`（1-based→id1=左） |
+| 料源（本机口径） | 左喷嘴（id1）← 外挂料盘；右喷嘴（id0）← AMS（曼波 2026-10-16 口径） |
 | 外部料位编码 | H2D 外部料位 = 虚拟料位：**254=外挂料盘·左 / 255=外挂料盘·右**（各为独立虚拟 AMS 单元、槽 0；Bambuddy 同口径）。数据位：`print.vir_slot`（打印域，非 AMS 域） |
 | 开打帧 bed_type | 必须与切片产物 `curr_bed_type` 一致（错配触发 H2 板检测警告/暂停 0500-8051）。token：Textured PEI Plate→`textured_plate`、High Temp Plate / Smooth PEI Plate→`hot_plate`、Cool Plate→`cool_plate`、SuperTack→`supertack_plate`（OrcaSlicer.dll 实锤）；**2026-10-16 起按文件动态取**，硬编码仅兜底 |
 | 用料映射 | `ams_mapping2` 逐用料 `{ams_id, slot_id}`（旧 `ams_mapping` legacy 值：AMS=ams*4+slot、外挂=虚拟料位原值）。分发引擎按 slice_info.config 用料清单自动匹配（材料+颜色 redmean），审批指定槽位优先 |

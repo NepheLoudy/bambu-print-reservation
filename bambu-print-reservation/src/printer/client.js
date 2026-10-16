@@ -301,7 +301,24 @@ class PrinterClient {
         const exs = dev.extruder?.info || [];
         if (!Array.isArray(exs) || exs.length === 0) return null;
         const specs = dev.nozzle?.info || [];
-        const activeId = Number(dev.nozzle?.tar_id ?? NaN);
+        // 活动喷头判定（2026-10-16 修正）：顶层 print.nozzle_temper/target 始终跟随**实际打印喷头**
+        // （实测打印中 tar_id 指向冷喷头=不可靠、顶层 220° 与热喷头一致）——按各喷头实温与顶层
+        // 值最近者判活动，无法比对时退回 tar_id
+        const activeId = (() => {
+          const top = Number(temps.nozzle);
+          if (Number.isFinite(top)) {
+            let best = null;
+            let bestD = Infinity;
+            for (const e of exs) {
+              const c = decodeNozzleTemp(e.temp).current;
+              if (c === null) continue;
+              const d = Math.abs(c - top);
+              if (d < bestD) { bestD = d; best = Number(e.id); }
+            }
+            if (best !== null) return best;
+          }
+          return Number(dev.nozzle?.tar_id ?? NaN);
+        })();
         return exs.map((e) => {
           const spec = specs.find((n) => Number(n.id) === Number(e.id)) || {};
           const isActive = Number(e.id) === activeId;
@@ -314,10 +331,10 @@ class PrinterClient {
             diameter: Number(spec.diameter) || null,
             type: spec.type || null,
             active: isActive,
-            // 左右喷嘴语义（2026-10-16 曼波口径 + 官方打印区实锤）：H2D extruder 0 =
-            // 左喷嘴（区 0..325、限高 320）、extruder 1 = 右喷嘴（区 25..350、限高 325、
-            // master_extruder_id=2）；单喷头机型不标
-            side: exs.length >= 2 ? (Number(e.id) === 0 ? 'left' : Number(e.id) === 1 ? 'right' : null) : null,
+            // 左右喷嘴语义（2026-10-16 实机实证修正，旧映射作废）：**extruder 1 = 左喷嘴（外挂料盘）、
+            // extruder 0 = 右喷嘴（AMS）**——依据：运行中打印的热喷头=id1 且其料位指向外挂（snow=254）、
+            // 用户口径「左喷嘴是外挂料盘」双重印证（旧 Orca 机档数组顺序推导有误）；单喷头机型不标
+            side: exs.length >= 2 ? (Number(e.id) === 0 ? 'right' : Number(e.id) === 1 ? 'left' : null) : null,
           };
         });
       })(),
