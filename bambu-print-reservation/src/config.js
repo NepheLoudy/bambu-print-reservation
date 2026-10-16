@@ -69,6 +69,9 @@ module.exports = {
   bot: {
     name: process.env.BOT_NAME || '爆米花机-对话型',
     webhookUrl: process.env.BOT_WEBHOOK_URL || '',
+    // 审批提醒专用 webhook（2026-10-16 曼波令：「有人预约需要审批」走话题群，其余播报留在机械组）；
+    // 未配置时回落默认群，行为不变
+    approvalWebhookUrl: process.env.APPROVAL_WEBHOOK_URL || '',
     chatId: process.env.BOT_CHAT_ID || '',
   },
 

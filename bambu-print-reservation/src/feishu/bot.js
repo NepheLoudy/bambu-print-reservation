@@ -1,8 +1,10 @@
 const config = require('../config');
 const { requestAPI } = require('./client');
 
-async function sendMessage(cardContent) {
-  const webhookUrl = config.bot.webhookUrl;
+async function sendMessage(cardContent, targetUrl) {
+  // targetUrl（2026-10-16 曼波令）：指定 webhook 覆盖——「有人预约需要审批」提醒走话题群专用钩子；
+  // 不传 = 默认机械组群（其余播报全部保持原址）
+  const webhookUrl = targetUrl || config.bot.webhookUrl;
 
   if (!webhookUrl) {
     console.warn('未配置机器人 Webhook URL，跳过消息发送');

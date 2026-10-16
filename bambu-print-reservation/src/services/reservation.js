@@ -74,7 +74,7 @@ class ReservationService {
         },
       }, embedLine);
       if (!quietHours.gatePayload('webhook-card', card, `预约审批提醒卡 ${reservation.id}`)) {
-        await sendMessage(card);
+        await sendMessage(card, config.bot.approvalWebhookUrl || undefined); // 「有人预约需要审批」走话题群专用钩子（2026-10-16 曼波令）
       }
     } catch (err) {
       console.error('[预约服务] 通知审批人失败:', err.message);
