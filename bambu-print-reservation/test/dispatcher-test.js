@@ -101,6 +101,29 @@ check('指定打印机优先', () => {
   const task = { materialType: 'PLA', color: '白色', assignedPrinter: 'H2D' };
   assert.equal(dispatcher.matchPrinter(task, [X1C1, H2D]).name, 'H2D');
 });
+check('指定打印机=钉死（2026-10-16 曼波真机反馈「选 A5P 却被分到 X1C」）：不可用时滞留不改派', () => {
+  // ① 品牌不符：3mf 单指定闪铸机——候选里没有它，必须返回 null（绝不落到 X1C 顶替）
+  const ffAssigned = { ...H2D, name: '闪铸A5P', model: 'AD5M Pro' };
+  const t1 = { materialType: 'PLA', color: '白色', assignedPrinter: '闪铸A5P', fileName: 'x.gcode.3mf' };
+  assert.equal(dispatcher.matchPrinter(t1, [ffAssigned, X1C1]), null, '品牌不符→滞留等人工');
+  // ② 指定机忙碌（不在候选）：等待，不派他机
+  const busy = { ...X1C1, name: 'X1C-01', status: '打印中' };
+  const t2 = { materialType: 'PLA', color: '白色', assignedPrinter: 'X1C-01', fileName: 'a.3mf' };
+  assert.equal(dispatcher.matchPrinter(t2, [busy, H2D]), null, '指定机忙碌→等待');
+  // ③ 指定机可用：照常命中（既有行为不回归）
+  const t3 = { materialType: 'PLA', color: '白色', assignedPrinter: 'X1C-02', fileName: 'a.3mf' };
+  assert.equal(dispatcher.matchPrinter(t3, [X1C1, X1C2, H2D]).name, 'X1C-02');
+});
+check('brandForFileWithMeta：切片文件内嵌机型优先于扩展名（2026-10-16 曼波真机）', () => {
+  assert.equal(dispatcher.brandForFileWithMeta('x.gcode.3mf', 'Flashforge Adventurer 5M Pro'), 'flashforge', '拿闪铸机子切的 3mf → 闪铸');
+  assert.equal(dispatcher.brandForFileWithMeta('x.gcode.3mf', 'Bambu Lab H2D'), 'bambu');
+  assert.equal(dispatcher.brandForFileWithMeta('x.gcode.3mf', null), 'bambu', '无内嵌机型时退回扩展名');
+  assert.equal(dispatcher.brandForFileWithMeta('y.gcode', null), 'flashforge');
+  // 内嵌机型 + 闪铸目标机在候选中的匹配（品牌闸门以内容为准）
+  const ff = { ...H2D, name: '闪铸A5P', model: 'AD5M Pro', ams: [{ slot: '进料口', type: 'PLA', colorHex: '', active: true, external: true }] };
+  const t = { materialType: 'PLA', color: '白色', fileName: 'x.gcode.3mf', machineModel: 'Flashforge Adventurer 5M Pro' };
+  assert.equal(dispatcher.matchPrinter(t, [ff, X1C1]).name, '闪铸A5P', '内嵌闪铸机型 → 匹配闪铸机');
+});
 check('占用中的打印机不在候选（快照只传空闲）', () => {
   const printingX1C1 = { ...X1C1, status: '打印中' };
   const task = { materialType: 'PLA', color: '白色' };

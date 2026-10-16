@@ -717,6 +717,7 @@ app.post('/api/reservations', requireUser(), upload.single('file'), async (req, 
           embeddedParams = {
             source: extracted.source, params: extracted.params, estMinutes: extracted.estMinutes,
             bedType: extracted.bedType || null, filaments: extracted.filaments || [],
+            machineModel: extracted.machineModel || null, // 内嵌目标机型（2026-10-16：直通单品牌路由权威）
           };
           estMinutes = extracted.estMinutes; // 预计时长随单入档（队列 ETA 用）
         } catch (err) {
@@ -729,11 +730,20 @@ app.post('/api/reservations', requireUser(), upload.single('file'), async (req, 
     // 显式指定的值必须命中登记清单，拼错当场打回
     if (String(body.assignedPrinter || '').trim()) {
       const wanted = String(body.assignedPrinter).trim();
-      const valid = config.printers.some((p) => p.name === wanted);
-      if (!valid) {
+      const pr = config.printers.find((p) => p.name === wanted);
+      if (!pr) {
         try { fs.unlinkSync(req.file.path); } catch { /* 已不存在 */ }
         return res.status(400).json({
           error: `指定打印机「${wanted}」未登记，请从下拉选择（已登记：${config.printers.map((p) => p.name).join('、') || '无——先在 .env PRINTER_HOSTS 登记'}）`,
+        });
+      }
+      // 品牌相容性（2026-10-16 曼波反馈批）：切片格式与机型品牌互不兼容——填错当场打回
+      const prBrand = (printerManager.brandOf && printerManager.brandOf(pr.model)) || 'bambu';
+      const fileBrand = require('./services/dispatcher').brandForFileWithMeta(fileName, embeddedParams && embeddedParams.machineModel); // 内嵌机型优先（2026-10-16）
+      if (prBrand !== fileBrand) {
+        try { fs.unlinkSync(req.file.path); } catch { /* 已不存在 */ }
+        return res.status(400).json({
+          error: `「${wanted}」是${prBrand === 'flashforge' ? '闪铸' : '拓竹'}机型，打不了${fileBrand === 'flashforge' ? '闪铸 gcode 系' : '拓竹 3mf'}格式——两品牌切片格式互不兼容，请改选对应品牌机型或留空自动匹配`,
         });
       }
     }

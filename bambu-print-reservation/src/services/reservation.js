@@ -110,6 +110,13 @@ class ReservationService {
     if (dispatch.assignedPrinter) {
       const pr = config.printers.find((p) => p.name === dispatch.assignedPrinter);
       if (!pr) throw new Error(`指定打印机「${dispatch.assignedPrinter}」未登记`);
+      // 品牌相容性硬校验（2026-10-16 曼波反馈「选 A5P 却被分到 X1C」）：切片格式与机型
+      // 品牌互不兼容——审批时当场拦住并说明，杜绝「静默改派/打废件」
+      const prBrand = printerManager.brandOf(pr.model) || 'bambu';
+      const fileBrand = require('./dispatcher').brandForFileWithMeta(reservation.fileName, reservation.embeddedParams && reservation.embeddedParams.machineModel); // 内嵌机型优先（2026-10-16）
+      if (prBrand !== fileBrand) {
+        throw new Error(`「${pr.name}」是${prBrand === 'flashforge' ? '闪铸' : '拓竹'}机型，打不了${fileBrand === 'flashforge' ? '闪铸 gcode 系' : '拓竹 3mf'}格式的文件——两品牌切片格式互不兼容。请改选对应品牌机型、留空自动匹配，或用目标机型的切片软件重新导出`);
+      }
       pref.assignedPrinter = dispatch.assignedPrinter;
       if (dispatch.tray && String(dispatch.tray.slot || '').trim()) {
         const apiState = printerManager.getApiStates().find((p) => p.id === pr.id);

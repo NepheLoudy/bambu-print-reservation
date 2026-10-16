@@ -166,8 +166,22 @@ function extractFrom3mf(buffer) {
   // 开打帧底料：用料清单 + 板型（curr_bed_type，板型与切片不一致是打印失败/暂停的已知诱因）
   const filaments = parseFilaments(zip);
   const bedType = String(raw.curr_bed_type || '').trim() || null;
+  // 目标机型（2026-10-16 曼波真机反馈批）：切片文件自带机型（project_settings.printer_model，
+  // 缺则退回 slice_info 的 printer_model_id）——「拿闪铸机子切的 .gcode.3mf」扩展名会骗过
+  // 品牌判断，内嵌机型是唯一权威
+  let machineModel = String(raw.printer_model || '').trim() || null;
+  if (!machineModel) {
+    try {
+      const si = zip.getEntry('Metadata/slice_info.config');
+      if (si) {
+        const xml = si.getData().toString('utf8');
+        const m = /key="printer_model_id"\s+value="([^"]+)"/.exec(xml);
+        if (m) machineModel = m[1].replace(/-/g, ' ').trim();
+      }
+    } catch { /* 解析失败按无内嵌处理 */ }
+  }
 
-  return { source, params, raw, diff, estMinutes, filaments, bedType };
+  return { source, params, raw, diff, estMinutes, filaments, bedType, machineModel };
 }
 
 module.exports = { extractFrom3mf, BAMBU_PARAM_MAP, parseEstimatedMinutes, parseFilaments };

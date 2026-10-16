@@ -845,6 +845,23 @@ function updateSlicedMode() {
   if (sliced) { $('conflictHint').textContent = ''; }
   else preflight();
   updateLoadGroupMode();
+  refreshPrinterDatalist(); // 指定打印机候选随文件品牌过滤（2026-10-16）
+}
+
+/** 指定打印机候选按文件品牌过滤（2026-10-16 曼波反馈批）：跨品牌切片格式不兼容，
+ *  datalist 只给同品牌机型（3mf→拓竹 / gcode 系→闪铸；无文件时给全量） */
+function refreshPrinterDatalist() {
+  const el = $('printerNameList');
+  if (!el) return;
+  const printers = window.__printers || [];
+  const file = $('file') && $('file').files[0];
+  let list = printers;
+  if (file && printers.length) {
+    const ff = /\.(gcode|gx|g)$/i.test(file.name);
+    const filtered = printers.filter((p) => Boolean(p.brand === 'flashforge') === ff);
+    if (filtered.length) list = filtered;
+  }
+  el.innerHTML = list.map((p) => `<option value="${esc(p.name)}">`).join('');
 }
 
 // ---------- STL 几何体检（2026-10-11 模型特征自拟合） ----------
@@ -1121,9 +1138,24 @@ async function openApproveDialog(id) {
     if (r.ok) rec = await r.json();
   } catch { /* 取不到按不可入库处理（宁严勿空） */ }
   const canSample = !!(rec && rec.selection && Object.keys(rec.selection).length > 0);
-  const opts = printers.map((p) => `<option value="${esc(p.name)}">${esc(p.name)}（${esc(p.status)}${p.stateStale ? '/失联' : ''}）</option>`).join('');
+  // 品牌判定（2026-10-16 曼波真机反馈批）：**切片文件内嵌机型优先**——「拿闪铸机子切的
+  // .gcode.3mf」扩展名是 .3mf（像拓竹），但内嵌机型是闪铸；有内嵌机型以它定品牌，否则退回扩展名
+  const mm = (rec && rec.embeddedParams && rec.embeddedParams.machineModel) || '';
+  const fileIsFf = mm ? /flashforge|ad5|5m|creator/i.test(mm) : /\.(gcode|gx|g)$/i.test((rec && rec.fileName) || '');
+  const usable = printers.filter((p) => Boolean(p.brand === 'flashforge') === fileIsFf);
+  // 「直通单机型直接给好定死」：内嵌机型 + 同品牌唯一机 → 预选定好；多机时留给审批人确认
+  const preselect = mm && usable.length === 1 ? usable[0].name : '';
+  const modelNote = mm
+    ? `<div class="detail" style="margin-bottom:6px">📦 文件内嵌机型：<b>${esc(mm)}</b>${preselect ? '——已为你锁定匹配机型' : '（请在同品牌机型中确认目标机）'}</div>`
+    : '';
+  const brandHint = usable.length && usable.length < printers.length
+    ? `<div class="detail" style="margin-bottom:6px;color:var(--warn)">🔒 该文件目标品牌为${fileIsFf ? '闪铸' : '拓竹'}，只列同品牌机型（跨品牌切片格式互不兼容）</div>`
+    : '';
+  const opts = (usable.length ? usable : printers).map((p) => `<option value="${esc(p.name)}">${esc(p.name)}（${esc(p.status)}${p.stateStale ? '/失联' : ''}）</option>`).join('');
   dlg.innerHTML = `<h3 style="font-size:14px;margin-bottom:8px">✅ 通过并分发（${esc(id)}）</h3>`
-    + `<div class="detail" style="margin-bottom:8px">指定分发目标与用料（都可留自动匹配）；指定槽位在分发时刻不可用会滞留等人工</div>`
+    + `<div class="detail" style="margin-bottom:8px">指定分发目标与用料（都可留自动匹配）；指定后该机不可用会滞留等人工、不静默改派</div>`
+    + modelNote
+    + brandHint
     + `<label>目标打印机</label><select id="apPrinter" onchange="renderApTrays()"><option value="">自动匹配（按材料/颜色选机）</option>${opts}</select>`
     + `<label>AMS 槽位（用料）</label><select id="apTray" disabled><option value="">自动匹配（按材料/颜色）</option></select>`
     + `<div id="apNozzleRow" style="display:none"><label>喷嘴</label><select id="apNozzle"><option value="">自动</option></select></div>`
@@ -1135,6 +1167,8 @@ async function openApproveDialog(id) {
     + `<button class="ok" id="apGo">通过并分发</button>`
     + `<button class="mini" id="apCancel">取消</button></div>`;
   document.body.appendChild(dlg);
+  // 内嵌机型命中同品牌唯一机 → 预选定好目标机（2026-10-16 曼波令：直通单机型直接给好）
+  if (preselect) { dlg.querySelector('#apPrinter').value = preselect; renderApTrays(); }
   dlg.querySelector('#apCancel').onclick = () => dlg.close();
   dlg.querySelector('#apGo').onclick = () => {
     const dispatch = {};
@@ -1279,7 +1313,7 @@ async function loadPrinters() {
   const printers = await res.json();
   window.__printers = printers; // 列表行内实时进度 join 用
   PRINTER_NAMES = printers.map(p => p.name); // 指定打印机 datalist + givenUp 恢复下拉共用
-  $('printerNameList').innerHTML = PRINTER_NAMES.map(n => `<option value="${esc(n)}">`).join('');
+  refreshPrinterDatalist();
   const box = $('printerList');
   if (!Array.isArray(printers) || !printers.length) { box.innerHTML = '<div class="empty">暂无登记的打印机（.env PRINTER_HOSTS）</div>'; return; }
   const ST = { '空闲': 'var(--ok)', '打印中': '#d95f2b', '暂停': '#d9b32b', '已完成': 'var(--ok)', '故障': 'var(--bad)', '未连接': '#98a4b0', '准备中': 'var(--warn)', '切片中': 'var(--warn)' };

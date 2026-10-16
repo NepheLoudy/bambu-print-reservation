@@ -4,6 +4,10 @@
  */
 process.env.TRAINING_SAMPLES_FILE = require('os').tmpdir() + `/bambu-test-train-${process.pid}.json`;
 process.env.TRAINING_FILES_DIR = require('os').tmpdir() + `/bambu-test-train-files-${process.pid}`;
+// 开工清档（2026-10-16）：pid 命名的隔离文件会被 Windows **PID 复用**撞上——旧运行的样本
+// 残留叠进本次（曾出现重复样本号 T..-003×2、计数断言 6!=3 的假失败）——启动即删保证真隔离
+require('fs').rmSync(process.env.TRAINING_SAMPLES_FILE, { force: true });
+require('fs').rmSync(process.env.TRAINING_FILES_DIR, { force: true, recursive: true });
 const assert = require('assert');
 const store = require('../src/services/trainingStore');
 

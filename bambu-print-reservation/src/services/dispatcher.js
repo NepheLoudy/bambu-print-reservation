@@ -34,6 +34,18 @@ function brandForFile(fileName) {
 }
 
 /**
+ * 文件 → 品牌（内嵌机型优先版，2026-10-16 曼波真机反馈批）：切片文件自带目标机型
+ * （project_settings.printer_model / slice_info.printer_model_id）——「拿闪铸机子切的
+ * .gcode.3mf」用扩展名判断会误判为拓竹；有内嵌机型时以内嵌为准，无则退回扩展名
+ */
+function brandForFileWithMeta(fileName, machineModel) {
+  const m = String(machineModel || '');
+  if (m && /flashforge|ad5|5m|creator/i.test(m)) return 'flashforge';
+  if (m && /bambu|a1|p1|x1|h2/i.test(m)) return 'bambu';
+  return brandForFile(fileName);
+}
+
+/**
  * printing 幽灵巡检阈值（纯函数，单测覆盖）：有打印机上报的预估时长（expectedMinutes，
  * start 事件时从 mc_remaining_time 捕获）按「预估×2 且 ≥1h」动态判定；无预估（需求链路
  * 单/报文缺失）退回保守的固定 12h（此前唯一口径）
@@ -62,6 +74,7 @@ function buildLocalTask(reservation) {
     filePath: reservation.filePath,
     fileName: reservation.fileName,
     fileToken: null, // 本地文件不走飞书下载
+    machineModel: (reservation.embeddedParams && reservation.embeddedParams.machineModel) || null, // 内嵌目标机型（品牌路由权威，2026-10-16）
     materialType: reservation.materialType,
     color: reservation.color,
     assignedPrinter: reservation.assignedPrinter,
@@ -629,24 +642,28 @@ class Dispatcher {
     const candidates = (available || []).filter(
       (p) => p.autoDispatch
         && (['空闲', '已完成'].includes(p.status) || printerManager.canDispatchResidueFailed(p))
-        && brandForFile(task.fileName) === (printerManager.brandOf(p.model) || 'bambu')
+        && brandForFileWithMeta(task.fileName, task.machineModel) === (printerManager.brandOf(p.model) || 'bambu')
     );
 
-    // 1. 指定打印机
+    // 1. 指定打印机（**指定即权威**，2026-10-16 曼波真机反馈「选 A5P 却被分发到 X1C」）：
+    //    指定的机器不在候选（品牌不符/忙/失联）时**滞留等待人工**，绝不静默改派他机——
+    //    此前 fallthrough 到自动匹配，把人的明确指定当空气
     if (task.assignedPrinter) {
       const named = candidates.find((p) => p.name === task.assignedPrinter);
-      if (named) {
-        // 审批分发指定（2026-10-16）：审批人指定的槽位在分发时刻仍须实装——
-        // 换料/抽走导致槽位不可用时滞留等人工（不静默换槽，尊重审批指定）
-        if (task.prefTray && task.prefTray.slot) {
-          const stillThere = (named.ams || []).some((t) => t.slot === task.prefTray.slot && t.type);
-          if (!stillThere) {
-            console.warn(`[分发] ${task.applicationNo} 审批指定槽位「${task.prefTray.slot}」在 ${named.name} 已不可用——滞留等待人工处理`);
-            return null;
-          }
-        }
-        return named;
+      if (!named) {
+        console.warn(`[分发] ${task.applicationNo || task.recordId} 指定打印机「${task.assignedPrinter}」当前不可用（品牌不符/忙/失联）——滞留等待人工，不改派`);
+        return null;
       }
+      // 审批分发指定（2026-10-16）：审批人指定的槽位在分发时刻仍须实装——
+      // 换料/抽走导致槽位不可用时滞留等人工（不静默换槽，尊重审批指定）
+      if (task.prefTray && task.prefTray.slot) {
+        const stillThere = (named.ams || []).some((t) => t.slot === task.prefTray.slot && t.type);
+        if (!stillThere) {
+          console.warn(`[分发] ${task.applicationNo} 审批指定槽位「${task.prefTray.slot}」在 ${named.name} 已不可用——滞留等待人工处理`);
+          return null;
+        }
+      }
+      return named;
     }
 
     const needMaterial = String(task.materialType || '').trim().toUpperCase();
@@ -796,8 +813,8 @@ class Dispatcher {
       const srcExt = srcExtMatch ? srcExtMatch[1].toLowerCase() : '3mf';
       const remoteName = `print_${task.recordId}.${srcExt}`;
       if (await checkCancelled('上传')) return;
-      const buffer = await loadTaskFile(task);
-      // 切片元数据（用料清单/板型，2026-10-16 曼波真单批）：分发时刻现读文件——
+      let buffer = await loadTaskFile(task);
+      // 切片元数据（用料清单/板型/内嵌机型，2026-10-16 曼波真单批）：分发时刻现读文件——
       // 对老单（提交时未提取）同样生效；读不出回落提交时快照 embeddedParams
       let fileMeta = task.embeddedParams || null;
       if (/\.3mf$/i.test(task.fileName || '')) {
@@ -807,14 +824,29 @@ class Dispatcher {
           console.warn(`[分发] ${task.recordId} 切片元数据读取失败，按默认参数下发: ${err.message}`);
         }
       }
-      await printerManager.uploadFileToPrinter(printer.id, buffer, remoteName);
+      // 闪铸目标 + 3mf 工程文件（2026-10-16 曼波真机反馈批）：Orca 工程 .gcode.3mf（拿闪铸机子
+      // 切的）内嵌 flashforge gcode——闪铸固件只吃裸 gcode，必须提取后按 .gcode 上传
+      const effBrand = brandForFileWithMeta(task.fileName, (fileMeta && fileMeta.machineModel) || task.machineModel);
+      let uploadName = remoteName;
+      if (effBrand === 'flashforge' && /\.3mf$/i.test(task.fileName || '')) {
+        try {
+          const g = new (require('adm-zip'))(buffer).getEntry('Metadata/plate_1.gcode');
+          if (!g) throw new Error('未找到 Metadata/plate_1.gcode');
+          buffer = g.getData();
+          uploadName = remoteName.replace(/\.3mf$/i, '.gcode');
+          console.log(`[分发] ${task.recordId} 闪铸直通：提取内嵌 gcode ${Math.round(buffer.length / 1024)}KB → ${uploadName}`);
+        } catch (err) {
+          throw new Error(`闪铸直通 3mf 提取内嵌 gcode 失败：${err.message}`);
+        }
+      }
+      await printerManager.uploadFileToPrinter(printer.id, buffer, uploadName);
 
       if (await checkCancelled('下发')) return;
       const amsFrame = buildAmsMapping(task, printer, fileMeta);
       await printerManager.startProjectOnPrinter(
         printer.id,
-        remoteName,
-        task.fileName || task.applicationNo || remoteName,
+        uploadName,
+        task.fileName || task.applicationNo || uploadName,
         config.dispatch.useAms,
         task.prefTray || null, // 审批分发指定（2026-10-16）：指定槽位随帧下发
         {
@@ -1260,5 +1292,6 @@ module.exports.materialMatch = materialMatch;
 module.exports.buildLocalTask = buildLocalTask;
 module.exports.staleThresholdMs = staleThresholdMs;
 module.exports.brandForFile = brandForFile;
+module.exports.brandForFileWithMeta = brandForFileWithMeta;
 module.exports.buildAmsMapping = buildAmsMapping;
 module.exports.isHumanCancelFailReason = isHumanCancelFailReason;
