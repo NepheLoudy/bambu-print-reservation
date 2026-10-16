@@ -118,6 +118,14 @@ const DETAIL = {
     await c.disconnect();
   });
 
+  await ok('getDeviceInfo：与拓竹同形状（manager.handleStateChange 直调契约）', async () => {
+    const c = new FlashforgeClient(PRINTER);
+    assert.strictEqual(typeof c.getDeviceInfo, 'function', '缺失会让状态事件整链被 TypeError 吞掉（2026-10-16 真机接入事故）');
+    const info = c.getDeviceInfo();
+    assert.ok(info && typeof info === 'object', '应返回对象');
+    await c.disconnect();
+  });
+
   await ok('暂停/恢复/停止 → /control jobCtl_cmd payload（JSON 字符串化）', async () => {
     mockFetch({ '/detail': DETAIL, '/control': { code: 0, message: 'success' } });
     const c = new FlashforgeClient(PRINTER);

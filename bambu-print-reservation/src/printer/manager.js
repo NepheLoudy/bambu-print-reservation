@@ -234,7 +234,7 @@ class PrinterManager {
       sdcard: Boolean(status.sdcard),
       printError: status.printError || 0,
       failReason: status.failReason || 0,
-      deviceInfo: client.getDeviceInfo(),
+      deviceInfo: typeof client.getDeviceInfo === 'function' ? client.getDeviceInfo() : null,
       ams: client.getAmsTrays(),
     });
 

@@ -188,6 +188,13 @@ class FlashforgeClient {
     return trays;
   }
 
+  /** 设备信息（与 PrinterClient.getDeviceInfo 同形状；闪铸 detail 无这些字段——占位 null）
+   *  2026-10-16 真机接入修复：manager 的 handleStateChange 会直调本方法，缺失会让
+   *  每次状态事件抛 TypeError 被监听层吞掉——整台机器状态永远流不进管理面 */
+  getDeviceInfo() {
+    return { nozzleDiameter: null, nozzleType: null, wifiDbm: null, fwVersion: null, amsHumidity: null };
+  }
+
   getCameraUrl() {
     return this.state && this.state.cameraStreamUrl
       ? this.state.cameraStreamUrl
