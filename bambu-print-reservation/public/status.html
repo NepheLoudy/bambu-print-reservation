@@ -194,8 +194,14 @@ function amsSection(p) {
 function camSection(p) {
   const id = p.id;
   if (p.camera === 'mjpeg') {
-    return `<div class="cam"><img src="/api/printers/${id}/camera/mjpeg?t=${Date.now()}" alt="画面"
-      onerror="this.parentElement.innerHTML='<div class=ph>📷 画面不可用——机型无摄像头或打印机离线</div>'">
+    // 显式连接（2026-10-16 曼波反馈：此前 <img> 挂页即自动拉流、且每 5s 重绘反复重连——
+    // 「无操作自己播放」；改为与拓竹侧同款的「连接/断开」按钮，不点不连）
+    const watching = mjpegWatch.has(id);
+    return `<div class="cam" id="cam${id}">
+      ${watching
+        ? `<img src="/api/printers/${id}/camera/mjpeg" alt="画面" onerror="mjpegFail(${id})">`
+        : '<div class="ph">📷 闪铸 MJPEG（8080）——点「连接画面」经服务端代理拉流（不点不会自动连接）</div>'}
+      <button class="camBtn" onclick="toggleMjpegStream(${id})">${watching ? '⏹ 断开画面' : '▶ 连接画面'}</button>
       <span class="camTag">MJPEG · 闪铸 8080</span></div>`;
   }
   if (p.camera === 'p1stream' || p.camera === 'rtsp') {
@@ -209,6 +215,19 @@ function camSection(p) {
     </div>`;
   }
   return '';
+}
+
+// 闪铸 MJPEG 观看态（2026-10-16）：显式连接后进入集合；5s 重绘守卫保 img 不被重画掉
+const mjpegWatch = new Set();
+function toggleMjpegStream(id) {
+  if (mjpegWatch.has(id)) mjpegWatch.delete(id);
+  else mjpegWatch.add(id);
+  loadFleet(true); // 强制重绘一次（观看期间由守卫维持，不随轮询重连）
+}
+function mjpegFail(id) {
+  mjpegWatch.delete(id);
+  toast('❌ 闪铸画面拉流失败——请检查打印机摄像头（屏幕设置→摄像头是否开启）与网络，稍后可重试连接');
+  loadFleet(true);
 }
 
 /** 「动机械」类指令的状态门（与服务端 canJogMachine 同口径） */
@@ -549,15 +568,20 @@ function cardHtml(p) {
   </div>`;
 }
 
-async function loadFleet() {
-  // 5s 重渲染跳过条件（v56 复查批收窄）：仅在拖风扇滑条/输 gcode 等连续输入时跳过——
-  // 此前按「焦点在 .panel 内」一刀切，页签按钮也在面板内 → 点页签永远不刷新（全部失灵）
-  const ae = document.activeElement;
-  const inContinuousInput = ae && ae.tagName === 'INPUT' && ae.closest && ae.closest('.fanline,.gline');
-  if (inContinuousInput) return;
-  // MSE 会话守卫（2026-10-16）：jmuxer 持有 video 元素引用，卡片重绘会换掉 DOM 导致画面丢失——
-  // MSE 观看期间跳过整绘（状态数字暂不刷新，断开画面即恢复；WebCodecs 路径不受影响）
-  for (const ses of h264Sessions.values()) { if (ses.mode === 'mse') return; }
+async function loadFleet(force = false) {
+  if (!force) {
+    // 5s 重渲染跳过条件（v56 复查批收窄）：仅在拖风扇滑条/输 gcode 等连续输入时跳过——
+    // 此前按「焦点在 .panel 内」一刀切，页签按钮也在面板内 → 点页签永远不刷新（全部失灵）
+    const ae = document.activeElement;
+    const inContinuousInput = ae && ae.tagName === 'INPUT' && ae.closest && ae.closest('.fanline,.gline');
+    if (inContinuousInput) return;
+    // MSE 会话守卫（2026-10-16）：jmuxer 持有 video 元素引用，卡片重绘会换掉 DOM 导致画面丢失——
+    // MSE 观看期间跳过整绘（状态数字暂不刷新，断开画面即恢复；WebCodecs 路径不受影响）
+    for (const ses of h264Sessions.values()) { if (ses.mode === 'mse') return; }
+    // 闪铸 MJPEG 观看守卫（2026-10-16 曼波反馈）：img 正在播放时跳过整绘——重绘会杀流并
+    // 每 5s 反复重连（「无操作自己播放」根源）；点断开/拉流失败即恢复轮询
+    if (mjpegWatch.size > 0) return;
+  }
   const res = await fetch('/api/printers');
   if (res.status === 401) { location.reload(); return; }
   const printers = await res.json();
