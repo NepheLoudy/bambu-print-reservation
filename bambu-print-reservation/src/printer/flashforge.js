@@ -160,11 +160,11 @@ class FlashforgeClient {
       // estimatedTime = 剩余秒数
       remainingMinutes: Math.round((Number(this.state.estimatedTime) || 0) / 60),
       currentFile: this.state.printFileName || '',
-      nozzleTemp: this.state.rightTemp != null ? Number(this.state.rightTemp) : null,
-      bedTemp: this.state.platTemp != null ? Number(this.state.platTemp) : null,
+      nozzleTemp: this.state.rightTemp != null ? Math.round(Number(this.state.rightTemp)) : null, // 取整显示（真机回浮点 29.7000...）
+      bedTemp: this.state.platTemp != null ? Math.round(Number(this.state.platTemp)) : null,
       chamberTemp: null,
-      nozzleTargetTemp: this.state.rightTargetTemp != null ? Number(this.state.rightTargetTemp) : null,
-      bedTargetTemp: this.state.platTargetTemp != null ? Number(this.state.platTargetTemp) : null,
+      nozzleTargetTemp: this.state.rightTargetTemp != null ? Math.round(Number(this.state.rightTargetTemp)) : null,
+      bedTargetTemp: this.state.platTargetTemp != null ? Math.round(Number(this.state.platTargetTemp)) : null,
       stateStale: this.isStateStale(),
     };
   }
