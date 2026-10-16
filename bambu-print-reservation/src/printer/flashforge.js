@@ -121,7 +121,10 @@ class FlashforgeClient {
     }
 
     const prevGcodeState = this.state ? this.normalizedGcodeState() : '';
-    this.state = data;
+    // 实测真机 /detail 返回信封 {code:0, detail:{...}}（2026-10-16 A5P 真机接入实证）——
+    // 此前直接存信封，状态字段全在静默吃默认值（温度/进度/进料口全空、状态兜底 IDLE）；
+    // 兼容直接返回内层的固件
+    this.state = (data && data.detail && typeof data.detail === 'object') ? data.detail : data;
     this.lastStateAt = Date.now();
     this.notifyListeners('state', data);
 

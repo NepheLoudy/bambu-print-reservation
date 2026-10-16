@@ -29,7 +29,9 @@ function mockFetch(routes) {
   };
 }
 
-const DETAIL = {
+// 真机 /detail 信封（2026-10-16 A5P 实测 {code:0, detail:{...}}）——v53 桩误用内层直存，
+// 漏掉解包 bug（真机上状态/温度/进料口全空）；桩按真机形状建模让解包路径进入回归
+const DETAIL_INNER = {
   status: 'printing', printProgress: 0.42, estimatedTime: 1500, printDuration: 3600,
   printFileName: 'benchy.gcode', printLayer: 88, targetPrintLayer: 210,
   platTemp: 61, platTargetTemp: 60, rightTemp: 221, rightTargetTemp: 220, leftTemp: 26, leftTargetTemp: 0,
@@ -38,6 +40,7 @@ const DETAIL = {
   estimatedLeftWeight: 850.5, estimatedRightWeight: 912.3,
   firmwareVersion: '3.2.7', ipAddr: '192.168.2.90', macAddr: 'aa:bb:cc:dd:ee:ff',
 };
+const DETAIL = { code: 0, detail: DETAIL_INNER };
 
 (async () => {
   console.log('== 闪铸客户端（flashforge.js）==');
@@ -101,7 +104,7 @@ const DETAIL = {
     await c.disconnect();
     // 单口机型（5M 基础款无 left 字段）→ 单条「进料口」
     const single = new FlashforgeClient(PRINTER);
-    single.state = { ...DETAIL, leftTemp: null, leftTargetTemp: null, estimatedLeftWeight: null };
+    single.state = { ...DETAIL_INNER, leftTemp: null, leftTargetTemp: null, estimatedLeftWeight: null };
     const t1 = single.getAmsTrays();
     assert.strictEqual(t1.length, 1);
     assert.strictEqual(t1[0].slot, '进料口');
