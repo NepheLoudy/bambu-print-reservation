@@ -209,7 +209,13 @@
       <div class="workbench" id="anno3dBox" style="display:none">
         <div class="wbHead"><span class="wbBadge">3D</span><b>工况标注工坊</b><span class="detail">——选中工具后点击模型表面落点：标注几何链路看不出来、只有人知道的复杂特征（受弯位置、接触面、外观面、载荷…）。拖拽旋转 / 滚轮缩放，点标注点可编辑删除。</span></div>
         <div id="anno3dHint" style="display:none;margin-top:6px;font-size:12px;color:var(--amber)"></div>
-        <div id="toolRow" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px"></div>        <button class="mini" id="clearSelBtn" onclick="clearSel()" title="取消选中标注，恢复放置模式">✕ 取消选中</button>        <div id="loadTypeRow" style="display:none;margin-top:6px;font-size:12px;color:var(--muted)">载荷工况标注——受力类型：
+        <div id="toolRow" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px"></div>
+        <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+          <button class="mini" id="placeBtn" onclick="togglePlacementMode()">⬇ 放置平面</button>
+          <button class="mini" id="placeResetBtn" onclick="resetPlacementMode()" style="display:none">↺ 复位放置</button>
+          <span class="detail">同切片软件·Place on Face：点一个面，该面朝下贴盘（悬停绿高亮 / Esc 取消）</span>
+        </div>
+        <button class="mini" id="clearSelBtn" onclick="clearSel()" title="取消选中标注，恢复放置模式">✕ 取消选中</button>        <div id="loadTypeRow" style="display:none;margin-top:6px;font-size:12px;color:var(--muted)">载荷工况标注——受力类型：
           <select id="loadTypeSel" onchange="updateLoadBtnColor()" style="padding:3px 6px">
             <option value="compression">受压</option>
             <option value="tension">受拉</option>
@@ -236,8 +242,6 @@
             <option value="heavy">重载</option>
           </select>
           <button class="mini" onclick="flipLastLoad()">⇆ 翻转上一箭头</button>（箭头即力方向，自动换算工况勾选）
-          <button class="mini" id="placeBtn" onclick="togglePlacementMode()" style="margin-left:8px">⬇ 放置平面</button>
-          <button class="mini" id="placeResetBtn" onclick="resetPlacementMode()" style="display:none">↺ 复位放置</button>
         </div>
         <div id="annoCanvasWrap" style="position:relative;margin-top:8px">
           <canvas id="annoCanvas" style="width:100%;height:400px;display:block;background:#0c1016;border:1px solid var(--line2);border-radius:4px;cursor:crosshair"></canvas>
@@ -274,7 +278,7 @@
   </div>
 </div>
 <div id="toast"></div>
-<script src="/annotator.js"></script>
+<script src="/annotator.js?v=24"></script>
 <script>
 // 全局错误遥测（必须最先挂载）：异步静默失败=「界面没反应」类事故总根源，现场留痕
 window.__errs = [];
