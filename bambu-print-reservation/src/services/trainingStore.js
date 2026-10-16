@@ -117,6 +117,8 @@ const trainingStore = {
       selection,
       // 空间工况标注（3D 标注工房：人直接在模型上点选复杂几何特征，修正几何链路盲区）
       spatial: Array.isArray(input.spatial) ? input.spatial.slice(0, 200) : [],
+      // 放置平面四元数（2026-10-16）：标注坐标在放置后的朝向帧里，此值即换算桥
+      placement: Array.isArray(input.placement) && input.placement.length === 4 ? input.placement.map(Number) : null,
       materialType: String(input.materialType || '').trim(),
       // 自动几何特征（原样存档；ok:false 也存——负样本也是数据）
       model: modelRec ? { ...modelRec, features: input.model.features || null } : null,

@@ -489,6 +489,14 @@ app.post('/api/training/samples', requireUser(), upload.fields([
     } catch {
       return res.status(400).json({ error: 'selection/spatial 不是合法 JSON' });
     }
+    // 放置平面四元数（2026-10-16）：与预约单同口径——随样本存档（标注朝向帧换算桥）
+    let placement = null;
+    if (body.placement) {
+      try {
+        const q = JSON.parse(body.placement);
+        if (Array.isArray(q) && q.length === 4 && q.every((v) => Number.isFinite(Number(v)))) placement = q.map(Number);
+      } catch { /* 非法忽略 */ }
+    }
     // spatial 字段净化（v56 抽取为 utils/spatialSanitize 唯一权威实现，预约提交共用）：
     // point/axis/survey/circle/region/load 白名单；faces 封顶 20 万
     spatial = require('./utils/spatialSanitize').sanitizeSpatial(spatial);
@@ -540,6 +548,7 @@ app.post('/api/training/samples', requireUser(), upload.fields([
       machine: body.machine,
       confidence: (() => { const v = Number(body.confidence); return Number.isFinite(v) ? Math.max(0, Math.min(100, Math.round(v))) : null; })(),
       spatial,
+      placement,      // 放置平面四元数（2026-10-16：Place on Face 累计旋转；未放置为 null）
       materialType: body.materialType,
       fit,
       model: {
@@ -646,6 +655,15 @@ app.post('/api/reservations', requireUser(), upload.single('file'), async (req, 
     } catch {
       return res.status(400).json({ error: 'selection/spatial 不是合法 JSON' });
     }
+    // 放置平面四元数（2026-10-16）：3D 工坊 Place on Face 的累计旋转随单存档——
+    // 标注坐标在放置后的朝向帧里，此值即朝向帧↔原始文件坐标系的换算桥（切片烘焙/解义用）
+    let placement = null;
+    if (body.placement) {
+      try {
+        const q = JSON.parse(body.placement);
+        if (Array.isArray(q) && q.length === 4 && q.every((v) => Number.isFinite(Number(v)))) placement = q.map(Number);
+      } catch { /* 非法忽略，不阻塞提交 */ }
+    }
 
     // 需求链路才定档；3mf 直通（参数内嵌，快照置空并在页面标注）。
     // 定档需 modelFeatures（特征派生输入）——故快照解析先行（无副作用，原位置在下方）
@@ -735,6 +753,7 @@ app.post('/api/reservations', requireUser(), upload.single('file'), async (req, 
       quantity: body.quantity,
       selection,
       spatial,        // 3D 标注随单存档（v56：载荷工况由标注驱动，底料与训练样本同构）
+      placement,      // 放置平面四元数（2026-10-16：Place on Face 累计旋转；未放置为 null）
       processParams: applied ? applied.params : null,
       appliedRules: applied ? applied.applied : [],
       embeddedParams, // 3mf 内嵌参数摘要（审批透明化；需求链路单为 null）

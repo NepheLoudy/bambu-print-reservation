@@ -233,6 +233,8 @@
             <option value="heavy">重载</option>
           </select>
           <button class="mini" onclick="flipLastLoad()">⇆ 翻转上一箭头</button>（箭头即力方向，自动换算勾选）
+          <button class="mini" id="placeBtn" onclick="togglePlacementMode()" style="margin-left:8px">⬇ 放置平面</button>
+          <button class="mini" id="placeResetBtn" onclick="resetPlacementMode()" style="display:none">↺ 复位放置</button>
         </div>
         <div style="position:relative;margin-top:8px">
           <canvas id="annoCanvas" style="width:100%;height:400px;display:block;background:#fafbfd;border:1px solid var(--line);border-radius:8px;cursor:crosshair"></canvas>
@@ -659,6 +661,27 @@ function onAnnotationsChange(anns) {
 }
 function clearAnnotations() { if (ANNOTATOR) { ANNOTATOR.clearAnnotations(); onAnnotationsChange([]); } }
 function undoLast() { if (ANNOTATOR) ANNOTATOR.undo(); }
+
+// ---------- 放置平面（2026-10-16 曼波令：同切片软件 Place on Face，与预约页同构） ----------
+function togglePlacementMode() {
+  if (!ANNOTATOR) return;
+  if (ANNOTATOR.isPlacementArmed()) ANNOTATOR.cancelPlacement();
+  else ANNOTATOR.armPlacement();
+}
+function resetPlacementMode() {
+  if (!ANNOTATOR) return;
+  if (!ANNOTATOR.resetPlacement()) toast('还没有放置过，无需复位');
+}
+function onPlacementChanged() {
+  const rb = document.getElementById('placeResetBtn');
+  if (rb) rb.style.display = (ANNOTATOR && ANNOTATOR.hasPlacement()) ? '' : 'none';
+}
+function onPlacementModeArmed(armed) {
+  const b = document.getElementById('placeBtn');
+  if (!b) return;
+  b.textContent = armed ? '⬇ 点一个面…（Esc 取消）' : '⬇ 放置平面';
+  b.style.background = armed ? 'var(--ok)' : '';
+}
 function redoLast() { if (ANNOTATOR) ANNOTATOR.redo(); }
 function flipLastLoad() { if (ANNOTATOR && ANNOTATOR.flipLastLoad()) { syncLoadsToSelection(); toast("⇆ 最后一支载荷箭头已翻转"); } else toast("没有可翻转的载荷箭头"); }
 function clearSel() { if (ANNOTATOR) ANNOTATOR.selectNone(); }
@@ -730,6 +753,8 @@ async function loadAnnotator() {
         getLoadNature: () => document.getElementById('loadNatureSel').value,
         getLoadMagnitude: () => document.getElementById('loadMagnitudeSel').value,
         onHint: (t) => toast(t),
+        onPlacement: onPlacementChanged,          // 放置平面（2026-10-16 曼波令，与预约页同构）
+        onPlacementMode: onPlacementModeArmed,
       });
     }
     // 识别→标注直通：几何体检的孔口圆投给 3D 视图做候选环（单零件文件）
@@ -764,6 +789,8 @@ async function submitSample() {
   fd.append('machine', $('machineSel').value);
   fd.append('confidence', $('confidence').value || '80');
   fd.append('spatial', JSON.stringify(ANNOTATOR ? ANNOTATOR.getAnnotations() : []));
+  // 放置平面随样本存档（2026-10-16）：标注坐标在放置后的朝向帧里，四元数必须同步下发
+  if (ANNOTATOR && ANNOTATOR.getPlacement()) fd.append('placement', JSON.stringify(ANNOTATOR.getPlacement()));
 
   const btn = $('submitBtn'); btn.disabled = true; $('submitHint').textContent = '上传分析中…';
   try {

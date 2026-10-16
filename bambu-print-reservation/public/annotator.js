@@ -120,14 +120,17 @@
       loadType: 'compression', // 载荷标注当前受力类型          // 撤销快照栈（漏初始化会让 snapshot() 首次调用即抛错，所有点击标注全灭）
       pendingLine: null,
       hoverFace: -1,
+      placementArmed: false, // 放置平面模式（2026-10-16 曼波令：同切片软件 Place on Face）
+      placementOps: [],      // 已应用的放置变换栈 [{q,dz}]（复位=逆序求逆；导出=顺序合成）
       dirty: true,
     };
 
     const posBuf = gl.createBuffer(), norBuf = gl.createBuffer(), pickBufG = gl.createBuffer(), tintBuf = gl.createBuffer();
     let tintArr = null; // Float32Array(F*9)，区域染色写这里
 
-    function loadMesh(data) {
-      const positions = data.positions, faces = data.faces;
+    /** 重建 GPU 缓冲与包围盒（loadMesh 与放置平面共用；不动标注/相机/选择态） */
+    function rebuildMeshBuffers() {
+      const positions = st.mesh.positions, faces = st.mesh.faces;
       const faceCount = faces.length / 3;
       const triPos = new Float32Array(faceCount * 9);
       const triNor = new Float32Array(faceCount * 9);
@@ -159,15 +162,21 @@
       gl.bindBuffer(gl.ARRAY_BUFFER, norBuf); gl.bufferData(gl.ARRAY_BUFFER, triNor, gl.STATIC_DRAW);
       gl.bindBuffer(gl.ARRAY_BUFFER, pickBufG); gl.bufferData(gl.ARRAY_BUFFER, triPick, gl.STATIC_DRAW);
       gl.bindBuffer(gl.ARRAY_BUFFER, tintBuf); gl.bufferData(gl.ARRAY_BUFFER, tintArr, gl.DYNAMIC_DRAW);
-      st.mesh = { positions, faces };
       st.triCount = faceCount;
       st.center = [(mn[0] + mx[0]) / 2, (mn[1] + mx[1]) / 2, (mn[2] + mx[2]) / 2];
       st.span = Math.max(mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]) || 100;
+      st.hoverFace = -1;
+      st.dirty = true;
+    }
+
+    function loadMesh(data) {
+      st.mesh = { positions: data.positions, faces: data.faces };
+      rebuildMeshBuffers();
       st.dist = 2.6;
       st.annotations = [];
       st.circleCandidates = [];
-      st.hoverFace = -1;
-      st.dirty = true;
+      st.placementArmed = false;
+      st.placementOps = [];
     }
 
     function matrices() {
@@ -742,6 +751,7 @@
       if (!st.dirty || !st.mesh) return;
       st.dirty = false;
       draw('normal');
+      if (st.placementArmed && st.hoverFace >= 0) drawFaceHi(st.hoverFace); // 放置模式悬停高亮
       renderOverlay();
     }
     function invalidate() { st.dirty = true; requestAnimationFrame(render); }
@@ -860,6 +870,130 @@
       return [nx / l, ny / l, nz / l];
     }
 
+    // ---------- 放置平面（2026-10-16 曼波令：同切片软件 Place on Face） ----------
+    // 交互：进入模式 → 悬停高亮面 → 点击把该面转成朝下（法线→-Z）并落到盘面 z=0；
+    // 标注坐标随模型同步变换（面序号类标注旋转不变）；可逆序复位；导出四元数随单存档（切片烘焙用）
+    function quatFromTo(a, b) {
+      const d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+      if (d > 0.999999) return [0, 0, 0, 1];
+      if (d < -0.999999) {
+        const ax = Math.abs(a[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+        const cx = a[1] * ax[2] - a[2] * ax[1], cy = a[2] * ax[0] - a[0] * ax[2], cz = a[0] * ax[1] - a[1] * ax[0];
+        const l = Math.hypot(cx, cy, cz) || 1;
+        return [cx / l, cy / l, cz / l, 0];
+      }
+      const cx = a[1] * b[2] - a[2] * b[1], cy = a[2] * b[0] - a[0] * b[2], cz = a[0] * b[1] - a[1] * b[0];
+      const q = [cx, cy, cz, 1 + d];
+      const l = Math.hypot(q[0], q[1], q[2], q[3]) || 1;
+      return [q[0] / l, q[1] / l, q[2] / l, q[3] / l];
+    }
+    function quatMul(a, b) {
+      return [
+        a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
+        a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
+        a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3],
+        a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2],
+      ];
+    }
+    function quatInv(q) { return [-q[0], -q[1], -q[2], q[3]]; }
+    function rotVec(q, v) {
+      const [x, y, z, w] = q;
+      const tx = 2 * (y * v[2] - z * v[1]);
+      const ty = 2 * (z * v[0] - x * v[2]);
+      const tz = 2 * (x * v[1] - y * v[0]);
+      return [
+        v[0] + w * tx + (y * tz - z * ty),
+        v[1] + w * ty + (z * tx - x * tz),
+        v[2] + w * tz + (x * ty - y * tx),
+      ];
+    }
+    const r3 = (v) => [+v[0].toFixed(3), +v[1].toFixed(3), +v[2].toFixed(3)];
+    function mapAnnotationCoords(fnPoint, fnDir) {
+      for (const a of st.annotations) {
+        if (Array.isArray(a.pos)) a.pos = fnPoint(a.pos);
+        if (Array.isArray(a.c)) a.c = fnPoint(a.c);
+        if (Array.isArray(a.a)) a.a = fnPoint(a.a);
+        if (Array.isArray(a.b)) a.b = fnPoint(a.b);
+        if (Array.isArray(a.n)) a.n = fnDir(a.n);
+        if (Array.isArray(a.dir)) a.dir = fnDir(a.dir);
+        if (Array.isArray(a.normal)) a.normal = fnDir(a.normal);
+        // faces/seed/supportFaces 是面序号——旋转不变，无需处理
+      }
+    }
+    function applyPlacement(face) {
+      if (!st.mesh || face < 0) return false;
+      const n = faceNormalOf(face);
+      const q = quatFromTo(n, [0, 0, -1]);
+      const P = st.mesh.positions;
+      for (let i = 0; i < P.length; i += 3) {
+        const v = rotVec(q, [P[i], P[i + 1], P[i + 2]]);
+        P[i] = v[0]; P[i + 1] = v[1]; P[i + 2] = v[2];
+      }
+      let minz = Infinity;
+      for (let i = 2; i < P.length; i += 3) if (P[i] < minz) minz = P[i];
+      const dz = -minz;
+      for (let i = 2; i < P.length; i += 3) P[i] += dz;
+      mapAnnotationCoords(
+        (v) => { const r = rotVec(q, v); r[2] += dz; return r3(r); },
+        (v) => r3(rotVec(q, v))
+      );
+      st.placementOps.push({ q, dz });
+      st.placementArmed = false;
+      rebuildMeshBuffers();
+      recomputeTints();
+      renderOverlay();
+      invalidate();
+      if (opts.onPlacement) opts.onPlacement(getPlacement());
+      if (opts.onPlacementMode) opts.onPlacementMode(false);
+      if (opts.onHint) opts.onHint('已放置：该面朝下（提交前可「复位放置」还原）');
+      return true;
+    }
+    function resetPlacement() {
+      if (!st.mesh || !st.placementOps.length) return false;
+      const ops = st.placementOps.splice(0).reverse();
+      const P = st.mesh.positions;
+      for (const op of ops) {
+        const qi = quatInv(op.q);
+        for (let i = 0; i < P.length; i += 3) {
+          const v = rotVec(qi, [P[i], P[i + 1], P[i + 2] - op.dz]);
+          P[i] = v[0]; P[i + 1] = v[1]; P[i + 2] = v[2];
+        }
+        mapAnnotationCoords(
+          (v) => r3(rotVec(qi, [v[0], v[1], v[2] - op.dz])),
+          (v) => r3(rotVec(qi, v))
+        );
+      }
+      rebuildMeshBuffers();
+      recomputeTints();
+      renderOverlay();
+      invalidate();
+      if (opts.onPlacement) opts.onPlacement(null);
+      if (opts.onHint) opts.onHint('已复位到原始摆放');
+      return true;
+    }
+    function getPlacement() {
+      if (!st.placementOps.length) return null;
+      let q = [0, 0, 0, 1];
+      for (const op of st.placementOps) q = quatMul(op.q, q); // 顺序应用=后算子左乘
+      return q.map((v) => +v.toFixed(6));
+    }
+    /** 悬停高亮单面（放置模式预览；polygonOffset 防与共面 z-fighting） */
+    function drawFaceHi(face) {
+      if (face < 0 || face >= st.triCount) return;
+      const { mvp } = matrices();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.viewport(0, 0, canvas.width, canvas.height);
+      gl.enable(gl.DEPTH_TEST);
+      gl.uniformMatrix4fv(loc.uMVP, false, new Float32Array(mvp));
+      bindAttribs(false);
+      gl.uniform1f(loc.uMode, 0);
+      gl.uniform3f(loc.uColor, 0.2, 0.88, 0.5);
+      gl.enable(gl.POLYGON_OFFSET_FILL);
+      gl.polygonOffset(-1, -1);
+      gl.drawArrays(gl.TRIANGLES, face * 3, 3);
+      gl.disable(gl.POLYGON_OFFSET_FILL);
+    }
+
     /** 鼠标 → 世界射线（与 MAT.lookAt 的相机基一致） */
     function screenRay(e) {
       const rect = canvas.getBoundingClientRect();
@@ -913,6 +1047,18 @@
     }
 
     canvas.addEventListener('click', (e) => {
+      // 放置平面模式（2026-10-16）：点面 → 该面朝下落到盘面；不参与标注选中/放置
+      if (st.placementArmed) {
+        if (moved > 6 || !st.mesh) return;
+        const rectP = canvas.getBoundingClientRect();
+        const pxP = Math.round((e.clientX - rectP.left) * (canvas.width / rectP.width));
+        const pyP = Math.round(canvas.height - (e.clientY - rectP.top) * (canvas.height / rectP.height));
+        if (pxP < 0 || pyP < 0 || pxP >= canvas.width || pyP >= canvas.height) return;
+        const faceP = pickFace(pxP, pyP);
+        if (faceP >= 0) applyPlacement(faceP);
+        else if (opts.onHint) opts.onHint('没有点到模型表面——对准某个面再点一下');
+        return;
+      }
       if (moved > 6 || !st.mesh || !st.tool) return;
       const rectC = canvas.getBoundingClientRect();
       const cssX = e.clientX - rectC.left, cssY = e.clientY - rectC.top;
@@ -1138,6 +1284,7 @@
         if (k === 'y') { e.preventDefault(); redo(); return; } // Ctrl+Y
       }
       if (e.key === 'Escape' && st.pendingLine) { st.pendingLine = null; renderOverlay(); if (opts.onHint) opts.onHint('已取消受弯轴线'); }
+      if (e.key === 'Escape' && st.placementArmed) { st.placementArmed = false; invalidate(); if (opts.onPlacementMode) opts.onPlacementMode(false); if (opts.onHint) opts.onHint('已取消放置平面'); }
     });
 
     window.addEventListener('resize', () => {
@@ -1150,7 +1297,29 @@
 
     return {
       loadMesh,
-      setTool: (id) => { st.tool = id; st.pendingLine = null; },
+      setTool: (id) => {
+        st.tool = id;
+        st.pendingLine = null;
+        // 选标注工具即退出放置模式（互斥，防误点面旋转）
+        if (st.placementArmed) { st.placementArmed = false; if (opts.onPlacementMode) opts.onPlacementMode(false); invalidate(); }
+      },
+      armPlacement: () => {
+        st.placementArmed = true;
+        st.pendingLine = null;
+        invalidate();
+        if (opts.onPlacementMode) opts.onPlacementMode(true);
+        if (opts.onHint) opts.onHint('放置平面：点一个面，该面将朝下贴盘（Esc 取消）');
+        return true;
+      },
+      cancelPlacement: () => {
+        st.placementArmed = false;
+        invalidate();
+        if (opts.onPlacementMode) opts.onPlacementMode(false);
+      },
+      isPlacementArmed: () => st.placementArmed,
+      hasPlacement: () => st.placementOps.length > 0,
+      getPlacement,
+      resetPlacement,
       flipLastLoad: () => {
         for (let i = st.annotations.length - 1; i >= 0; i--) {
           if (st.annotations[i].type === 'load') {

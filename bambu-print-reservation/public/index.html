@@ -236,6 +236,8 @@
             <option value="heavy">重载</option>
           </select>
           <button class="mini" onclick="flipLastLoad()">⇆ 翻转上一箭头</button>（箭头即力方向，自动换算工况勾选）
+          <button class="mini" id="placeBtn" onclick="togglePlacementMode()" style="margin-left:8px">⬇ 放置平面</button>
+          <button class="mini" id="placeResetBtn" onclick="resetPlacementMode()" style="display:none">↺ 复位放置</button>
         </div>
         <div id="annoCanvasWrap" style="position:relative;margin-top:8px">
           <canvas id="annoCanvas" style="width:100%;height:400px;display:block;background:#0c1016;border:1px solid var(--line2);border-radius:4px;cursor:crosshair"></canvas>
@@ -528,6 +530,28 @@ function onAnnotationsChange(anns) {
 }
 function clearAnnotations() { if (ANNOTATOR) { ANNOTATOR.clearAnnotations(); onAnnotationsChange([]); } }
 function undoLast() { if (ANNOTATOR) ANNOTATOR.undo(); }
+
+// ---------- 放置平面（2026-10-16 曼波令：同切片软件 Place on Face） ----------
+// 进入模式 → 悬停高亮面 → 点击该面朝下贴盘；标注随模型同步旋转；提交时随单存档四元数
+function togglePlacementMode() {
+  if (!ANNOTATOR) return;
+  if (ANNOTATOR.isPlacementArmed()) ANNOTATOR.cancelPlacement();
+  else ANNOTATOR.armPlacement();
+}
+function resetPlacementMode() {
+  if (!ANNOTATOR) return;
+  if (!ANNOTATOR.resetPlacement()) toast('还没有放置过，无需复位');
+}
+function onPlacementChanged() {
+  const rb = document.getElementById('placeResetBtn');
+  if (rb) rb.style.display = (ANNOTATOR && ANNOTATOR.hasPlacement()) ? '' : 'none';
+}
+function onPlacementModeArmed(armed) {
+  const b = document.getElementById('placeBtn');
+  if (!b) return;
+  b.textContent = armed ? '⬇ 点一个面…（Esc 取消）' : '⬇ 放置平面';
+  b.style.background = armed ? 'var(--ok)' : '';
+}
 function redoLast() { if (ANNOTATOR) ANNOTATOR.redo(); }
 function flipLastLoad() { if (ANNOTATOR && ANNOTATOR.flipLastLoad()) { syncLoadsToSelection(); toast('⇆ 最后一支载荷箭头已翻转'); } else toast('没有可翻转的载荷箭头'); }
 function clearSel() { if (ANNOTATOR) ANNOTATOR.selectNone(); }
@@ -631,6 +655,8 @@ async function loadAnnotator() {
         getLoadNature: () => $('loadNatureSel').value,
         getLoadMagnitude: () => $('loadMagnitudeSel').value,
         onHint: (t) => toast(t),
+        onPlacement: onPlacementChanged,          // 放置平面（2026-10-16）
+        onPlacementMode: onPlacementModeArmed,
       });
     }
     // 识别→标注直通：几何体检的孔口圆投给 3D 视图做候选环（单零件文件）
@@ -957,9 +983,13 @@ function submitReservation() {
   fd.append('assignedPrinter', $('assignedPrinter').value.trim());
   fd.append('quantity', $('quantity').value || 1);
   // 3mf 直通不提交勾选（切片参数内嵌）；需求链路提交标签
-  fd.append('selection', JSON.stringify(isSlicedFile() ? {} : collectSelection()));
-  // 3D 标注随单存档（v56：载荷工况由标注驱动，底料与训练样本同构；3mf 直通无此项）
-  if (!isSlicedFile()) fd.append('spatial', JSON.stringify(ANNOTATOR ? ANNOTATOR.getAnnotations() : []));
+  // 工况勾选与 3D 标注**切片直通单同样提交**（2026-10-16 曼波定：切片参数由工况×几何共同
+  // 决定，纯 3mf 无标注入库无意义——直通单的勾选不作定档、仅作样本底料）
+  fd.append('selection', JSON.stringify(collectSelection()));
+  if (ANNOTATOR) fd.append('spatial', JSON.stringify(ANNOTATOR.getAnnotations()));
+  // 放置平面随单存档（2026-10-16）：经「放置平面」调整过则下发四元数——标注坐标在放置后的
+  // 朝向帧里，此四元数即两者换算桥（未来切片烘焙用；3mf 直通单文件内已烘朝向，此值仅标注解义用）
+  if (ANNOTATOR && ANNOTATOR.getPlacement()) fd.append('placement', JSON.stringify(ANNOTATOR.getPlacement()));
   // STL 体检快照随单入档（学习回路底料；3mf 无此项）
   if (!isSlicedFile() && MODEL_FEATURES && MODEL_FEATURES.ok) fd.append('modelFeatures', JSON.stringify(MODEL_FEATURES));
 
