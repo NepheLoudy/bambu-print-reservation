@@ -36,9 +36,7 @@ const stubs = {
     downloadApprovalAttachment: () => downloadGate.promise,
   },
   [path.join(ROOT, 'src/feishu/bot.js')]: {
-    sendMessage: async () => ({}),
-    buildJobStartCard: () => ({}),
-    buildJobFailedCard: () => ({}),
+    sendMessage: async () => ({}),    buildJobFailedCard: () => ({}),
     buildQueueCard: () => ({}),
     buildMaterialMissingCard: () => ({}),
   },

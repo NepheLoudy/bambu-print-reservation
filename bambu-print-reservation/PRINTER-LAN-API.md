@@ -98,6 +98,7 @@
 | fail_reason 50348044 | = 0x0300400C = **HMS 0300-400C「打印已取消」**（非硬件故障；屏幕手停/外部打断/被新任务取消均落此码）。分发侧语义：命中该码 = **机器端人工取消 → 不自动重发**（humanTerminateTask，2026-10-16） |
 | gcode_state RUNNING | **H2 新固件的打印执行态**（打 print 中上报 RUNNING 而非 PRINTING；2026-10-16 实测）。映射层须将 RUNNING 计入「打印中」——漏收会被兜底成空闲、把正在打印的机器误标可派单 |
 | 停止/暂停指令 | `stop`/`pause`/`resume` 帧合规（社区同款 `{"print":{"command":"stop"}}`，print 域数字 seq）；但**回执 success ≠ 真正停机**（残留态实测静默 no-op）——控制台按状态验证如实回报（2026-10-16）。另注：社区有「2025+ 固件控制命令需签名」报告（LINUX DO），本项目实测 project_file/ledctrl 无需签名可用，stop 若在真实打印中仍无效再按该线索深挖 |
+| 切片文件内嵌机型 | `project_settings.printer_model`（人读名）与 `slice_info.printer_model_id`（Orca 内部 id，如 `O1D`=H2D、`Flashforge-Adventurer-5M-Pro`）——**直通单品牌判定以内嵌为权威**（2026-10-16 实证：「拿闪铸机子切的 .gcode.3mf」扩展名是 .3mf，只看扩展名必误判拓竹）。闪铸目标的 Orca 工程 3mf 分发时需提取内嵌 `Metadata/plate_1.gcode` 按 `.gcode` 上传（闪铸固件只吃裸 gcode） |
 | 错误残留 | 打印被取消/失败后固件**挂住** `gcode_state=FAILED`+`task_id`（屏幕无任何提示仍持续回传；`clean_print_error`/`stop` 实测全受理但不生效——**指令免疫**，2026-10-16 实测）。解除=屏幕处理/重启电源；**分发侧已放行「静止残留」**（方案B：新任务开打顶掉残留，有在打痕迹的真故障不放行） |
 
 ---
@@ -191,6 +192,7 @@
 | **8899 TCP** | 低层文本协议口（G/M-code 级，社区库做查询/兜底） |
 | **8080 HTTP** | 摄像头 MJPEG 流（Pro 机型） |
 
+- **序列号获取（2026-10-16 A5P 真机实测）**：8899 文本口**免认证**发送 `~M115` 即回 Machine Type / **SN**（本次实得 `SNMOMF9302026`）；`~M601 S1` 回「Control Success」开着控制会话。8898 需 `serialNumber`+`checkCode` 双字段（checkCode=屏幕「设备ID」，8 位十六进制；SN 错报 `{"code":1,"message":"SN is different"}`；非局域网模式机器回 `{"code":-2,"message":"Lan mode error"}`——可借此区分同网段多台闪铸）。
 - **认证**：请求体携带 `serialNumber` + `checkCode`（每台打印机专属，屏幕「网络设置 → 局域网模式」下显示，社区提示会过期）。
 - **端点样例**：`/detail`（状态详情，**状态靠轮询获取，无事件推送**）、`/product`、`/gcodeList`、`/gcodeThumb`、`/uploadGcode`、`/printGcode`、`/checkCode`、`/control` 等；控制命令有 `jobCtl_cmd`、`printerCtl_cmd`、`lightControl_cmd`、`temperatureCtl_cmd`、`stateCtrl_cmd` 等（社区文档所列，未逐条核验）。
 - 社区实现仓库（Python/TS/HA 集成）均基于对 **Orca-FlashForge 局域网流量**的逆向，无官方 SDK。
