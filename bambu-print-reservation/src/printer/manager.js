@@ -380,7 +380,40 @@ class PrinterManager {
     if (this.printerStates[printerId].brand === 'flashforge') {
       return client.startFile(fileName);
     }
-    await client.startProjectFile(fileName, subtaskName, useAms, prefTray, frameOpts);
+    try {
+      await client.startProjectFile(fileName, subtaskName, useAms, prefTray, frameOpts);
+    } catch (err) {
+      // 回执丢失自愈（2026-10-16 R-008 真单实况）：H2/X1 固件对 project_file 的回执可能
+      // 超过 bambu-link 的 10s 等待窗口（按 sequence_id 匹配回执，超时抛
+      // 「Command timeout for sequence N」）——但机器实际已在开打。按**状态验证**判定：
+      // 短暂轮询进入准备/打印态即按分发成功处理；否则原样抛错（真失败走既有回滚链）。
+      // 不做这层自愈的话，「回执超时→回滚重排」会在机器打完后二次开打同一文件
+      if (/Command timeout/i.test(String(err.message || ''))) {
+        const started = await this._confirmJobStarted(printerId, 20000);
+        if (started) {
+          console.warn(`[打印机管理] ${this.printerStates[printerId].name} project_file 回执超时但机器已进入打印流程——按分发成功处理（回执丢失自愈）`);
+          return { ackLost: true };
+        }
+      }
+      throw err;
+    }
+  }
+
+  /** 等待机器离开空闲进入开打流程（回执丢失自愈用）：gcodeState 准备/打印系或进度>0 */
+  async _confirmJobStarted(printerId, timeoutMs = 20000) {
+    const client = this.clients[printerId];
+    const startedAt = Date.now();
+    const activeStates = ['PREPARE', 'RUNNING', 'PRINTING', 'RESUME', 'SLICING'];
+    while (Date.now() - startedAt < timeoutMs) {
+      await new Promise((r) => setTimeout(r, 2000));
+      if (!client || !client.connected) continue;
+      let st = null;
+      try { st = typeof client.getPrintStatus === 'function' ? client.getPrintStatus() : null; } catch { st = null; }
+      if (!st) continue;
+      if (activeStates.includes(String(st.gcodeState || '').toUpperCase())) return true;
+      if (Number(st.progress) > 0) return true;
+    }
+    return false;
   }
 
   /** 灯控制（观察台指令条；两品牌各走各的协议；lamp 仅拓竹区分腔灯/工作灯） */

@@ -583,6 +583,10 @@ class Dispatcher {
   /** @returns {boolean} 本轮是否发生过分发动作（供 trigger 判断是否立即重跑） */
   async match(reason) {
     let dispatched = false;
+    // 回执丢失对账（2026-10-16 R-008 真单实况）：分发时 project_file 回执超时被误判失败
+    // 回滚回队列，但机器实际已在打印本任务（subtask_name 匹配）——先补记为「打印中」移出
+    // 队列，防机器空闲后二次开打同一文件（自愈也适用于升级部署前遗留在队列的旧案）
+    if (this.reconcileLostAck()) dispatched = true;
     while (this.queue.length > 0) {
       // 分发中的打印机对自动匹配不可见（分钟级 await 链里 printing 登记在链尾才发生）
       const available = printerManager.getAvailablePrinters().filter((p) => !this.dispatching.has(p.id));
@@ -619,6 +623,37 @@ class Dispatcher {
     this.queue.forEach((t, i) => {
       if (!t.enqueuedAt) t.enqueuedAt = Date.now() + i;
     });
+  }
+
+  /**
+   * 队列任务 × 打印机实况对账（回执丢失自愈，2026-10-16 R-008 真单实况）：
+   * 「project_file 回执超时 → 回滚重排」时机器实际已开打——若某台机器**正在打印的
+   * 文件名（subtask_name）与本任务文件一致**，说明该任务其实已分发成功：补记「打印中」
+   * 并移出队列（否则机器空闲后队列重试会让同一文件二次开打）。
+   */
+  reconcileLostAck() {
+    if (this.queue.length === 0) return false;
+    const printingStates = ['打印中', '准备中'];
+    const actives = printerManager.getApiStates().filter((p) => printingStates.includes(p.status));
+    if (actives.length === 0) return false;
+    let healed = false;
+    for (const task of [...this.queue]) {
+      const want = String(task.fileName || '').trim();
+      if (!want) continue;
+      const hit = actives.find((p) => {
+        const sub = String(p.subtaskName || '').trim();
+        return sub && (sub === want || sub.includes(want) || want.includes(sub));
+      });
+      if (!hit) continue;
+      console.warn(`[分发] ${task.applicationNo || task.recordId} 回执丢失自愈：${hit.name} 正在打印同一文件「${hit.subtaskName}」——按已分发补记（打印中，移出队列）`);
+      this.queue = this.queue.filter((t) => t.recordId !== task.recordId);
+      task.startedAt = task.startedAt || Date.now();
+      this.printing.set(hit.id, task);
+      printerManager.updateState(hit.id, { activeTask: task });
+      storeSafe(() => reservationStore.updateStatus(task.recordId, config.status.PRINTING, `回执丢失补记：已在 ${hit.name} 打印`), 'lost-ack');
+      healed = true;
+    }
+    return healed;
   }
 
   /**
@@ -667,7 +702,13 @@ class Dispatcher {
     if (task.assignedPrinter) {
       const named = candidates.find((p) => p.name === task.assignedPrinter);
       if (!named) {
-        console.warn(`[分发] ${task.applicationNo || task.recordId} 指定打印机「${task.assignedPrinter}」当前不可用（品牌不符/忙/失联）——滞留等待人工，不改派`);
+        // 日志节流（2026-10-16）：滞留单每 60s 兜底扫描都会走到这里，逐轮刷屏淹没真错误——
+        // 同一任务 10 分钟内只记一次
+        const now = Date.now();
+        if (!task._prefUnavailLoggedAt || now - task._prefUnavailLoggedAt > 10 * 60 * 1000) {
+          task._prefUnavailLoggedAt = now;
+          console.warn(`[分发] ${task.applicationNo || task.recordId} 指定打印机「${task.assignedPrinter}」当前不可用（品牌不符/忙/失联）——滞留等待人工，不改派`);
+        }
         return null;
       }
       // 审批分发指定（2026-10-16）：审批人指定的槽位在分发时刻仍须实装——

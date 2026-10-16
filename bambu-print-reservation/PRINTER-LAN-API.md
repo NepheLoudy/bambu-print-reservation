@@ -101,6 +101,7 @@
 | 切片文件内嵌机型 | `project_settings.printer_model`（人读名）与 `slice_info.printer_model_id`（Orca 内部 id，如 `O1D`=H2D、`Flashforge-Adventurer-5M-Pro`）——**直通单品牌判定以内嵌为权威**（2026-10-16 实证：「拿闪铸机子切的 .gcode.3mf」扩展名是 .3mf，只看扩展名必误判拓竹）。闪铸目标的 Orca 工程 3mf 分发时需提取内嵌 `Metadata/plate_1.gcode` 按 `.gcode` 上传（闪铸固件只吃裸 gcode） |
 | 错误残留 | 打印被取消/失败后固件**挂住** `gcode_state=FAILED`+`task_id`（屏幕无任何提示仍持续回传；`clean_print_error`/`stop` 实测全受理但不生效——**指令免疫**，2026-10-16 实测）。解除=屏幕处理/重启电源；**分发侧已放行「静止残留」**（方案B：新任务开打顶掉残留，有在打痕迹的真故障不放行） |
 | 灯控节点名 | **按机型分型**（2026-10-16 X1C 真机实证）：H2D 三节点 `chamber_light`（主腔灯）/`work_light`/`chamber_light2`（副腔灯，端点「腔灯」用它）；**X1C 只有 `chamber_light`/`work_light`**——误发 chamber_light2 被拒 `did not find the valid led: chamber_light2`（生产错误日志实锤）。X1C 灯控实测：`chamber_light` + 新世代格式（字符串 seq + 四时间字段）物理生效（lights_report 开→关→开全链验证） |
+| project_file 回执 | **回执匹配不稳**（2026-10-16 R-008 真单实证）：bambu-link 按回执 `print.sequence_id` 匹配（10s 超时）——**X1C 实测超时**（`Command timeout for sequence 10194`）而机器**实际已开打**；H2D 数字 seq 可匹配，X1C 疑似字符串回显（同族固件两机行为不同）。**分发链判定以状态为中心**：回执超时后按状态验证（准备/打印态=成功，热修24）；另有队列 × subtask_name 对账兜底。教训：任何「回执/ACK 缺失」不得当作分发失败——先看机器实况 |
 
 ---
 

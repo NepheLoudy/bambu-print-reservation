@@ -5,6 +5,13 @@
 const os = require('os');
 const path = require('path');
 process.env.RESERVATIONS_STORE_FILE = path.join(os.tmpdir(), `bambu-test-ops-res-${process.pid}.json`);
+// 阻断真机连接（2026-10-16）：manager 是模块级单例、require 即 init() 连打印机——
+// 不置空这里，测试进程会真连生产三机（Bambu 同 clientId 互踢，会扰动线上连接）
+process.env.PRINTER_HOSTS = '';
+process.env.PRINTER_ACCESS_CODES = '';
+process.env.PRINTER_SERIALS = '';
+process.env.PRINTER_NAMES = '';
+process.env.PRINTER_MODELS = '';
 process.env.RESERVATIONS_UPLOAD_DIR = path.join(os.tmpdir(), `bambu-test-ops-up-${process.pid}`);
 process.env.DISPATCH_STATE_FILE = path.join(os.tmpdir(), `bambu-test-ops-ds-${process.pid}.json`);
 process.env.QUIET_BACKLOG_FILE = path.join(os.tmpdir(), `bambu-test-ops-qb-${process.pid}.json`);
@@ -332,6 +339,69 @@ check('staleThresholdMs:有预估按×2且≥1h,无预估退回固定12h', () =>
   assert.equal(staleThresholdMs(0), 12 * 3600 * 1000);
   assert.equal(staleThresholdMs(30), 60 * 60 * 1000, '短任务下限 1h');
   assert.equal(staleThresholdMs(90), 180 * 60 * 1000, '90min → ×2=3h');
+});
+
+check('回执丢失自愈:分发超时但机器已开打→按成功处理;机器仍空闲→原样抛错', async () => {
+  const manager = require('../src/printer/manager');
+  const origClient = manager.clients[991];
+  const origState = manager.printerStates[991];
+  const origConfirm = manager._confirmJobStarted;
+  try {
+    manager.printerStates[991] = { id: 991, name: '自愈测试机', brand: 'bambu' };
+    // ① 回执超时但机器已进入打印流程 → 成功（{ackLost:true}）
+    manager.clients[991] = {
+      connected: true,
+      startProjectFile: async () => { throw new Error('Command timeout for sequence 10194'); },
+      getPrintStatus: () => ({ gcodeState: 'RUNNING', progress: 5 }),
+    };
+    const r = await manager.startProjectOnPrinter(991, 'f.3mf', 'f.3mf');
+    assert.deepEqual(r, { ackLost: true }, '超时但机器在打=按分发成功（R-008 实况）');
+    // ② 回执超时且机器保持空闲 → 原样抛错（真失败走既有回滚链）
+    manager._confirmJobStarted = async () => false;
+    await assert.rejects(() => manager.startProjectOnPrinter(991, 'f.3mf', 'f.3mf'), /Command timeout/, '机器空闲=真失败');
+    manager._confirmJobStarted = origConfirm;
+    // ③ 非超时错误不受自愈影响（如未连接）
+    manager.clients[991] = { connected: true, startProjectFile: async () => { throw new Error('其他错误'); } };
+    await assert.rejects(() => manager.startProjectOnPrinter(991, 'f.3mf', 'f.3mf'), /其他错误/);
+  } finally {
+    if (origClient === undefined) delete manager.clients[991]; else manager.clients[991] = origClient;
+    if (origState === undefined) delete manager.printerStates[991]; else manager.printerStates[991] = origState;
+    manager._confirmJobStarted = origConfirm;
+  }
+});
+
+check('reconcileLostAck:队列任务×在打文件同名→补记打印中并移出队列（防二次开打）', () => {
+  const config = require('../src/config');
+  const manager = require('../src/printer/manager');
+  const dispatcher = require('../src/services/dispatcher');
+  const origStates = manager.getApiStates;
+  const origUpdate = manager.updateState;
+  manager.getApiStates = () => [{ id: 992, name: '自愈测试机2', status: '打印中', subtaskName: '自愈测试件.gcode.3mf' }];
+  manager.updateState = () => {};
+  try {
+    const r = submitFile('自愈测试件.gcode.3mf');
+    // 单据驱动到排队中（状态机：待审批→已通过→排队中→打印中）
+    store.updateStatus(r.id, config.status.REVIEW_APPROVED, '测试');
+    store.updateStatus(r.id, config.status.QUEUED, '测试');
+    const task = { recordId: r.id, applicationNo: r.id, fileName: '自愈测试件.gcode.3mf', enqueuedAt: Date.now() };
+    dispatcher.queue.push(task);
+    const healed = dispatcher.reconcileLostAck();
+    assert.equal(healed, true, '在打文件与队列任务同名应命中自愈');
+    assert.ok(!dispatcher.queue.some((t) => t.recordId === r.id), '已移出队列');
+    assert.equal(dispatcher.printing.get(992), task, '登记为打印中');
+    assert.equal(store.get(r.id).status, '打印中', '单据补记打印中（回执丢失补记）');
+    // 文件名不同 → 不自愈（防误判他机在打别件）
+    const r2 = submitFile('无关件.gcode.3mf');
+    const task2 = { recordId: r2.id, applicationNo: r2.id, fileName: '无关件.gcode.3mf', enqueuedAt: Date.now() };
+    dispatcher.queue.push(task2);
+    assert.equal(dispatcher.reconcileLostAck(), false, '文件名不匹配不自愈');
+    assert.ok(dispatcher.queue.some((t) => t.recordId === r2.id), '无关任务留在队列');
+    dispatcher.queue = dispatcher.queue.filter((t) => t.recordId !== r2.id);
+    dispatcher.printing.delete(992);
+  } finally {
+    manager.getApiStates = origStates;
+    manager.updateState = origUpdate;
+  }
 });
 
 check('ETA 汇总:队列按内嵌预估求和+无预估计数,在打按实时剩余', () => {

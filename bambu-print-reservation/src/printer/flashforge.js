@@ -160,6 +160,7 @@ class FlashforgeClient {
       // estimatedTime = 剩余秒数
       remainingMinutes: Math.round((Number(this.state.estimatedTime) || 0) / 60),
       currentFile: this.state.printFileName || '',
+      subtaskName: this.state.printFileName || '', // 回执丢失自愈对账用（与拓竹 subtask_name 同口径）
       nozzleTemp: this.state.rightTemp != null ? Math.round(Number(this.state.rightTemp)) : null, // 取整显示（真机回浮点 29.7000...）
       bedTemp: this.state.platTemp != null ? Math.round(Number(this.state.platTemp)) : null,
       chamberTemp: null,

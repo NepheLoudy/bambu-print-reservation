@@ -47,6 +47,7 @@ const stubs = {
   [path.join(ROOT, 'src/printer/manager.js')]: {
     getAvailablePrinters: () => availablePrinters,
     getAllPrinterStates: () => availablePrinters,
+    getApiStates: () => [], // 回执丢失对账（reconcileLostAck）用：桩场景无在打机器
     getPrinterState: () => PRINTER,
     brandOf: () => 'bambu', // 2026-10-14 双品牌批：分发匹配按文件格式↔品牌隔离（桩固定拓竹）
     uploadFileToPrinter: async (id, buffer, remoteName) => { calls.uploads.push({ id, remoteName }); },
