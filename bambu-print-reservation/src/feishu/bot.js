@@ -187,19 +187,28 @@ function buildQueueCard(task, position) {
   };
 }
 
-/** 开始打印播报 */
-function buildJobStartCard(task, printer) {
-  const ams = (printer.ams || []).filter((t) => t.type).map((t) => `${t.type}×${t.colorHex || '?'}`).join('、');
+/** 审批通过·已入队合并卡（2026-10-16 曼波令：审批结果与排队通知合成一张单子；
+ *  打印开始不再单独播报——此卡「匹配成功即开始打印」已交代后文；完成/失败卡保留） */
+function buildApprovedQueuedCard(reservation, comment, queueInfo = {}) {
+  const ahead = Number.isFinite(Number(queueInfo.ahead)) ? Number(queueInfo.ahead) : null;
+  const material = [reservation.materialType, reservation.color].filter(Boolean).join(' × ') || '未指定（任意可用打印机）';
+  const dispatch = reservation.review && reservation.review.dispatch;
+  const prefLine = dispatch
+    ? [dispatch.assignedPrinter, dispatch.tray && dispatch.tray.slot, dispatch.nozzleLabel].filter(Boolean).join(' · ')
+    : null;
   return {
     config: { wide_screen_mode: true, enable_forward: true },
     elements: [
-      { tag: 'markdown', content: `**🖨️ 开始打印**: ${printer.name}（${printer.model}）` },
+      { tag: 'markdown', content: `**✅ 审批通过 · 已进入打印队列**${ahead != null ? `（前方还有 ${ahead} 单）` : ''}` },
       { tag: 'hr' },
-      { tag: 'markdown', content: `${buildAtTag(task.applicant?.id)} **任务**: ${taskBrief(task)}` },
-      { tag: 'markdown', content: `**打印机装载**: ${ams || '无 AMS 数据'}` },
-      { tag: 'markdown', content: '完成后会在此群播报，可随时 @机器人 发送 /print-status 查看进度' },
+      { tag: 'markdown', content: `**任务**: ${reservation.id}｜${reservation.fileName || '未命名'}｜${material}` },
+      { tag: 'markdown', content: `**发起人**: ${reservation.applicant || '未知用户'}${reservation.isUrgent ? '｜⚡加急' : ''}` },
+      ...(prefLine ? [{ tag: 'markdown', content: `**分发指定**: ${prefLine}` }] : []),
+      ...(comment ? [{ tag: 'markdown', content: `**审批意见**: ${comment}` }] : []),
+      { tag: 'hr' },
+      { tag: 'markdown', content: '📝 将按各打印机 AMS 装料自动匹配，匹配成功即开始打印；完成后在此群播报' },
     ],
-    header: { template: 'orange', title: { content: '🖨️ 打印开始', tag: 'plain_text' } },
+    header: { template: 'green', title: { content: '🖨️ 审批通过 · 打印排队', tag: 'plain_text' } },
   };
 }
 
@@ -279,7 +288,7 @@ module.exports = {
   buildReservationAlertCard,
   buildReviewResultCard,
   buildQueueCard,
-  buildJobStartCard,
+  buildApprovedQueuedCard,
   buildJobFinishCard,
   buildJobFailedCard,
   buildMaterialMissingCard,

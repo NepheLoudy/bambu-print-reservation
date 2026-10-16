@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const store = require('./reservationStore');
 const processRules = require('./processRules');
-const { sendMessage, buildReservationAlertCard, buildReviewResultCard } = require('../feishu/bot');
+const { sendMessage, buildReservationAlertCard, buildReviewResultCard, buildApprovedQueuedCard } = require('../feishu/bot');
 const quietHours = require('../utils/quietHours');
 const { isUnslicedFileName } = require('../utils/fileTypes');
 
@@ -170,12 +170,14 @@ class ReservationService {
     if (pref.assignedPrinter) task.assignedPrinter = pref.assignedPrinter;
     if (pref.tray) task.prefTray = pref.tray;
     if (pref.nozzleId != null) task.prefNozzleId = pref.nozzleId;
-    const enqueued = dispatcher.enqueue(task);
+    const enqueued = dispatcher.enqueue(task, { silent: true }); // 排队卡并入审批合并卡（2026-10-16 曼波令）
     if (!enqueued) {
       // 幂等命中（known/queue 已有该单）——不再静默滞留「已通过」
       throw new Error('该任务已在分发队列中（幂等拦截），请刷新列表核对单据状态');
     }
     store.updateStatus(id, config.status.QUEUED, '已进入打印队列');
+    // 审批结果+排队合成一张卡（2026-10-16）：位次取排序后快照（加急在前）
+    const snapEntry = dispatcher.getQueueSnapshot().find((t) => t.recordId === id);
 
     // 审批入库（2026-10-16 曼波令）：勾选即建训练样本（未打印态）——打印完成/失败后由
     // 分发引擎按源单回填真实 outcome（学习奖励通道）。setImmediate 异步执行：文件读+几何
@@ -196,7 +198,7 @@ class ReservationService {
     }
 
     // 群播移出入队关键路径：notifyReviewResult 自带 try/catch 永不 reject，此处仅触发不等待
-    this.notifyReviewResult(store.get(id), config.reviewResult.APPROVED, comment);
+    this.notifyReviewResult(store.get(id), config.reviewResult.APPROVED, comment, { ahead: snapEntry ? snapEntry.position - 1 : null });
 
     return store.get(id);
   }
@@ -215,14 +217,17 @@ class ReservationService {
     return store.get(id);
   }
 
-  async notifyReviewResult(reservation, result, comment) {
+  async notifyReviewResult(reservation, result, comment, queueInfo = null) {
     try {
-      const card = buildReviewResultCard({
-        fields: {
-          '发起人': [{ id: '', name: reservation.applicant }],
-          '切片文件': [{ name: reservation.fileName }],
-        },
-      }, result, comment);
+      // 审批通过 + 排队合并卡（2026-10-16 曼波令：审批结果/排队一张单子）；驳回维持单独结果卡
+      const card = (result === config.reviewResult.APPROVED && queueInfo)
+        ? buildApprovedQueuedCard(reservation, comment, queueInfo)
+        : buildReviewResultCard({
+            fields: {
+              '发起人': [{ id: '', name: reservation.applicant }],
+              '切片文件': [{ name: reservation.fileName }],
+            },
+          }, result, comment);
       if (!quietHours.gatePayload('webhook-card', card, `审批结果卡 ${reservation.id}`)) {
         await sendMessage(card);
       }

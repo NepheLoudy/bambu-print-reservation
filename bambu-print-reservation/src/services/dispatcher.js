@@ -864,10 +864,7 @@ class Dispatcher {
       // （manualDispatch）与完整件完成（completeTask 续件段）。
       printerManager.updateState(printer.id, { activeTask: task });
 
-      announce(`开始卡 ${task.recordId}`,
-        require('../feishu/bot').buildJobStartCard(task, printer),
-        (err) => console.error('[分发] 开始播报失败:', err.message)
-      );
+      // 打印开始不播报（2026-10-16 曼波令：审批+排队合并卡已交代「匹配成功即开始打印」）——广场动态仍记账
       plaza.append({ event: '打印开始', title: `${task.applicationNo || task.recordId} → ${printer.name}` });
     } catch (err) {
       console.error(`[分发] 分发失败 ${task.recordId}:`, err.message);
