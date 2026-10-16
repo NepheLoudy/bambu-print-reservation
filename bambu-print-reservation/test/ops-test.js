@@ -242,6 +242,8 @@ check('createSampleFromReservation:预约单→训练样本(3mf 内嵌参数/源
   };
   const s = createSampleFromReservation(record, '测试审批人');
   assert.equal(s.sourceRecordId, 'R20261016-999', '源单引用落档（结果回填的钩子）');
+  assert.equal(s.featureSource, 'auto', '3mf 直通：几何特征全自动提取标记（曼波 2026-10-16）');
+  assert.equal(s.confidence, 40, '3mf 直通：自动提取特征赋额外低权重');
   assert.ok(/^T\d{8}-\d{3}$/.test(s.id), '样本号生成');
   assert.ok(s.slice && s.slice.extraction && s.slice.extraction.params, '内嵌切片参数已提取');
   assert.equal(s.slice.extraction.bedType, 'High Temp Plate');

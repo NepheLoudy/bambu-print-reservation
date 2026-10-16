@@ -354,6 +354,9 @@ const reservationService = new ReservationService();
  * （3mf 直通=内嵌切片提取；需求链路=引擎定档参数以小 JSON 归档）。
  * 同步执行（调用方 setImmediate 异步化）；失败抛错由调用方按失败软着陆记录 sampleError。
  */
+// 3mf 直通样本的几何特征全自动提取（无人工核验）——额外低权重置信度（曼波 2026-10-16 令，训练消费按低权对待）
+const AUTO_FEATURE_CONFIDENCE = 40;
+
 function createSampleFromReservation(record, reviewer) {
   const fs = require('fs');
   if (!record) throw new Error('预约单不存在');
@@ -387,6 +390,9 @@ function createSampleFromReservation(record, reviewer) {
     createdBy: reviewer || '审批入库',
     notes: `审批入库 · 源单 ${record.id}`,
     sourceRecordId: record.id,
+    // 几何特征权重（2026-10-16 曼波令）：3mf 直通单的特征**只能全自动提取**（无人工核验环节）
+    // ——标记 featureSource='auto' 并赋予额外低权重置信度（40），训练消费按低权对待
+    ...(is3mf ? { featureSource: 'auto', confidence: AUTO_FEATURE_CONFIDENCE } : {}),
     selection: record.selection || {},
     spatial: record.spatial || [],
     materialType: record.materialType || '',

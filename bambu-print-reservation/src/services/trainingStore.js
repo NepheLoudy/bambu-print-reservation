@@ -126,7 +126,9 @@ const trainingStore = {
       slice: sliceRec ? { ...sliceRec, extraction: input.slice.extraction || null } : null,
       // 几何体检当时的自动建议（将来训「自动 vs 人工」一致性用）
       autoSuggestion: (input.model && input.model.features && input.model.features.suggestions) || null,
-      // 人工可信度（0-100，训练加权用；与自动拟合度 fit 分离）
+      // 几何特征来源（2026-10-16）：'auto'=3mf 直通单全自动提取（配合低权重 confidence 判读）；空=常规录入
+      featureSource: String(input.featureSource || '').slice(0, 32),
+      // 人工可信度（0-100，训练加权用；与自动拟合度 fit 分离）——3mf 直通自动提取样本按低权重落 40
       confidence: Number.isFinite(Number(input.confidence)) ? Math.max(0, Math.min(100, Math.round(Number(input.confidence)))) : null,
       // 拟合度快照（2026-10-12 曼波纠正语义：引擎(工况)参数 vs 专家(切片)参数的贴合程度，
       // 差异项=可被记忆的参数——知识库覆盖缺口直接度量）
@@ -206,6 +208,7 @@ const trainingStore = {
       estMinutes: s.slice && s.slice.extraction ? s.slice.extraction.estMinutes : null,
       fit: s.fit ? { score: s.fit.score, matches: s.fit.matches, total: s.fit.total } : null,
       confidence: Number.isFinite(Number(s.confidence)) ? Number(s.confidence) : null,
+      featureSource: s.featureSource || null,
       outcome: s.outcome || { status: '未打印' },
       modelFile: s.model ? s.model.storedPath : null,
     })).join('\n') + '\n';
