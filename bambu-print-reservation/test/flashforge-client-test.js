@@ -129,7 +129,7 @@ const DETAIL = { code: 0, detail: DETAIL_INNER };
     await c.disconnect();
   });
 
-  await ok('暂停/恢复/停止 → /control jobCtl_cmd payload（JSON 字符串化）', async () => {
+  await ok('暂停/恢复/停止 → /control jobCtl_cmd payload（cmd/args 信封，JSON 字符串化）', async () => {
     mockFetch({ '/detail': DETAIL, '/control': { code: 0, message: 'success' } });
     const c = new FlashforgeClient(PRINTER);
     await c.connect();
@@ -147,13 +147,17 @@ const DETAIL = { code: 0, detail: DETAIL_INNER };
       assert.strictEqual(typeof b.payload, 'string', 'payload 必须是 JSON 字符串（协议要求）');
     });
     const payloads = bodies.map((b) => JSON.parse(b.payload));
-    assert.strictEqual(payloads[0].jobCtl_cmd.action, 'pause');
-    assert.strictEqual(payloads[1].jobCtl_cmd.action, 'continue');
-    assert.strictEqual(payloads[2].jobCtl_cmd.action, 'cancel');
+    // 2026-10-16 协议实锤：信封必须是 {cmd, args}——旧「{jobCtl_cmd:{...}}」形态被固件当
+    // 未知命令名静默忽略（仍回 Success，A5P 真机实证按钮点了没反应）
+    payloads.forEach((p) => assert.strictEqual(p.cmd, 'jobCtl_cmd', 'cmd/args 信封结构'));
+    assert.strictEqual(payloads[0].args.jobID, '');
+    assert.strictEqual(payloads[0].args.action, 'pause');
+    assert.strictEqual(payloads[1].args.action, 'continue');
+    assert.strictEqual(payloads[2].args.action, 'cancel');
     await c.disconnect();
   });
 
-  await ok('灯控 → lightControl_cmd open/close', async () => {
+  await ok('灯控 → lightControl_cmd open/close（cmd/args 信封）', async () => {
     mockFetch({ '/control': { code: 0 } });
     const c = new FlashforgeClient(PRINTER);
     c.state = DETAIL; c.connected = true; // 跳过 connect 直测指令
@@ -161,8 +165,26 @@ const DETAIL = { code: 0, detail: DETAIL_INNER };
     await c.lightControl(true);
     await c.lightControl(false);
     const payloads = calls.filter((x) => x.path === '/control').map((x) => JSON.parse(JSON.parse(x.opts.body).payload));
-    assert.strictEqual(payloads[0].lightControl_cmd.status, 'open');
-    assert.strictEqual(payloads[1].lightControl_cmd.status, 'close');
+    assert.strictEqual(payloads[0].cmd, 'lightControl_cmd');
+    assert.strictEqual(payloads[0].args.status, 'open');
+    assert.strictEqual(payloads[1].args.status, 'close');
+  });
+
+  await ok('清屏弹窗/摄像头流 → stateCtrl_cmd / streamCtrl_cmd（A5P 实证件）', async () => {
+    mockFetch({ '/control': { code: 0 } });
+    const c = new FlashforgeClient(PRINTER);
+    c.state = DETAIL; c.connected = true;
+    calls.length = 0;
+    await c.clearScreenDialog();
+    await c.startCameraStream();
+    await c.stopCameraStream();
+    const payloads = calls.filter((x) => x.path === '/control').map((x) => JSON.parse(JSON.parse(x.opts.body).payload));
+    assert.strictEqual(payloads[0].cmd, 'stateCtrl_cmd');
+    assert.strictEqual(payloads[0].args.action, 'setClearPlatform');
+    assert.strictEqual(payloads[1].cmd, 'streamCtrl_cmd');
+    assert.strictEqual(payloads[1].args.action, 'open');
+    assert.strictEqual(payloads[2].cmd, 'streamCtrl_cmd');
+    assert.strictEqual(payloads[2].args.action, 'close');
   });
 
   await ok('uploadBuffer → /uploadGcode multipart（serialNumber/checkCode/fileSize/printNow 头）', async () => {

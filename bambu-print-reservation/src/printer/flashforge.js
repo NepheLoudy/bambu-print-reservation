@@ -204,18 +204,41 @@ class FlashforgeClient {
       : `http://${this.config.host}:8080/?action=stream`; // 5M Pro 出厂默认；无摄像头机型代理层会 502
   }
 
-  // ---------- 打印控制（/control + jobCtl_cmd） ----------
+  // ---------- 打印控制（/control + cmd/args 信封） ----------
 
-  async sendControl(payload) {
-    return this.postJson('/control', { ...this.auth, payload: JSON.stringify(payload) });
+  /**
+   * /control 命令信封（2026-10-16 协议实锤）：**必须是 {cmd, args} 结构**——
+   * 此前实现的「{命令名:{参数}}」形态被固件当未知命令名**静默忽略**（仍回
+   * {"code":0,"message":"Success"}，2026-10-16 真机实证：灯控回 Success 但灯无动作；
+   * 文档原话「An unknown command name is ignored and still answers Success」）。
+   * 认证失败可区分：错 checkCode 回 {"code":1,"message":"Access code is different"}。
+   */
+  async sendCommand(cmd, args) {
+    return this.postJson('/control', { ...this.auth, payload: JSON.stringify({ cmd, args }) });
   }
 
-  async pausePrint() { return this.sendControl({ jobCtl_cmd: { jobID: '', action: 'pause' } }); }
-  async resumePrint() { return this.sendControl({ jobCtl_cmd: { jobID: '', action: 'continue' } }); }
-  async stopPrint() { return this.sendControl({ jobCtl_cmd: { jobID: '', action: 'cancel' } }); }
+  async pausePrint() { return this.sendCommand('jobCtl_cmd', { jobID: '', action: 'pause' }); }
+  async resumePrint() { return this.sendCommand('jobCtl_cmd', { jobID: '', action: 'continue' }); }
+  async stopPrint() { return this.sendCommand('jobCtl_cmd', { jobID: '', action: 'cancel' }); }
 
+  /** 腔灯（5M Pro 内置 LED；基础款 5M 无硬件但同样接受命令） */
   async lightControl(on) {
-    return this.sendControl({ lightControl_cmd: { status: on ? 'open' : 'close' } });
+    return this.sendCommand('lightControl_cmd', { status: on ? 'open' : 'close' });
+  }
+
+  /** 清屏弹窗（打印完成/取消后屏幕弹窗会挡后续控制，文档口径）——等价屏幕上点掉弹窗 */
+  async clearScreenDialog() {
+    return this.sendCommand('stateCtrl_cmd', { action: 'setClearPlatform' });
+  }
+
+  /** 摄像头流开关（5M Pro 内置摄像头**需显式开流**：2026-10-16 实证——开流前 8080
+   *  端口 TCP 通但 HTTP 零响应；streamCtrl_cmd open 后 MJPEG 正常出帧） */
+  async startCameraStream() {
+    return this.sendCommand('streamCtrl_cmd', { action: 'open' });
+  }
+
+  async stopCameraStream() {
+    return this.sendCommand('streamCtrl_cmd', { action: 'close' });
   }
 
   // ---------- 文件分发（/uploadGcode + /printGcode） ----------

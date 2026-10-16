@@ -226,7 +226,7 @@ function toggleMjpegStream(id) {
 }
 function mjpegFail(id) {
   mjpegWatch.delete(id);
-  toast('❌ 闪铸画面拉流失败——请检查打印机摄像头（屏幕设置→摄像头是否开启）与网络，稍后可重试连接');
+  toast('❌ 闪铸画面拉流失败——服务端已自动尝试开启摄像头流；仍失败请检查打印机屏幕上「LAN Only 模式」与摄像头开关，稍后可重试连接');
   loadFleet(true);
 }
 
@@ -272,7 +272,13 @@ function controlPanelHtml(p) {
       ${IS_ADMIN && ['打印中', '暂停', '准备中'].includes(p.status) ? `<button class="bad" onclick="stopPrinter(${p.id},'${esc(p.name)}')">⏹ 停止</button>` : ''}
     </div>`;
   if (!bambu) {
-    return quickBar + '<div class="meta">闪铸机型：控制面暂限暂停/恢复/灯/停止</div>';
+    // 闪铸控制面（2026-10-16 修复批：指令信封修正后 暂停/恢复/灯/停止真正可用；
+    // 打印完成后的屏幕弹窗会挡住这些控制——给一个清屏按钮，等价屏幕上点掉弹窗）
+    const ffClear = IS_ADMIN && ['已完成', '故障'].includes(p.status)
+      ? `<div class="cmds"><button onclick="clearResidue(${p.id},'${esc(p.name)}')">🧹 清屏弹窗（解锁控制；打印完成后屏幕弹窗会挡住灯/暂停）</button></div>`
+      : '';
+    return quickBar + ffClear
+      + '<div class="meta">闪铸机型：暂停/恢复/灯/停止；若点了没反应，先点清屏弹窗（或到打印机屏幕上点掉弹窗）</div>';
   }
 
   // 🌡 温度（原生风格：当前/目标 + 快捷步进）
@@ -495,11 +501,15 @@ function errorSection(p) {
   return parts.join('');
 }
 
-/** 清除任务残留（admin，2026-10-16 v2）：后端为状态验证链（候选逐发+轮询离开 FAILED，
- *  最长约 1 分钟）——结果按机器实际状态如实报告，不再以「指令送达」当成功 */
+/** 清除任务残留 / 闪铸清屏（admin，2026-10-16 v2）：拓竹=状态验证链（候选逐发+轮询离开
+ *  FAILED，最长约 1 分钟）按机器实际状态如实报告；闪铸=清屏弹窗（无状态验证，如实标注） */
 async function clearResidue(id, name) {
-  if (!confirm(`清除 ${name} 的残留故障状态？\n\n· 机器当前已停止，本操作无物理动作（验证链最长约 1 分钟）\n· 清除成功后机器回「空闲」，队列中的任务会自动开始打印`)) return;
-  toast('⏳ 正在清除并等待机器响应…');
+  const machine = (FLEET || []).find((x) => x.id === id) || {};
+  const ff = machine.brand === 'flashforge';
+  if (!confirm(ff
+    ? `清除 ${name} 的屏幕弹窗？\n\n· 打印完成/取消后的屏幕弹窗会挡住灯/暂停/恢复等控制\n· 等价于在打印机屏幕上点掉弹窗，无物理动作`
+    : `清除 ${name} 的残留故障状态？\n\n· 机器当前已停止，本操作无物理动作（验证链最长约 1 分钟）\n· 清除成功后机器回「空闲」，队列中的任务会自动开始打印`)) return;
+  toast(ff ? '⏳ 正在发送清屏指令…' : '⏳ 正在清除并等待机器响应…');
   let res;
   let data = {};
   try {
@@ -510,7 +520,8 @@ async function clearResidue(id, name) {
   }
   if (res.status === 401) { location.reload(); return; }
   if (!res.ok) return toast('❌ ' + (data.error || '清除失败'));
-  if (data.cleared) toast(`✅ 清除成功（${data.state || '空闲'}），机器已回空闲`);
+  if (data.screen) toast('✅ 已发送清屏指令——弹窗是否清掉以机器屏幕为准，清掉后灯/暂停等控制即可用');
+  else if (data.cleared) toast(`✅ 清除成功（${data.state || '空闲'}），机器已回空闲`);
   else toast('⚠️ ' + (data.note || '指令被受理但状态未变化'));
   setTimeout(loadFleet, 3000);
 }

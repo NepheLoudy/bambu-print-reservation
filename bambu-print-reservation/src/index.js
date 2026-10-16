@@ -1086,14 +1086,26 @@ app.post('/api/printers/:id/stop', requireUser('admin'), async (req, res) => {
 
 // 清除任务错误残留（admin，2026-10-16 曼波真单批）：H2 固件取消/失败后残留 FAILED
 // 会挡住分发匹配——本端点发 clean_print_error（停止态等价屏幕按掉报错，无物理动作）；
-// 状态门沿用动机械口径（空闲/完成/故障放行，打印中/暂停/准备中一律拒绝）
+// 状态门沿用动机械口径（空闲/完成/故障放行，打印中/暂停/准备中一律拒绝）。
+// 闪铸（2026-10-16 按钮批）：对应物=stateCtrl_cmd setClearPlatform——打印完成/取消后的
+// 屏幕弹窗会挡住灯/暂停等控制，清屏等价屏幕上点掉弹窗（闪铸不做状态验证，如实标注）
 app.post('/api/printers/:id/clear-error', requireUser('admin'), async (req, res) => {
   const id = parseInt(req.params.id);
   // 请求可见性（2026-10-16：状态验证链最长约 1 分钟，防「点了没反应」无从排查）
   console.log(`[清残留] 收到清除请求 printer=${id}`);
   if (!requireIdleForMachine(id, res)) return;
+  const st = printerManager.getPrinterState(id);
+  const isFf = st && st.brand === 'flashforge';
   try {
     const r = await printerManager.cleanPrintErrorOnPrinter(id);
+    if (isFf) {
+      return res.json({
+        success: true,
+        screen: true, // 前端区分文案：闪铸=清屏弹窗（无状态验证）
+        state: st.status,
+        note: '已发送清屏指令（闪铸机型不做状态验证——屏幕弹窗是否已关闭以机器屏幕为准）',
+      });
+    }
     res.json({
       success: true,
       ...(r || {}),
@@ -1291,11 +1303,40 @@ function findApiPrinter(id) {
 }
 
 // 闪铸 MJPEG 代理：打印机 8080 multipart 流原样管道转发（每客户端独立上游，
-// 客户端断开即销毁上游连接；上游失败 502——基础款 5M 无摄像头属预期）
-app.get('/api/printers/:id/camera/mjpeg', requireUser(), (req, res) => {
-  const p = findApiPrinter(parseInt(req.params.id));
+// 客户端断开即销毁上游连接；上游失败 502——基础款 5M 无摄像头属预期）。
+// 2026-10-16 A5P 真机实证：**5M Pro 的摄像头流需显式开启**（streamCtrl_cmd open）——
+// 开流前 8080 端口 TCP 通但 HTTP 零响应（此前「画面不可用」的根因）；进入本端点先开流，
+// 最后一个观看者断开后关流（streamCtrl_cmd close，省摄像头常开）
+const mjpegViewers = new Map(); // printerId → 观看计数
+app.get('/api/printers/:id/camera/mjpeg', requireUser(), async (req, res) => {
+  const pid = parseInt(req.params.id);
+  const p = findApiPrinter(pid);
   if (!p) return res.status(404).json({ error: '打印机不存在' });
   if (p.camera !== 'mjpeg') return res.status(400).json({ error: `该机型画面通道为「${p.camera || '无'}」，不走 MJPEG` });
+  if (p.brand === 'flashforge') {
+    const client = printerManager.getClient(pid);
+    if (client && typeof client.startCameraStream === 'function') {
+      try {
+        await client.startCameraStream(); // 已在流时重复开流无副作用
+        await new Promise((r) => setTimeout(r, 800)); // 相机起流出帧的缓冲窗口
+      } catch (err) {
+        console.warn(`[画面] ${p.name} 开流指令失败（继续尝试上游直连）:`, err.message);
+      }
+    }
+    mjpegViewers.set(pid, (mjpegViewers.get(pid) || 0) + 1);
+    const releaseStream = () => {
+      const n = (mjpegViewers.get(pid) || 1) - 1;
+      if (n <= 0) {
+        mjpegViewers.delete(pid);
+        if (client && typeof client.stopCameraStream === 'function') {
+          client.stopCameraStream().catch(() => { /* 关流失败不影响观看体验（相机侧自行超时） */ });
+        }
+      } else {
+        mjpegViewers.set(pid, n);
+      }
+    };
+    res.on('close', releaseStream);
+  }
   const upstream = http.request(p.cameraUrl, { timeout: 30000 }, (up) => {
     res.setHeader('Content-Type', up.headers['content-type'] || 'multipart/x-mixed-replace; boundary=frame');
     res.setHeader('Cache-Control', 'no-cache');

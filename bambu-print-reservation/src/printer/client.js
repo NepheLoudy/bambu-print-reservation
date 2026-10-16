@@ -597,22 +597,26 @@ class PrinterClient {
   /**
    * 灯控制（观察台指令条）。
    * 双口径（2026-10-15 H2 真机实测实锤，全部格式矩阵扫过）：
-   *   H2/X1 新世代：led_node='chamber_light2'（H2D 专用节点名，Orca 二进制实锤）、
-   *     **字符串 sequence_id**、时间字段四件套 led_on_time/led_off_time/loop_times/
-   *     interval_time——旧格式（chamber_light + 数字 seq + led_time）一律回
+   *   H2/X1 新世代：**字符串 sequence_id**、时间字段四件套 led_on_time/led_off_time/
+   *     loop_times/interval_time——旧格式（数字 seq + led_time）一律回
    *     {"result":"fail","reason":"json wrong format"}
-   *   P1/A1 老世代：led_node='chamber_light'、数字 seq、led_time（既有验证保持）
+   *   P1/A1 老世代：数字 seq、led_time（既有验证保持）
+   * 节点名按机型（2026-10-16 X1C 真机实证）：**chamber_light2 是 H2D 专用副腔灯节点**，
+   * X1C 只有 chamber_light / work_light——旧代码把 X1 也发 chamber_light2 被拒
+   * 「did not find the valid led: chamber_light2」（生产错误日志实锤）。
    */
   async lightControl(on, lamp = 'chamber_light') {
     if (!this.client || !this.connected) {
       throw new Error('打印机未连接');
     }
-    const isNewGen = /H2|X1/.test(String(this.config.model || '').toUpperCase());
+    const model = String(this.config.model || '').toUpperCase();
+    const isNewGen = /H2|X1/.test(model);
     const sequenceId = ++this.projectSeq;
     if (isNewGen) {
       // H2D 三灯节点：chamber_light（主腔灯）/ work_light（工作灯）/ chamber_light2（副腔灯）
-      // 端点「腔灯」= chamber_light2、「工作灯」= work_light（2026-10-15 节点-响应对照实测）
-      const node = lamp === 'work_light' ? 'work_light' : 'chamber_light2';
+      // 端点「腔灯」= H2D 的 chamber_light2、X1C 的 chamber_light（2026-10-15 H2D 节点-响应
+      // 对照实测 + 2026-10-16 X1C lights_report 实证）；工作灯两机同 name
+      const node = lamp === 'work_light' ? 'work_light' : (/^H2/.test(model) ? 'chamber_light2' : 'chamber_light');
       return this._sendChecked({
         system: {
           sequence_id: String(sequenceId),

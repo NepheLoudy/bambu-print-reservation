@@ -126,6 +126,30 @@ checkAsync('灯控 lamp 参数归一（腔灯缺省/工作灯）', async () => {
   await assert.rejects(() => client.lightControl(true, '奇怪的灯'), /未连接/); // 归一为 chamber_light
 });
 
+checkAsync('灯控节点按机型分型（H2D=chamber_light2 / X1C=chamber_light；两机工作灯同名）', async () => {
+  // 2026-10-16 X1C 真机实证：X1C 只有 chamber_light/work_light，误发 chamber_light2 被拒
+  // 「did not find the valid led: chamber_light2」（生产错误日志实锤）
+  const mk = (model) => {
+    const c = new PrinterClient({ name: model, model, host: '127.0.0.1', serial: 'S', accessCode: 'A' });
+    c.client = {}; c.connected = true;
+    const seen = [];
+    c._sendChecked = (payload) => { seen.push(payload); return Promise.resolve(); };
+    return { c, seen };
+  };
+  const h2 = mk('H2D');
+  await h2.c.lightControl(true);
+  await h2.c.lightControl(false, 'work_light');
+  assert.strictEqual(h2.seen[0].system.led_node, 'chamber_light2', 'H2D 腔灯=副腔灯节点');
+  assert.strictEqual(h2.seen[1].system.led_node, 'work_light');
+  const x1 = mk('X1C');
+  await x1.c.lightControl(true);
+  await x1.c.lightControl(false, 'work_light');
+  assert.strictEqual(x1.seen[0].system.led_node, 'chamber_light', 'X1C 无 chamber_light2 节点');
+  assert.strictEqual(x1.seen[1].system.led_node, 'work_light');
+  assert.strictEqual(typeof x1.seen[0].system.sequence_id, 'string', '新世代字符串 seq（X1C 实测格式）');
+  assert.strictEqual(x1.seen[0].system.led_mode, 'on');
+});
+
 // 异步断言全部收尾后再退（checkAsync 不阻塞同步流程，直接 exit 会抢杀未决断言）
 await Promise.resolve();
 setTimeout(() => process.exit(failures ? 1 : 0), 50);

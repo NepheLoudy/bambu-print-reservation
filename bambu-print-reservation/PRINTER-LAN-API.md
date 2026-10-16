@@ -100,6 +100,7 @@
 | 停止/暂停指令 | `stop`/`pause`/`resume` 帧合规（社区同款 `{"print":{"command":"stop"}}`，print 域数字 seq）；但**回执 success ≠ 真正停机**（残留态实测静默 no-op）——控制台按状态验证如实回报（2026-10-16）。另注：社区有「2025+ 固件控制命令需签名」报告（LINUX DO），本项目实测 project_file/ledctrl 无需签名可用，stop 若在真实打印中仍无效再按该线索深挖 |
 | 切片文件内嵌机型 | `project_settings.printer_model`（人读名）与 `slice_info.printer_model_id`（Orca 内部 id，如 `O1D`=H2D、`Flashforge-Adventurer-5M-Pro`）——**直通单品牌判定以内嵌为权威**（2026-10-16 实证：「拿闪铸机子切的 .gcode.3mf」扩展名是 .3mf，只看扩展名必误判拓竹）。闪铸目标的 Orca 工程 3mf 分发时需提取内嵌 `Metadata/plate_1.gcode` 按 `.gcode` 上传（闪铸固件只吃裸 gcode） |
 | 错误残留 | 打印被取消/失败后固件**挂住** `gcode_state=FAILED`+`task_id`（屏幕无任何提示仍持续回传；`clean_print_error`/`stop` 实测全受理但不生效——**指令免疫**，2026-10-16 实测）。解除=屏幕处理/重启电源；**分发侧已放行「静止残留」**（方案B：新任务开打顶掉残留，有在打痕迹的真故障不放行） |
+| 灯控节点名 | **按机型分型**（2026-10-16 X1C 真机实证）：H2D 三节点 `chamber_light`（主腔灯）/`work_light`/`chamber_light2`（副腔灯，端点「腔灯」用它）；**X1C 只有 `chamber_light`/`work_light`**——误发 chamber_light2 被拒 `did not find the valid led: chamber_light2`（生产错误日志实锤）。X1C 灯控实测：`chamber_light` + 新世代格式（字符串 seq + 四时间字段）物理生效（lights_report 开→关→开全链验证） |
 
 ---
 
@@ -194,7 +195,11 @@
 
 - **序列号获取（2026-10-16 A5P 真机实测）**：8899 文本口**免认证**发送 `~M115` 即回 Machine Type / **SN**（本次实得 `SNMOMF9302026`）；`~M601 S1` 回「Control Success」开着控制会话。8898 需 `serialNumber`+`checkCode` 双字段（checkCode=屏幕「设备ID」，8 位十六进制；SN 错报 `{"code":1,"message":"SN is different"}`；非局域网模式机器回 `{"code":-2,"message":"Lan mode error"}`——可借此区分同网段多台闪铸）。
 - **认证**：请求体携带 `serialNumber` + `checkCode`（每台打印机专属，屏幕「网络设置 → 局域网模式」下显示，社区提示会过期）。
-- **端点样例**：`/detail`（状态详情，**状态靠轮询获取，无事件推送**）、`/product`、`/gcodeList`、`/gcodeThumb`、`/uploadGcode`、`/printGcode`、`/checkCode`、`/control` 等；控制命令有 `jobCtl_cmd`、`printerCtl_cmd`、`lightControl_cmd`、`temperatureCtl_cmd`、`stateCtrl_cmd` 等（社区文档所列，未逐条核验）。
+- **端点样例**：`/detail`（状态详情，**状态靠轮询获取，无事件推送**）、`/product`（能力位：`lightCtrlState` 等——文档提醒**不可靠**，有硬件也可能报 0、无硬件也可能报 1）、`/gcodeList`、`/gcodeThumb`、`/uploadGcode`、`/printGcode`、`/checkCode`、`/control` 等。
+- **/control 命令信封（2026-10-16 A5P 真机实证，协议级）**：payload **必须是 `{"cmd":"<命令名>","args":{...}}` 结构**——旧式「`{"<命令名>":{...}}`」会被固件当未知命令名**静默忽略且仍回 `{"code":0,"message":"Success"}`**（文档原话：An unknown command name is ignored and still answers Success；本次实证：旧形态灯控回 Success 但灯零动作——「按钮点了没反应」的根因）。认证失败可区分：错 checkCode 回 `{"code":1,"message":"Access code is different"}`。核验过的命令：`jobCtl_cmd`（jobID+action: pause/continue/cancel）、`lightControl_cmd`（status: open/close）、`stateCtrl_cmd`（action: `setClearPlatform`——打印完成/取消后的屏幕弹窗**会挡后续控制**，清屏=屏幕上点掉弹窗）、`streamCtrl_cmd`（action: open/close）。
+- **摄像头流（2026-10-16 A5P 真机实证）**：5M Pro 内置摄像头**需先 `streamCtrl_cmd open` 才出流**——开流前 8080 端口 TCP 通但 HTTP 零响应（此前「画面不可用」根因）；开流后 `http://<ip>:8080/?action=stream` 正常吐 `multipart/x-mixed-replace` MJPEG 帧（代理层已接线：进端点自动开流、最后观看者断开自动关流）。
+- **灯控实测边界（2026-10-16）**：`lightControl_cmd`（含 cmd/args 正确形态）在 A5P 固件 5.1.9 + 当前「已完成待清屏」状态下**被受理但不动作**（`/detail lightStatus` 恒 open、摄像头帧亮度零变化，多形态 swept）；`/product lightCtrlState=1` 报告可控。**待现场验证**：屏幕弹窗清掉后重试灯控是否生效（弹窗挡控制是文档明示行为）。
+- **/control 其余命令**（`printerCtl_cmd` 速度/风扇/`circulateCtl_cmd` 过滤风扇/`temperatureCtl_cmd` 等）：社区文档所载，本项目未逐条核验。
 - 社区实现仓库（Python/TS/HA 集成）均基于对 **Orca-FlashForge 局域网流量**的逆向，无官方 SDK。
 
 ### 2.3 拓竹 vs 闪铸：架构差异对照

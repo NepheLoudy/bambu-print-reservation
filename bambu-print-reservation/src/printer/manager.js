@@ -308,6 +308,11 @@ class PrinterManager {
     });
   }
 
+  /** 单机客户端取用（摄像头流开关等品牌特有能力；无则 null） */
+  getClient(printerId) {
+    return this.clients[printerId] || null;
+  }
+
   /**
    * 可承接自动分发的打印机：Bambu 系、空闲/已完成、且 state 报文未失联。
    * 幽灵空闲防护：bambu-link 从不 emit 'disconnect'，打印机断电后 connected 仍为
@@ -430,9 +435,18 @@ class PrinterManager {
     return this._bambuClient(printerId).amsChangeFilament(amsId, trayId);
   }
 
-  /** 清除打印错误残留（admin；bambu 链路，多形态组帧见 client.cleanPrintError） */
+  /** 清除任务残留（admin）。拓竹=clean_print_error（多形态组帧见 client.cleanPrintError）；
+   *  闪铸=stateCtrl_cmd setClearPlatform——打印完成/取消后的屏幕弹窗会挡后续控制，
+   *  等价屏幕上点掉弹窗（2026-10-16 协议实证） */
   cleanPrintErrorOnPrinter(printerId) {
-    return this._bambuClient(printerId).cleanPrintError();
+    const client = this.clients[printerId];
+    if (!client || !client.connected) {
+      throw new Error('打印机未连接');
+    }
+    if (this.printerStates[printerId].brand === 'flashforge') {
+      return client.clearScreenDialog();
+    }
+    return client.cleanPrintError();
   }
 
   listSdcardFilesOnPrinter(printerId) {
