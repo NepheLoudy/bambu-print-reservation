@@ -2,8 +2,8 @@
 
 版本隔离单位：一次 `npm run push`（= 一次 git 提交 + 一次部署）。本项目无独立远端，push.js 只暂存 `feishu-gateway/` 路径提交进顶层 monorepo——版本即顶层仓库中触碰本路径的提交。v1~v8 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](../AGENTS.md)）。
 
-当前最新：**v38**（2026-10-14，审查修复批：connecting 恒挂兜底 + command 投递带共享 token + cors 死依赖清理，三桩+冒烟全绿）。
-上一版：**v37**（2026-10-10，文档收口批——纯 docs 随顶层 v145 归档，部署待小电脑上线补跑）。上一版 v36（2026-10-07，NAS_*→DEPLOY_* 连接键改名批）。上一版 v35（2026-10-05，随本提交落地）。上一版 v34（2026-09-27，已上线）。上一版 v33（2026-09-26，`66dc3a3`，七仓全量审查修复批）。上一版 v32（`50f3029`）。上一版 v31（2026-09-24，`97bd02b`）。更早：v30（顶层归档随批，仅工具链未部署）。）
+当前最新：**v39**（2026-10-17，全量审查批：v38 巡检计时缺陷修复 + 部署缺口回补 + 文档/锁文件卫生，三桩+冒烟全绿）。
+上一版：**v38**（2026-10-14，`cf2e12c`，审查修复批：connecting 恒挂兜底 + command 投递带共享 token + cors 死依赖清理，三桩+冒烟全绿）。上一版：**v37**（2026-10-10，文档收口批——纯 docs 随顶层 v145 归档，部署待小电脑上线补跑）。上一版 v36（2026-10-07，NAS_*→DEPLOY_* 连接键改名批）。上一版 v35（2026-10-05，随本提交落地）。上一版 v34（2026-09-27，已上线）。上一版 v33（2026-09-26，`66dc3a3`，七仓全量审查修复批）。上一版 v32（`50f3029`）。上一版 v31（2026-09-24，`97bd02b`）。更早：v30（顶层归档随批，仅工具链未部署）。）
 
 ## 阶段五 · 开发历史建档（2026-09-04）
 
@@ -278,6 +278,18 @@
 - 文档对齐 v35 收口后的代码现状：架构图/多维表格节/APPROVAL_TARGETS 语义不再含 bambu（照旧模板配置会重新引入每天 500+ 笔 404 广播污染）；.env.example 的 CONSUMERS 模板移除 bambu 条目（附恢复方式注释）；删除「push 闸门只串联跑前两支」失效注（v34 起 readdirSync 自动发现全部桩）。
 - 纯 docs 无行为改动；部署待小电脑上线补跑（不改运行时）。
 
-## v38 · 2026-10-14 · 随顶层归档提交落地 · fix
+## v38 · 2026-10-14 · `cf2e12c` · fix
 
 迁移后全量审查修复批：**P2×2**——①巡检实现 connecting 恒挂兜底：v21 重构后 WS_START_WATCHDOG_MS 沦为死常量、巡检只有 failed/connected 分支、dashboard 看门狗只探 HTTP 200，SDK 静默停摆于 connecting 形态时事件流全断无感知——现巡检对 connecting 计时（wsConnectingSince），超 WS_CONNECTING_GIVE_UP_MS（默认 5 分钟，env 可调）进程自退交 pm2 重建，README 承诺的重启兜底落地；②command 模式投递（postJson）附共享 X-API-Token（process.env.GATEWAY_API_TOKEN，与 auth.js 同源）——approval 09-29 起管理端点挂鉴权，裸转发 403 且 senderId 缺失权限人全判否，现生产默认路由全 event 模式故属潜伏修复。**P3×3**——cors 死依赖清除（声明无引用）；package.json 补 test 脚本（三桩串联，此前闸门逻辑只在 push.js）；nas-e2e-test.js 头部加废弃横幅（读 NAS_* 死键不可运行）。测试：三桩+冒烟 9 项全绿。
+
+## v39 · 2026-10-17 · 随本提交落地 · fix
+
+**全量审查批（v38 巡检缺陷修复 + 部署缺口回补）**
+
+- **P1（v38 引入）**：`wsConnectingSince` 仅在巡检的 failed/connected 分支复位，`startWs()`/`onError` 不复位——同一进程内巡检一旦观察过 connecting（留下时间戳），其后正常连上、再遇致命错误走重试时，新尝试首个 30s 巡检会用旧时间戳算耗时，可能立即判「超 5 分钟」`process.exit(1)`（5 分钟宽限没有按本次尝试计时）。修复：startWs()（新建客户端=本次尝试起点）与 onError（终结本次尝试计时）各补 `wsConnectingSince = 0`。已知边界：`process.exit` 不走 SIGINT/SIGTERM 落盘 handler（可能丢 ≤60s usage 未刷盘），本次消除误触发路径，落盘缺口另行评估。
+- **部署缺口回补（本版 push 的主意义）**：实证发现部署目标上 `src/index.js` 停留在 **2026-09-27**（v34 时代，`WS_CONNECTING_GIVE_UP_MS` 特征串计数=0）——**v35 代码收口、v36 连接键改名、v38 巡检兜底/command token 从未上线**（v37 纯 docs 按设计不部署）；期间生产靠 .env 收口压住了 bambu 404 洪峰，但 connecting 恒挂兜底一直缺席。本次 push 随 v39 一并上线。
+- **P2 文档**：README「审批事件」默认目标「bambu+ticket」→ ticket（与自身环境变量表统一，bambu 已随 v35 退役）；AGENTS 交互契约「下游消费者四个（含 bambu）」→ 三仓；README 切换清单 bambu 行标注已退役。
+- **P2 锁文件**：v38 删 cors 声明后 `package-lock.json` 未同步（仍列 cors）→ 本批 `npm install --package-lock-only` 对齐。
+- **勘误**：v38 条目「nas-e2e-test.js 头部加废弃横幅」实由 `9fe601b`（v34 批）落地，cf2e12c 未触碰该文件（git log -S 核实）。
+- **工具链**：冒烟起服等待由固定 1.5s 改轮询 `/api/health`（≤15s）——根治 Windows 冷启动竞态假失败（本机首跑即捕获：Node+SDK 首装超 1.5s → ECONNREFUSED 误报）。
+- 测试：三桩 + 冒烟全绿。

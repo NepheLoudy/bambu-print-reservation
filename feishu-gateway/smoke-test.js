@@ -99,7 +99,16 @@ async function main() {
   }
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  await sleep(1500);
+  // 冷启动竞态（v39）：Windows 上 Node+SDK 首次装载可超固定 1.5s 等待——改轮询就绪，最多 15s
+  let ready = false;
+  for (let i = 0; i < 30; i++) {
+    try {
+      const r = await fetch('http://localhost:3010/api/health');
+      if (r.ok) { ready = true; break; }
+    } catch { /* 未就绪继续等 */ }
+    await sleep(500);
+  }
+  if (!ready) throw new Error('网关 15s 内未就绪');
 
   try {
     const health = await (await fetch('http://localhost:3010/api/health')).json();

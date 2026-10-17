@@ -116,6 +116,7 @@ function startWs() {
   wsStarted = false;
   wsConnecting = true;
   wsLastError = null;
+  wsConnectingSince = 0; // v39：connecting 兜底计时按「本次尝试」起算（否则跨尝试沿用旧时间戳，重试首次巡检即误判超时自退）
 
   wsClient = new lark.WSClient({
     appId: config.feishu.appId,
@@ -141,6 +142,7 @@ function startWs() {
       // （凭证失败 / 重连耗尽，SDK 已置 terminalError 停摆）——必须新建客户端重试
       wsStarted = false;
       wsConnecting = false;
+      wsConnectingSince = 0; // v39：终结本次尝试的计时（防跨尝试误判）
       wsLastError = (err && err.message) || String(err);
       wsRetryCount += 1;
       const delay = Math.min(WS_RETRY_BASE_MS * 2 ** Math.min(wsRetryCount - 1, 10), WS_RETRY_MAX_MS);

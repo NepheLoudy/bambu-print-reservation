@@ -70,7 +70,7 @@ qianli 项目群的所有机器人共用同一个飞书自建应用（`cli_aac7e
 
 ### 审批事件（approval_instance / approval_task）
 
-定向转发给 `APPROVAL_TARGETS` 配置的消费者（留空默认 bambu+ticket：打印自动审批 / 工单接单联动）。消费方各自按 approval_code 过滤。
+定向转发给 `APPROVAL_TARGETS` 配置的消费者（留空默认 ticket：工单接单联动；bambu 打印审批链已随 v35 退役）。消费方各自按 approval_code 过滤。
 
 ### 环境变量一览
 
@@ -127,7 +127,7 @@ node smoke-test.js                      # 本地冒烟（起 mock 消费者+无�
 2. **切换各机器人**（改 `.env` 后 `pm2 restart`）：
    - project-management-robot：`FEISHU_USE_LONG_CONNECTION=false`
    - approval-bot：`FEISHU_USE_LONG_CONNECTION=false`
-   - bambu-print-reservation：`FEISHU_USE_LONG_CONNECTION=false`
+   - bambu-print-reservation：已随 v35 退役，不再消费网关事件（本项无需执行）
    - ticket-bot：`FEISHU_USE_LONG_CONNECTION=false`
 
 3. **验证**：在群里 @机器人 发 `/help`，网关日志应出现 `[路由] evt_xxx 消息走默认目标 → hub`；改一条工单表记录，应在网关日志看到 bitable 广播到各机器人。
