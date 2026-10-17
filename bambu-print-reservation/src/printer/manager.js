@@ -2,6 +2,7 @@ const config = require('../config');
 const PrinterClient = require('./client');
 const FlashforgeClient = require('./flashforge');
 const bitableApi = require('../feishu/bitable');
+const printerOverrides = require('../services/printerOverrides');
 
 /**
  * 机型 → 品牌适配层分派（2026-10-14 纯内网批）：拓竹走 MQTT(bambu-link)，闪铸走
@@ -238,7 +239,9 @@ class PrinterManager {
       printError: status.printError || 0,
       failReason: status.failReason || 0,
       deviceInfo: typeof client.getDeviceInfo === 'function' ? client.getDeviceInfo() : null,
-      ams: client.getAmsTrays(),
+      // 料信息手动覆盖（2026-10-17 曼波令）：管理员在观察台修正料名/颜色后，
+      // 状态层与 API 层同口径生效（分发匹配/审批对话框/观察台一致）
+      ams: printerOverrides.applyOverrides(client.getAmsTrays(), printerOverrides.getFor(printerId)),
     });
 
     // 关键变迁 → jobEvent（dispatcher 用它触发匹配、播报用它与完成/失败）；
@@ -305,6 +308,8 @@ class PrinterManager {
       const client = this.clients[p.id];
       return {
         ...p,
+        // 料信息手动覆盖读取时再合并一次（管理员编辑后不等下一轮状态报文即刻生效）
+        ams: printerOverrides.applyOverrides(p.ams, printerOverrides.getFor(p.id)),
         stateStale: client ? client.isStateStale() : true,
         // 最后一条 state 报文的毫秒时间戳（0=从未收到）——观察台离线标注展示
         // 「最后 HH:MM」快照时间用（2026-10-17 X1C 掉网案）

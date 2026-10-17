@@ -17,6 +17,7 @@ const reservationStore = require('./services/reservationStore');
 const processRules = require('./services/processRules');
 const dispatcher = require('./services/dispatcher');
 const printerManager = require('./printer/manager');
+const printerOverrides = require('./services/printerOverrides');
 // 指令唯一出口：hub 经 POST /api/chat/command 转发（对话铁律——本仓不消费消息事件）
 const { executeCommand } = require('./services/chatService');
 
@@ -1129,6 +1130,40 @@ app.post('/api/printers/:id/light', requireUser('reviewer'), async (req, res) =>
     res.json({ success: true, light: on ? 'on' : 'off', lamp });
   } catch (err) {
     console.error('灯控失败:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// AMS/外挂料信息手动覆盖（admin，2026-10-17 曼波令）：打印机上报料名/颜色不准或空白时
+// 人工修正，持久化后观察台/预约页/审批对话框/分发匹配同口径生效。
+// body { slot, type?, colorHex? }——字段 null（或空串）恢复该字段自动，两项皆 null=恢复整槽
+app.post('/api/printers/:id/ams-override', requireUser('admin'), async (req, res) => {
+  try {
+    const pid = parseInt(req.params.id);
+    const p = findApiPrinter(pid);
+    if (!p) return res.status(404).json({ error: '打印机不存在' });
+    const body = req.body || {};
+    const slot = typeof body.slot === 'string' ? body.slot.trim() : '';
+    if (!slot) return res.status(400).json({ error: 'slot 必填（槽位名）' });
+    const patch = {};
+    if ('type' in body) {
+      patch.type = body.type == null ? null : String(body.type).trim().slice(0, 40);
+      if (patch.type === '') patch.type = null; // 空串视同恢复自动，防空白覆盖
+    }
+    if ('colorHex' in body) {
+      if (body.colorHex == null) patch.colorHex = null;
+      else {
+        const hex = String(body.colorHex).replace(/^#/, '');
+        if (!/^[0-9a-fA-F]{6}$/.test(hex)) return res.status(400).json({ error: 'colorHex 必须是 6 位十六进制（如 1B1B1B）' });
+        patch.colorHex = hex.toUpperCase();
+      }
+    }
+    if (!Object.keys(patch).length) return res.status(400).json({ error: 'type/colorHex 至少提供一个（null=恢复自动）' });
+    const saved = printerOverrides.setFor(pid, slot, patch);
+    console.log(`[料信息] ${p.name} 槽「${slot}」手动覆盖更新:`, JSON.stringify(saved));
+    res.json({ success: true, slot, overrides: saved });
+  } catch (err) {
+    console.error('料信息覆盖失败:', err);
     res.status(500).json({ error: err.message });
   }
 });
