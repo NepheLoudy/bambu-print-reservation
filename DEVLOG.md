@@ -2,7 +2,7 @@
 
 版本隔离单位：一次 push 归档提交。本仓库远程为 `github.com/NepheLoudy/bambu-print-reservation`——它由 bambu 独立仓库演化而来（v9 起转型 monorepo），故早期版本即 bambu 的早期历史（细节见 [bambu-print-reservation/DEVLOG.md](bambu-print-reservation/DEVLOG.md)）。v1~v25 于 2026-09-04 回溯编号，此后每次 push 在文末追加新版本（规则见顶层 [AGENTS.md](AGENTS.md)）。
 
-当前最新：**v157**（2026-10-17，随本提交落地，运维台 push 链路回归修复批 + 两处 gitlink 收编）。上一版 v156（2026-10-15，0ae4a37，ticket-bot v92 + pm-robot v132 联动批——DDL 播报「📨 已指派待确认」分栏）。上一版 v155（2026-10-14，34af792，迁移后全量审查修复批——bambu v54/gateway v38/duty v55/hub v131 等六仓，头部指针本批补正）。上一版 v154（2026-10-14，575d84a，dashboard keepalive.vbs 双机路径探测批——保活脚本硬编码笔记本路径改两机探测，修台式机每 10 分钟 WSH 弹窗）。上一版 v153（2026-10-14，迁移基础设施批——顶层仓正名 NepheLoudy/qianli+ticket-bot 转正第 6 子模块+大脑记忆链路 qianli-brain/brain-sync 落地，两机一致性达成）。上一版 v152（2026-10-14，e62ce67，bambu v53 双品牌纯内网批归档，已上线小电脑）。
+当前最新：**v158**（2026-10-17，全量审查修复批：gateway v39 部署缺口回补 + duty v56 口径改定/部署链 P1 修复 + ticket-bot v92 补推 + 三层 gitlink 收编）。上一版 v157（2026-10-17，04efc29，运维台 push 链路回归修复批；approval 指针实录 3d63cee、本批勘误）。上一版 v156（2026-10-15，0ae4a37，ticket-bot v92 + pm-robot v132 联动批——DDL 播报「📨 已指派待确认」分栏）。上一版 v155（2026-10-14，34af792，迁移后全量审查修复批——bambu v54/gateway v38/duty v55/hub v131 等六仓，头部指针本批补正）。上一版 v154（2026-10-14，575d84a，dashboard keepalive.vbs 双机路径探测批——保活脚本硬编码笔记本路径改两机探测，修台式机每 10 分钟 WSH 弹窗）。上一版 v153（2026-10-14，迁移基础设施批——顶层仓正名 NepheLoudy/qianli+ticket-bot 转正第 6 子模块+大脑记忆链路 qianli-brain/brain-sync 落地，两机一致性达成）。
 
 ## 阶段一 · bambu 独立仓库时期（2026-07-15 ~ 07-21）
 
@@ -1334,7 +1334,7 @@ dashboard keepalive.vbs 双机路径探测批：保活脚本硬编码笔记本�
 - **v56 全量复查补记（同日）**：17 套 218 断言回归全绿；台式机→H2D 三通道（MQTT/FTPS/RTSPS）全 OPEN；生产 pm2 九进程 online、队列零滞留；H2D 夜间真实完成打印（plate_7.gcode 100%）；踢线实验持续安静。自审修复：观察台文件列表渲染假上下文致按钮假禁用（FLEET 全局缓存）。错误日志中「AMS 槽位必须是 0-3」为开发期坏参数探针留痕，非现场故障。
 - **v56 现场热修（同日，曼波观察台实测暴露）**：画面「已断开」根因=5s 重渲染逐轮重建会话且旧 WS 不关——每 5s 泄漏一条 WS+RTSPS 会话，打满 LIVE555 会话额后新会话被拒。修复：活会话防重入 + 解码器画布动态寻址跨重渲染续画 + loadFleet 只复活死会话。部署机侧 rtsps 实测 1.1MB/4.3s 正常（服务端无恙，纯前端会话管理锅）；生产 WS 中继 E2E 实测 STREAM PASS（1.35MB/6s）。
 
-## v157 · 2026-10-17 · 随本提交落地 · fix
+## v157 · 2026-10-17 · 04efc29 · fix
 
 **运维台 push 链路回归修复批（09-27 安全加固批遗留回库）+ 两处 gitlink 收编**
 
@@ -1344,3 +1344,16 @@ dashboard keepalive.vbs 双机路径探测批：保活脚本硬编码笔记本�
 - **文档同步**：qianli-deploy skill「已知坑速查」补一行——push 收尾 ECONNRESET/code=1 误报，人工复核为准（同备忘①，防第四次误判）。
 - **不卷入**：duty-bot 工作区 zklink「两两配对」口径改动（10-15 曼波改定、未提交的并行产物）与其落后 origin 1 提交的状态保持原状，归其自有批次。
 - 哈希回填：v156=`0ae4a37`。
+
+## v158 · 2026-10-17 · 随本提交落地 · fix
+
+**全量审查修复批（曼波令「全量审查并push」）——部署缺口回补 + 部署链 P1 修复 + 两层游离头收编**
+
+- **部署态实证（不以进程 online 为准）**：以「版本特征串 + 文件 mtime」逐仓对照小电脑现网代码，抓到两类真实缺口——①**gateway 停在 2026-09-27（v34 时代）**：v35 代码收口、v36 连接键改名、v38 connecting 兜底/command token 从未上线（v37 纯 docs 按设计不部署）；本批上 **v39** 实证通过（目标机 src mtime 16:03、`WS_CONNECTING_GIVE_UP_MS` 特征串在、`/api/health` `ws:"running"`、消费者=hub/approval/ticket 三仓）。②**duty 的 v55 部署从未真正完成**（见下 P1）。其余仓按重启时刻+特征串核实在新版（approval v76、pm v133、ticket v92、bambu 热修26、netlog v19）。gateway v39 同时修复其自身 v38 引入的 `wsConnectingSince` 跨尝试不复位缺陷（connecting 兜底计时按「本次尝试」起算），并补 README/AGENTS 三仓口径与 cors 锁文件、冒烟起服竞态加固（轮询≤15s）。
+- **P1（v55 引入，live 实锤）**：duty `push.js` 的 `export PATH=/c/Program Files/nodejs:…` 未加引号——路径含空格被 bash 劈开、export 报 `not a valid identifier`、npm 找不到，**部署在 npm install 步 exit 127**（15:55 运维台 push 的 32KB 动作日志全程实录：17 套测试闸门全绿 → 提交 → SFTP 落盘 → npm install 炸 → .env/重启未执行）。修复：PATH 值整体加引号；approval/netlog/ticket 同段写法核查无恙（仅 duty 中招）。**连带回放**：15:55 那次点击把当时工作区的 5 个 zklink 文件 commit 成「update: 运维台快捷部署」（未推 GitHub），本批 `reset --soft` 后统一收编为 **duty v56**（`68d7a11`，已推 GitHub + 部署实证：restart 0s、17 套全绿）。
+- **duty v56（曼波 10-15 定口径）**：ZKLink 打卡时长「末卡−首卡」→**当日打卡顺序两两配对（1→2、3→4…）求和、落单卡不计**（leftover 标记；跨天不配对、孤条仍计 0）；CSV 加「落单卡」列（8→9 列）；卡面/云文档/口径行同步。文档联动同批：duty README 两处、`dashboard/registry.js` duty notes、本指南 §四 zklink 段、桌面 HTML（工作区外）——旧「末卡−首卡」表述清零。
+- **两层游离头收编**：①ticket-bot v92（`9eaa001`，10-15 detached 提交）**从未进 GitHub**（远端停在 v91+docs `8e14329`，与 pm v132 同款事故）——重挂 main + 快进 + 推送补上（历史零改写）；②sop/site-sop-planet、tools/rm-battlescope 两个子模块游离头重挂 main（同点重挂，内容零变化）。
+- **gitlink 收编**：approval-bot → `564d366`（v77——识别链全票覆盖；本批 staging 窗口内并行会话连推 v76→v77，锚点实录即当时最新；**v157 勘误**：该批实录为 `3d63cee`＝v76，与并行会话竞速于 v75→v76 之间抓拍，条目所称 6b93efe 从未被顶层锚定）；ticket-pm/project-management-robot → `8632b21`（15:32 运维台快捷部署产生的关键词表数据提交，已部署未推 GitHub——本批补推；其工作区另有一版 xlsx 视图状态噪音：仅 activeCell/窗口几何变化、sheet 内容零变化，**未提交未覆盖**，待曼波确认）。
+- **时钟事故（记录在案）**：本机系统时钟在 15:5x 前慢了约 13 小时（显示 02:5x 实为 15:5x），期间产生的 mtime/日志时间戳需按绝对 epoch 解读；已自动校回（GitHub Date 头锚定）。此前「凌晨」类判断作废；两机当前时钟一致。
+- 测试总账：gateway 三桩+冒烟全绿、duty 17 套全绿；其余仓本轮无改动。
+- 哈希回填：v157=`04efc29`。
